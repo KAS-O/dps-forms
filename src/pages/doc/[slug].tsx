@@ -232,7 +232,36 @@ export default function DocPage() {
                     {f.label}
                     {f.required && " *"}
                   </label>
-                  {f.type === "textarea" ? (
+
+                  {f.type === "multiselect" ? (
+                    <div className="grid gap-1">
+                      {(f.options || []).map((opt) => {
+                        const arr: string[] =
+                          typeof values[f.key] === "string" && values[f.key].length
+                            ? (values[f.key] as string).split("|")
+                            : [];
+                        const checked = arr.includes(opt);
+                        return (
+                          <label key={opt} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                const now = new Set(arr);
+                                if (e.target.checked) now.add(opt);
+                                else now.delete(opt);
+                                setValues((v) => ({
+                                  ...v,
+                                  [f.key]: Array.from(now).join("|"),
+                                }));
+                              }}
+                            />
+                            <span>{opt}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : f.type === "textarea" ? (
                     <textarea
                       className="input h-40"
                       required={f.required}
@@ -276,6 +305,7 @@ export default function DocPage() {
                   )}
                 </div>
               ))}
+
               <button className="btn" disabled={sending}>
                 {sending ? "Wysyłanie..." : "Wyślij do ARCHIWUM (obraz PNG)"}
               </button>
@@ -305,17 +335,22 @@ export default function DocPage() {
               </div>
               <hr className="border-beige-300 mb-6" />
               <div className="space-y-3 text-[12px] leading-6">
-                {template.fields.map((f) => (
-                  <div key={f.key} className="grid grid-cols-[220px_1fr] gap-3">
-                    <div className="font-semibold">
-                      {f.label}
-                      {f.required ? " *" : ""}
+                {template.fields.map((f) => {
+                  const raw = values[f.key];
+                  const display =
+                    typeof raw === "string" && raw.includes("|")
+                      ? raw.split("|").join(", ")
+                      : (raw || "—");
+                  return (
+                    <div key={f.key} className="grid grid-cols-[220px_1fr] gap-3">
+                      <div className="font-semibold">
+                        {f.label}
+                        {f.required ? " *" : ""}
+                      </div>
+                      <div className="whitespace-pre-wrap">{display}</div>
                     </div>
-                    <div className="whitespace-pre-wrap">
-                      {values[f.key] || "—"}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="mt-10 text-sm text-gray-600">
                 Wygenerowano w panelu DPS • {new Date().toLocaleString()}
