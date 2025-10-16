@@ -251,7 +251,7 @@ export default function DocPage() {
 
   return (
     <AuthGate>
-      <div className="min-h-screen px-4 py-8 max-w-5xl mx-auto grid gap-6">
+      <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-8">
         <Head><title>DPS 77RP — {template.name}</title></Head>
 
         <button className="btn w-max" onClick={()=>history.back()}>← Wróć</button>
@@ -259,7 +259,7 @@ export default function DocPage() {
         <div className="grid md:grid-cols-2 gap-6">
           {/* FORM */}
           <div className="card p-6">
-            <h1 className="text-2xl font-bold mb-4">{template.name}</h1>
+            <h1 className="text-2xl font-bold mb-3">{template.name}</h1>
             <form onSubmit={onSubmit} className="grid gap-4">
               <OfficersPicker />
 
@@ -338,12 +338,12 @@ export default function DocPage() {
                       })}
                     </div>
                   ) : f.type === "textarea" ? (
-                    <textarea
-                      className="input h-40"
-                      required={f.required}
-                      value={values[f.key] || ""}
-                      onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-                    />
+                   <textarea
+                    className="input min-h-[220px]"
+                    required={f.required}
+                    value={values[f.key] || ""}
+                    onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                  />
                   ) : f.type === "select" ? (
                     <select
                       className="input"
@@ -383,16 +383,16 @@ export default function DocPage() {
 
             <div
               ref={previewRef}
-              className="bg-white text-black mx-auto w-[794px] max-w-full aspect-[210/297] p-10 border border-beige-300 shadow-sm"
+              className="bg-white text-black mx-auto w-[900px] max-w-full aspect-[210/297] p-8 border border-beige-300 shadow-sm"
             >
-              <div className="flex items-center gap-3 mb-6">
-                <img src="/logo.png" alt="DPS" width={180} />
+              <div className="flex items-center gap-3 mb-4">
+                <img src="/logo.png" alt="DPS" width={140} />
                 <div>
                   <div className="text-xl font-bold">Department of Public Safety</div>
                   <div className="text-sm text-gray-600">{template.name}</div>
                 </div>
               </div>
-              <hr className="border-beige-300 mb-6" />
+              <hr className="border-beige-300 mb-4" />
 
               {/* Funkcjonariusze */}
               <div className="mb-4 text-[12px]">
@@ -423,7 +423,7 @@ export default function DocPage() {
                 })}
               </div>
 
-              <div className="mt-10 text-sm text-gray-600">
+              <div className="mt-8 text-sm text-gray-600">
                 Wygenerowano w panelu DPS • {new Date().toLocaleString()}
               </div>
             </div>
