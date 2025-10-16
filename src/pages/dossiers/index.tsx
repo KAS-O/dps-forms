@@ -7,12 +7,15 @@ import {
   collection,
   doc,
   onSnapshot,
+  getDocs,
   orderBy,
   query,
   runTransaction,
   serverTimestamp,
+  writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { useProfile } from "@/hooks/useProfile";
 
 export default function Dossiers() {
   const [list, setList] = useState<any[]>([]);
@@ -21,6 +24,9 @@ export default function Dossiers() {
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const { role } = useProfile();
+  const isDirector = role === "director";
 
   useEffect(() => {
     const q = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
@@ -91,6 +97,37 @@ export default function Dossiers() {
     }
   };
 
+  const remove = async (dossierId: string) => {
+    if (!isDirector) return;
+    if (!confirm("Na pewno usunąć całą teczkę wraz z wpisami?")) return;
+    try {
+      setErr(null);
+      setOk(null);
+      setDeletingId(dossierId);
+      const recordsSnap = await getDocs(collection(db, "dossiers", dossierId, "records"));
+      const batch = writeBatch(db);
+      recordsSnap.docs.forEach((docSnap) => {
+        batch.delete(docSnap.ref);
+      });
+      batch.delete(doc(db, "dossiers", dossierId));
+      await batch.commit();
+      const user = auth.currentUser;
+      await addDoc(collection(db, "logs"), {
+        type: "dossier_delete",
+        dossierId,
+        author: user?.email || "",
+        authorUid: user?.uid || "",
+        ts: serverTimestamp(),
+      });
+      setOk("Teczka została usunięta.");
+    } catch (e: any) {
+      setErr(e?.message || "Nie udało się usunąć teczki.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+
   return (
     <AuthGate>
       <>
@@ -106,10 +143,25 @@ export default function Dossiers() {
             {ok && <div className="card p-3 bg-green-50 text-green-700 mb-3">{ok}</div>}
             <div className="grid gap-2">
               {filtered.map(d => (
-                <a key={d.id} className="card p-3 hover:shadow" href={`/dossiers/${d.id}`}>
-                  <div className="font-semibold">{d.title}</div>
-                  <div className="text-sm text-beige-700">CID: {d.cid}</div>
-                </a>
+                <div key={d.id} className="card p-3 hover:shadow flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <a className="flex-1" href={`/dossiers/${d.id}`}>
+                    <div className="font-semibold">{d.title}</div>
+                    <div className="text-sm text-beige-700">CID: {d.cid}</div>
+                  </a>
+                  {isDirector && (
+                    <button
+                      className="btn bg-red-700 text-white w-full md:w-auto"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        remove(d.id);
+                      }}
+                      disabled={deletingId === d.id}
+                    >
+                      {deletingId === d.id ? "Usuwanie..." : "Usuń"}
+                    </button>
+                  )}
+                </div>
               ))}
               {filtered.length===0 && <p>Brak teczek.</p>}
             </div>
