@@ -146,6 +146,9 @@ export default function Admin() {
           k += 1;
         } else if (template === "Protokół aresztowania") {
           a += 1;
+          const val = (data?.values || {}) as any;
+          const n = Number(val.grzywna || 0);
+          if (!Number.isNaN(n)) income += n;
         }
       });
 
