@@ -43,6 +43,7 @@ export const TEMPLATES: Template[] = [
       { key: "adres", label: "Adres", type: "text", required: true },
       { key: "ustalenia", label: "Ustalenia", type: "textarea", required: true },
       { key: "zalecenia", label: "Zalecenia", type: "textarea" },
+      { key: "grzywna", label: "Grzywna (USD)", type: "number" },
     ],
   },
 
