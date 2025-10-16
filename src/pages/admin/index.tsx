@@ -120,31 +120,36 @@ export default function Admin() {
           : since || lastResetAt || null;
 
       const archives = collection(db, "archives");
-      const time = effSince ? [where("createdAt", ">=", effSince)] : [];
-      const who = where("officersUid", "array-contains", person); // <— PO UID!
+      const snap = await getDocs(query(archives, where("officersUid", "array-contains", person)));
 
-      const m = await getCountFromServer(
-        query(archives, where("templateName", "==", "Bloczek mandatowy"), who, ...time)
-      );
-      const k = await getCountFromServer(
-        query(archives, where("templateName", "==", "Kontrola LSEB"), who, ...time)
-      );
-      const a = await getCountFromServer(
-        query(archives, where("templateName", "==", "Protokół aresztowania"), who, ...time)
-      );
-
-      // przychód osobisty (mandaty)
+      const cutoff = effSince ? effSince.toMillis() : null;
+      let m = 0;
+      let k = 0;
+      let a = 0;
       let income = 0;
-      const s = await getDocs(
-        query(archives, where("templateName", "==", "Bloczek mandatowy"), who, ...time)
-      );
-      s.docs.forEach((d) => {
-        const val = (d.data()?.values || {}) as any;
-        const n = Number(val.kwota || 0);
-        if (!Number.isNaN(n)) income += n;
+
+      snap.docs.forEach((docSnap) => {
+        const data = docSnap.data() as any;
+        const createdAt: Timestamp | null = (data?.createdAt as Timestamp) || null;
+        if (cutoff) {
+          if (!createdAt) return;
+          if (createdAt.toMillis() < cutoff) return;
+        }
+
+        const template = data?.templateName as string | undefined;
+        if (template === "Bloczek mandatowy") {
+          m += 1;
+          const val = (data?.values || {}) as any;
+          const n = Number(val.kwota || 0);
+          if (!Number.isNaN(n)) income += n;
+        } else if (template === "Kontrola LSEB") {
+          k += 1;
+        } else if (template === "Protokół aresztowania") {
+          a += 1;
+        }
       });
 
-      setPStats({ m: m.data().count, k: k.data().count, a: a.data().count, income });
+      setPStats({ m, k, a, income });
     } catch (e: any) {
       setErr(e?.message || "Błąd statystyk personelu");
     }
