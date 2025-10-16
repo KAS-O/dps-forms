@@ -35,7 +35,7 @@ export default function DossierPage() {
   const [deleting, setDeleting] = useState(false);
 
   // uprawnienia do edycji wpisu: Director/Chief lub autor wpisu
-  const canDeleteDossier = role === "director" || role === "chief";
+ const canDeleteDossier = role === "director";
   const canEditRecord = (r: any) => {
     const me = auth.currentUser?.uid;
     return (role === "director" || role === "chief" || (!!me && r.authorUid === me));
