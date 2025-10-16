@@ -15,6 +15,18 @@ Minimalny panel formularzy dla Department of Public Safety (RP FiveM)
 ## Deploy
 Najprościej: Vercel. Ustaw zmienne środowiskowe tak jak w `.env.local.example`.
 
+### Firestore i Storage rules
+W katalogu `firebase/` znajdują się aktualne reguły bezpieczeństwa (`firestore.rules`, `storage.rules`).
+
+Po zmianach w repozytorium zdeployuj je poleceniami:
+
+```bash
+firebase deploy --only firestore:rules
+firebase deploy --only storage:rules
+```
+
+Reguły obejmują m.in. możliwość zakładania teczek (`/dossiers/{id}`) przez zalogowanych funkcjonariuszy oraz modyfikację wpisów tylko przez autora lub kadrę kierowniczą.
+
 ## Zmiany w v2
 - Wysyłka **obrazu (PNG)** zamiast PDF – podgląd A4 robiony z HTML przez `html2canvas`.
 - Wiadomość na Discord zawiera **embed** z:
