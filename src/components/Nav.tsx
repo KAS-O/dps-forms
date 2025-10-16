@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useProfile, can } from "@/hooks/useProfile";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { useDialog } from "@/components/DialogProvider"
 
 const ROLE_LABELS: Record<string, string> = {
   director: "Director",
@@ -14,9 +15,17 @@ const ROLE_LABELS: Record<string, string> = {
 export default function Nav() {
   const { fullName, role } = useProfile();
   const roleLabel = role ? (ROLE_LABELS[role] || role) : "";
+  const { confirm } = useDialog();
 
   const logout = async () => {
-    if (!confirm("Czy na pewno chcesz się wylogować?")) return;
+    const ok = await confirm({
+      title: "Wylogowanie",
+      message: "Czy na pewno chcesz zakończyć sesję?",
+      confirmLabel: "Wyloguj",
+      cancelLabel: "Anuluj",
+      tone: "danger",
+    });
+    if (!ok) return;
     await signOut(auth);
   };
 
@@ -41,6 +50,12 @@ export default function Nav() {
           <span className="ml-2 px-2 py-1 rounded bg-beige-200 text-beige-900">
             {fullName || "—"}{role ? ` • ${roleLabel}` : ""}
           </span>
+          <button
+            onClick={logout}
+            className="btn h-9 border-transparent bg-gradient-to-r from-purple-600 via-fuchsia-500 to-indigo-500 text-white text-xs font-semibold shadow-[0_0_12px_rgba(168,85,247,0.3)] hover:brightness-110"
+          >
+            Wyloguj
+          </button>
         </div>
       </div>
     </nav>
