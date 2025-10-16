@@ -31,18 +31,38 @@ export default function DocPage() {
   const [err, setErr] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
 
-  // --- Teczki dowodowe (lista + wybór) ---
+  // --- Teczki ---
   const [dossiers, setDossiers] = useState<any[]>([]);
   const [dossierId, setDossierId] = useState("");
 
+  // --- Funkcjonariusze (z profili) ---
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const [currentName, setCurrentName] = useState<string>("");
+  const [officers, setOfficers] = useState<string[]>([]); // wybrane nazwiska
+
   useEffect(() => {
     (async () => {
-      const q = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      setDossiers(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+      // teczki
+      const qd = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
+      const sd = await getDocs(qd);
+      setDossiers(sd.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+
+      // profile -> lista funkcjonariuszy
+      const qp = query(collection(db, "profiles"));
+      const sp = await getDocs(qp);
+      const arr = sp.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      setProfiles(arr);
+
+      // ustaw domyślnie ZALOGOWANEGO funkcjonariusza i zablokuj jego odznaczenie
+      const email = auth.currentUser?.email || "";
+      const suffix = `@${LOGIN_DOMAIN}`;
+      const userLogin = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
+      const me = arr.find((p) => p.login === userLogin);
+      const name = (me?.fullName || userLogin) as string;
+      setCurrentName(name);
+      setOfficers([name]); // zawsze wybrany autor
     })();
   }, []);
-  // ---------------------------------------
 
   if (!template) {
     return (
@@ -62,35 +82,65 @@ export default function DocPage() {
       const snap = await getDoc(doc(db, "dossiers", id));
       const data = (snap.data() || {}) as any;
 
-      // Preferuj pola strukturalne; jeśli brak – parsuj tytuł
       let fullName = [data.first, data.last].filter(Boolean).join(" ").trim() || "";
       let cid = (data.cid ?? "").toString();
 
       if (!fullName || !cid) {
         const title: string = (data.title || "") as string; // "Akta Imię Nazwisko CID:1234"
         const m = title.match(/akta\s+(.+?)\s+cid\s*:\s*([0-9]+)/i);
-        if (m) {
-          fullName = fullName || m[1];
-          cid = cid || m[2];
-        }
+        if (m) { fullName = fullName || m[1]; cid = cid || m[2]; }
       }
 
-      // Znajdź klucze pól w szablonie po etykietach
-      const nameKey = template?.fields.find((f) =>
-        /imi|nazw|osoba|obywatel/i.test(f.label)
-      )?.key;
-      const cidKey = template?.fields.find((f) => /cid/i.test(f.label))?.key;
+      const nameKey = template?.fields.find((f) => /imi|nazw|osoba|obywatel/i.test(f.label))?.key;
+      const cidKey  = template?.fields.find((f) => /cid/i.test(f.label))?.key;
 
       setValues((v) => ({
         ...v,
         ...(nameKey ? { [nameKey]: fullName } : {}),
-        ...(cidKey ? { [cidKey]: cid } : {}),
+        ...(cidKey  ? { [cidKey]:  cid      } : {}),
       }));
     } catch (e) {
       console.warn("prefillFromDossier error:", e);
     }
   };
   // ======================================
+
+  // RENDER — „funkcjonariusze” (zawsze nad polami)
+  const OfficersPicker = () => {
+    return (
+      <div className="grid gap-1">
+        <label className="label">Funkcjonariusze</label>
+        <div className="grid xs:grid-cols-1 sm:grid-cols-2 gap-2">
+          {profiles.map((p) => {
+            const name = p.fullName || p.login;
+            const checked = officers.includes(name);
+            const isMe = name === currentName;
+            return (
+              <label key={p.id} className="flex items-center gap-2 p-2 border border-beige-300 rounded">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={isMe} // autor zawsze zaznaczony
+                  onChange={(e) => {
+                    setOfficers((prev) => {
+                      const set = new Set(prev);
+                      if (e.target.checked) set.add(name);
+                      else set.delete(name);
+                      // gwarancja, że autor zostanie
+                      set.add(currentName);
+                      return Array.from(set);
+                    });
+                  }}
+                />
+                <span>{name}</span>
+              </label>
+            );
+          })}
+        </div>
+        <p className="text-xs text-beige-700">Domyślnie wybrany jest autor dokumentu (nie można odznaczyć). Możesz dodać pozostałych.</p>
+      </div>
+    );
+  };
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -112,25 +162,29 @@ export default function DocPage() {
       const suffix = `@${LOGIN_DOMAIN}`;
       const userLogin = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
 
-      // === Zapis do Storage + Firestore ===
-      // 1) Upload obrazu do Firebase Storage
+      // 1) Upload obrazu do Storage
       const storagePath = `archives/${filename}`;
       const sref = ref(storage, storagePath);
       await uploadString(sref, dataUrl, "data_url");
       const downloadURL = await getDownloadURL(sref);
 
-      // 2) Wpis do Firestore → kolekcja "archives" (zachowujemy id wpisu)
+      // wartości do zapisu (dodajemy „funkcjonariusze” jako tekst do podglądu)
+      const valuesOut = { ...values, funkcjonariusze: officers.join(", ") };
+
+      // 2) Wpis do Firestore → "archives"
       const archiveRef = await addDoc(collection(db, "archives"), {
         templateName: template.name,
+        templateSlug: template.slug, // <— dla panelu statystyk
         userLogin: userLogin || "nieznany",
         createdAt: serverTimestamp(),
-        values,
+        values: valuesOut,
+        officers, // <— lista nazwisk
         dossierId: dossierId || null,
         imagePath: storagePath,
         imageUrl: downloadURL,
       });
 
-      // 2a) Jeśli dokument powiązano z teczką – dopisz skrót w /dossiers/{id}/records
+      // 2a) Jeśli powiązano teczkę — dopisz wpis w records
       if (dossierId) {
         await addDoc(collection(db, "dossiers", dossierId, "records"), {
           text: `Dokument: ${template.name}\nAutor: ${userLogin}\nURL: ${downloadURL}`,
@@ -142,16 +196,16 @@ export default function DocPage() {
         });
       }
 
-      // 3) Log do Firestore → kolekcja "logs"
+      // 3) Log
       await addDoc(collection(db, "logs"), {
         type: "doc_sent",
         template: template.name,
         login: userLogin,
+        officers,
         ts: serverTimestamp(),
       });
-      // === /Zapis ===
 
-      // Wysyłka na Discord (base64)
+      // 4) Discord
       const res = await fetch("/api/send-to-discord", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -172,19 +226,36 @@ export default function DocPage() {
     }
   };
 
+  // Wyliczanie pomocnicze: data następnej wypłaty w „swiadczenie-spoleczne”
+  const nextDateDisplay = useMemo(() => {
+    if (!template || template.slug !== "swiadczenie-spoleczne") return "";
+    const base = values["data"];
+    const dni = Number(values["dni"] || 0);
+    if (!base || !dni) return "";
+    try {
+      const d = new Date(base);
+      d.setDate(d.getDate() + dni);
+      return d.toLocaleDateString();
+    } catch { return ""; }
+  }, [template, values]);
+
   return (
     <AuthGate>
       <div className="min-h-screen px-4 py-8 max-w-5xl mx-auto grid gap-6">
-        <button className="btn w-max" onClick={() => history.back()}>
-          ← Wróć
-        </button>
+        <Head><title>DPS 77RP — {template.name}</title></Head>
+
+        <button className="btn w-max" onClick={()=>history.back()}>← Wróć</button>
 
         <div className="grid md:grid-cols-2 gap-6">
           {/* FORM */}
           <div className="card p-6">
             <h1 className="text-2xl font-bold mb-4">{template.name}</h1>
             <form onSubmit={onSubmit} className="grid gap-4">
-              {/* --- Powiązanie z teczką (opcjonalne) --- */}
+
+              {/* Funkcjonariusze */}
+              <OfficersPicker />
+
+              {/* Powiązanie z teczką */}
               <div className="grid gap-1">
                 <label className="label">Powiąż z teczką (opcjonalnie)</label>
                 <input
@@ -211,26 +282,21 @@ export default function DocPage() {
                   onChange={async (e) => {
                     const id = e.target.value;
                     setDossierId(id);
-                    if (id) await prefillFromDossier(id); // AUTO–UZUPEŁNIANIE
+                    if (id) await prefillFromDossier(id);
                   }}
                 >
                   <option value="">— bez teczki —</option>
-                  {dossiers
-                    .filter((d) => !d._hidden)
-                    .map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.title}
-                      </option>
-                    ))}
+                  {dossiers.filter(d=>!d._hidden).map(d => (
+                    <option key={d.id} value={d.id}>{d.title}</option>
+                  ))}
                 </select>
               </div>
-              {/* ---------------------------------------- */}
 
+              {/* Pola szablonu */}
               {template.fields.map((f) => (
                 <div key={f.key} className="grid gap-1">
                   <label className="label">
-                    {f.label}
-                    {f.required && " *"}
+                    {f.label}{f.required && " *"}
                   </label>
 
                   {f.type === "multiselect" ? (
@@ -281,26 +347,16 @@ export default function DocPage() {
                     >
                       <option value="">-- wybierz --</option>
                       {(f.options || []).map((o) => (
-                        <option key={o} value={o}>
-                          {o}
-                        </option>
+                        <option key={o} value={o}>{o}</option>
                       ))}
                     </select>
                   ) : (
                     <input
                       className="input"
-                      type={
-                        f.type === "number"
-                          ? "number"
-                          : f.type === "date"
-                          ? "date"
-                          : "text"
-                      }
+                      type={f.type === "number" ? "number" : (f.type === "date" ? "date" : "text")}
                       required={f.required}
                       value={values[f.key] || ""}
-                      onChange={(e) =>
-                        setValues((v) => ({ ...v, [f.key]: e.target.value }))
-                      }
+                      onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
                     />
                   )}
                 </div>
@@ -321,7 +377,6 @@ export default function DocPage() {
               <span className="text-xs text-beige-700">A4 • wysoka jakość</span>
             </div>
 
-            {/* A4 sheet preview */}
             <div
               ref={previewRef}
               className="bg-white text-black mx-auto w-[794px] max-w-full aspect-[210/297] p-10 border border-beige-300 shadow-sm"
@@ -334,6 +389,12 @@ export default function DocPage() {
                 </div>
               </div>
               <hr className="border-beige-300 mb-6" />
+
+              {/* Funkcjonariusze w dokumencie */}
+              <div className="mb-4 text-[12px]">
+                <span className="font-semibold">Funkcjonariusze:</span> {officers.join(", ")}
+              </div>
+
               <div className="space-y-3 text-[12px] leading-6">
                 {template.fields.map((f) => {
                   const raw = values[f.key];
@@ -341,17 +402,24 @@ export default function DocPage() {
                     typeof raw === "string" && raw.includes("|")
                       ? raw.split("|").join(", ")
                       : (raw || "—");
+
                   return (
                     <div key={f.key} className="grid grid-cols-[220px_1fr] gap-3">
-                      <div className="font-semibold">
-                        {f.label}
-                        {f.required ? " *" : ""}
+                      <div className="font-semibold">{f.label}{f.required ? " *" : ""}</div>
+                      <div className="whitespace-pre-wrap">
+                        {display}
+                        {/* Specjalny dopisek dla świadczenia: wyliczona następna data */}
+                        {template.slug === "swiadczenie-spoleczne" && f.key === "dni" && nextDateDisplay && (
+                          <div className="text-[11px] text-gray-600">
+                            Następna możliwa wypłata: {nextDateDisplay}
+                          </div>
+                        )}
                       </div>
-                      <div className="whitespace-pre-wrap">{display}</div>
                     </div>
                   );
                 })}
               </div>
+
               <div className="mt-10 text-sm text-gray-600">
                 Wygenerowano w panelu DPS • {new Date().toLocaleString()}
               </div>
