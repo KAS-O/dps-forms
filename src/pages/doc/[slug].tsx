@@ -11,7 +11,7 @@ import {
   query,
   orderBy,
   doc,
-  getDoc,              // <-- DODANE
+  getDoc,
 } from "firebase/firestore";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 
@@ -62,13 +62,12 @@ export default function DocPage() {
       const snap = await getDoc(doc(db, "dossiers", id));
       const data = (snap.data() || {}) as any;
 
-      // Preferuj pola strukturalne, a jeśli ich brak – parsuj tytuł
-      let fullName =
-        [data.first, data.last].filter(Boolean).join(" ").trim() || "";
+      // Preferuj pola strukturalne; jeśli brak – parsuj tytuł
+      let fullName = [data.first, data.last].filter(Boolean).join(" ").trim() || "";
       let cid = (data.cid ?? "").toString();
 
       if (!fullName || !cid) {
-        const title: string = (data.title || "") as string; // np. "Akta Imię Nazwisko CID:1234"
+        const title: string = (data.title || "") as string; // "Akta Imię Nazwisko CID:1234"
         const m = title.match(/akta\s+(.+?)\s+cid\s*:\s*([0-9]+)/i);
         if (m) {
           fullName = fullName || m[1];
@@ -76,20 +75,18 @@ export default function DocPage() {
         }
       }
 
-      // Znajdź klucze pól w szablonie (po labelach)
+      // Znajdź klucze pól w szablonie po etykietach
       const nameKey = template?.fields.find((f) =>
         /imi|nazw|osoba|obywatel/i.test(f.label)
       )?.key;
       const cidKey = template?.fields.find((f) => /cid/i.test(f.label))?.key;
 
-      // Ustaw wartości w formularzu
       setValues((v) => ({
         ...v,
         ...(nameKey ? { [nameKey]: fullName } : {}),
         ...(cidKey ? { [cidKey]: cid } : {}),
       }));
     } catch (e) {
-      // cicho – brak teczki / brak pól nie jest błędem krytycznym
       console.warn("prefillFromDossier error:", e);
     }
   };
@@ -122,8 +119,8 @@ export default function DocPage() {
       await uploadString(sref, dataUrl, "data_url");
       const downloadURL = await getDownloadURL(sref);
 
-      // 2) Wpis do Firestore → kolekcja "archives" (z dossierId)
-      await addDoc(collection(db, "archives"), {
+      // 2) Wpis do Firestore → kolekcja "archives" (zachowujemy id wpisu)
+      const archiveRef = await addDoc(collection(db, "archives"), {
         templateName: template.name,
         userLogin: userLogin || "nieznany",
         createdAt: serverTimestamp(),
@@ -132,6 +129,18 @@ export default function DocPage() {
         imagePath: storagePath,
         imageUrl: downloadURL,
       });
+
+      // 2a) Jeśli dokument powiązano z teczką – dopisz skrót w /dossiers/{id}/records
+      if (dossierId) {
+        await addDoc(collection(db, "dossiers", dossierId, "records"), {
+          text: `Dokument: ${template.name}\nAutor: ${userLogin}\nURL: ${downloadURL}`,
+          createdAt: serverTimestamp(),
+          author: userLogin,
+          type: "archive_link",
+          archiveId: archiveRef.id,
+          imageUrl: downloadURL,
+        });
+      }
 
       // 3) Log do Firestore → kolekcja "logs"
       await addDoc(collection(db, "logs"), {
@@ -202,7 +211,7 @@ export default function DocPage() {
                   onChange={async (e) => {
                     const id = e.target.value;
                     setDossierId(id);
-                    if (id) await prefillFromDossier(id); // <-- AUTO–UZUPEŁNIANIE
+                    if (id) await prefillFromDossier(id); // AUTO–UZUPEŁNIANIE
                   }}
                 >
                   <option value="">— bez teczki —</option>
