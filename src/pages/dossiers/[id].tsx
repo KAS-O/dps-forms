@@ -20,6 +20,7 @@ import {
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useProfile } from "@/hooks/useProfile";
+import { useDialog } from "@/components/DialogProvider";
 
 export default function DossierPage() {
   const router = useRouter();
@@ -33,6 +34,7 @@ export default function DossierPage() {
   const [file, setFile] = useState<File | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const { confirm, prompt, alert } = useDialog();
 
   // uprawnienia do edycji wpisu: Director/Chief lub autor wpisu
  const canDeleteDossier = role === "director";
@@ -98,8 +100,23 @@ export default function DossierPage() {
   };
 
   const editRecord = async (rid: string, currentText: string) => {
-    const t = prompt("Edytuj treść wpisu:", currentText);
+    const t = await prompt({
+      title: "Edycja wpisu",
+      message: "Zaktualizuj treść notatki. Możesz wprowadzić wielolinijkowy opis.",
+      defaultValue: currentText,
+      multiline: true,
+      inputLabel: "Treść wpisu",
+      confirmLabel: "Zapisz zmiany",
+    });
     if (t == null) return;
+    if (!t.trim()) {
+      await alert({
+        title: "Puste pole",
+        message: "Treść wpisu nie może być pusta.",
+        tone: "info",
+      });
+      return;
+    }
     await updateDoc(doc(db, "dossiers", id, "records", rid), { text: t });
     await addDoc(collection(db, "logs"), {
       type: "dossier_record_edit",
@@ -111,7 +128,13 @@ export default function DossierPage() {
   };
 
   const deleteRecord = async (rid: string) => {
-    if (!confirm("Usunąć wpis?")) return;
+    const ok = await confirm({
+      title: "Usuń wpis",
+      message: "Czy na pewno chcesz usunąć ten wpis z teczki?",
+      confirmLabel: "Usuń",
+      tone: "danger",
+    });
+    if (!ok) return;
     await deleteDoc(doc(db, "dossiers", id, "records", rid));
     await addDoc(collection(db, "logs"), {
       type: "dossier_record_delete",
@@ -124,7 +147,13 @@ export default function DossierPage() {
 
   const deleteDossier = async () => {
     if (!id || !canDeleteDossier) return;
-    if (!confirm("Na pewno usunąć całą teczkę wraz z wpisami?")) return;
+    const ok = await confirm({
+      title: "Usuń teczkę",
+      message: "Na pewno usunąć całą teczkę wraz z wszystkimi wpisami? Tej operacji nie można cofnąć.",
+      confirmLabel: "Usuń teczkę",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       setErr(null);
       setDeleting(true);
