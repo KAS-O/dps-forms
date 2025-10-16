@@ -1,65 +1,51 @@
 import { ReactNode, useEffect, useState } from "react";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/router";
 import { auth, db } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-
-const IDLE_MS = 15 * 60 * 1000; // 15 min
 
 export default function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      const isLoginPage = router.pathname === "/";
-      if (!user && !isLoginPage) {
-        router.replace("/");
-      } else if (user && isLoginPage) {
-        router.replace("/dashboard");
-      }
+    let hb: any;
 
-      // presence + heartbeat
+    const unsub = onAuthStateChanged(auth, (user) => {
+      const isLoginPage = router.pathname === "/";
+
       if (user) {
-        await setDoc(
-          doc(db, "presence", user.uid),
-          { login: user.email, lastSeen: serverTimestamp() },
-          { merge: true }
-        );
+        // NIE czekamy na Promise — nawet jeśli reguły odmówią, nie blokujemy UI
+        try {
+          setDoc(
+            doc(db, "presence", user.uid),
+            { login: user.email || "", lastSeen: serverTimestamp() },
+            { merge: true }
+          ).catch(() => {});
+          hb = setInterval(() => {
+            setDoc(
+              doc(db, "presence", user.uid),
+              { lastSeen: serverTimestamp() },
+              { merge: true }
+            ).catch(() => {});
+          }, 60_000);
+        } catch (e) {
+          console.warn("presence write failed:", e);
+        }
+
+        if (isLoginPage) router.replace("/dashboard");
+      } else {
+        if (!isLoginPage) router.replace("/");
       }
 
       setReady(true);
     });
-    return () => unsub();
-  }, [router]);
-
-  // Auto-logout on idle + on tab close
-  useEffect(() => {
-    let t: any;
-
-    const reset = () => {
-      clearTimeout(t);
-      t = setTimeout(() => {
-        signOut(auth);
-      }, IDLE_MS);
-    };
-
-    reset();
-    window.addEventListener("mousemove", reset);
-    window.addEventListener("keydown", reset);
-    window.addEventListener("click", reset);
-    window.addEventListener("beforeunload", () => {
-      // best-effort; nie zawsze zdąży
-      signOut(auth);
-    });
 
     return () => {
-      clearTimeout(t);
-      window.removeEventListener("mousemove", reset);
-      window.removeEventListener("keydown", reset);
-      window.removeEventListener("click", reset);
+      unsub();
+      if (hb) clearInterval(hb);
     };
-  }, []);
+  }, [router]);
 
   if (!ready) {
     return (
