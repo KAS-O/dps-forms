@@ -3,7 +3,7 @@ import AuthGate from "@/components/AuthGate";
 import { TEMPLATES, Template } from "@/lib/templates";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { auth, db, storage } from "@/lib/firebase";
-import { addDoc, collection, serverTimestamp, getDocs, query, orderBy } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp, getDocs, query, orderBy, doc } from "firebase/firestore";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
