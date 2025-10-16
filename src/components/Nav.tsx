@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { useProfile, can } from "@/hooks/useProfile";
+import { signOut } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 
 const ROLE_LABELS: Record<string, string> = {
   director: "Director",
@@ -12,6 +14,12 @@ const ROLE_LABELS: Record<string, string> = {
 export default function Nav() {
   const { fullName, role } = useProfile();
   const roleLabel = role ? (ROLE_LABELS[role] || role) : "";
+
+  const logout = async () => {
+    if (!confirm("Czy na pewno chcesz się wylogować?")) return;
+    await signOut(auth);
+  };
+
 
   return (
     <nav className="w-full border-b border-beige-300 bg-[var(--card)]">
@@ -28,8 +36,8 @@ export default function Nav() {
             <Link href="/archive" className="hover:underline">Archiwum</Link>
           )}
           {role === "director" && (
-  <Link href="/admin" className="hover:underline">Panel zarządu</Link>
-)}
+              <Link href="/admin" className="hover:underline">Panel zarządu</Link>
+          )}
           <span className="ml-2 px-2 py-1 rounded bg-beige-200 text-beige-900">
             {fullName || "—"}{role ? ` • ${roleLabel}` : ""}
           </span>
