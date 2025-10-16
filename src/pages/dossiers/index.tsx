@@ -2,7 +2,16 @@ import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
-import { addDoc, collection, onSnapshot, orderBy, query, serverTimestamp } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  runTransaction,
+  serverTimestamp,
+} from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
 export default function Dossiers() {
@@ -47,11 +56,22 @@ export default function Dossiers() {
       }
       const title = `Akta ${first} ${last} CID:${cid}`;
       const user = auth.currentUser;
-      await addDoc(collection(db, "dossiers"), {
-        first, last, cid, title,
-        createdAt: serverTimestamp(),
-        createdBy: user?.email || "",
-        createdByUid: user?.uid || "",
+      const dossierId = normalizedCid;
+      const dossierRef = doc(db, "dossiers", dossierId);
+      await runTransaction(db, async (tx) => {
+        const existing = await tx.get(dossierRef);
+        if (existing.exists()) {
+          throw new Error("Teczka z tym CID już istnieje.");
+        }
+        tx.set(dossierRef, {
+          first,
+          last,
+          cid,
+          title,
+          createdAt: serverTimestamp(),
+          createdBy: user?.email || "",
+          createdByUid: user?.uid || "",
+        });
       });
       await addDoc(collection(db, "logs"), {
         type: "dossier_create",
