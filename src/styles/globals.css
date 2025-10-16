@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f3ebdd; /* beige-100 */
+  --card: #faf7f2; /* beige-50 */
+  --ink: #4b381d; /* beige-900 */
+  --accent: #b68f4a; /* beige-500 */
+}
+
+html, body, #__next {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+.card {
+  @apply bg-white/60 backdrop-blur-sm rounded-2xl shadow-md border border-beige-200;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center px-4 py-2 rounded-xl border border-beige-400 hover:bg-beige-100 active:scale-[0.99] transition;
+}
+
+.input {
+  @apply w-full px-3 py-2 rounded-xl border border-beige-300 bg-white focus:outline-none focus:ring-2 focus:ring-beige-400;
+}
+
+.label {
+  @apply text-sm font-medium text-beige-800;
+}
