@@ -1,140 +1,179 @@
-import AuthGate from "@/components/AuthGate";
-import Nav from "@/components/Nav";
-import Head from "next/head";
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { db, storage } from "@/lib/firebase";
+import Head from "next/head";
+import Nav from "@/components/Nav";
+import AuthGate from "@/components/AuthGate";
+import { useEffect, useMemo, useState } from "react";
+import { auth, db, storage } from "@/lib/firebase";
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useProfile, can } from "@/hooks/useProfile";
 
-type RecordItem = {
-  id: string;
-  text?: string;
-  imageUrl?: string;
-  createdAt?: any;
-  author?: string;
-  type?: string;
-};
-
-export default function DossierDetailPage() {
-  const { role, login } = useProfile();
+export default function DossierPage() {
   const router = useRouter();
-  const id = router.query.id as string | undefined;
+  const { id } = router.query as { id: string };
+  const { role } = useProfile();
 
-  const [title, setTitle] = useState("");
-  const [records, setRecords] = useState<RecordItem[]>([]);
-  const [text, setText] = useState("");
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [title, setTitle] = useState<string>("");
+  const [info, setInfo] = useState<{ first?: string; last?: string; cid?: string }>({});
+  const [records, setRecords] = useState<any[]>([]);
+  const [txt, setTxt] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  // uprawnienia do edycji wpisu: Director/Chief lub autor wpisu
+  const canEditRecord = (r: any) => {
+    const me = auth.currentUser?.uid;
+    return (role === "director" || role === "chief" || (!!me && r.authorUid === me));
+  };
 
   useEffect(() => {
     if (!id) return;
-    getDoc(doc(db, "dossiers", id)).then((snap) => {
-      const d = snap.data() as any;
-      setTitle(d?.title || "Teczka");
-    });
+    (async () => {
+      try {
+        const refDoc = doc(db, "dossiers", id);
+        const snap = await getDoc(refDoc);
+        const data = (snap.data() || {}) as any;
+        setTitle((data.title || "") as string);
+        setInfo({ first: data.first, last: data.last, cid: data.cid });
+      } catch (e: any) {
+        setErr(e.message || "Błąd teczki");
+      }
+    })();
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
     const q = query(collection(db, "dossiers", id, "records"), orderBy("createdAt", "desc"));
-    return onSnapshot(q, (snap) =>
-      setRecords(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))
-    );
+    return onSnapshot(q, (snap) => {
+      setRecords(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+    });
   }, [id]);
 
   const addRecord = async () => {
-    if (!id) return;
-    let imageUrl = "";
+    try {
+      setErr(null);
+      const payload: any = {
+        text: txt || "",
+        createdAt: serverTimestamp(),
+        author: auth.currentUser?.email || "",
+        authorUid: auth.currentUser?.uid || "",
+        type: "note",
+      };
 
-    const file = fileRef.current?.files?.[0];
-    if (file) {
-      const sref = ref(storage, `dossiers/${id}/evidence/${Date.now()}-${file.name}`);
-      await uploadBytes(sref, file);
-      imageUrl = await getDownloadURL(sref);
+      if (file) {
+        const fref = ref(storage, `dossiers/${id}/evidence/${Date.now()}_${file.name}`);
+        await uploadBytes(fref, file);
+        const url = await getDownloadURL(fref);
+        payload.imageUrl = url;
+      }
+
+      await addDoc(collection(db, "dossiers", id, "records"), payload);
+      await addDoc(collection(db, "logs"), {
+        type: "dossier_record_add",
+        dossierId: id,
+        author: auth.currentUser?.email || "",
+        ts: serverTimestamp(),
+      });
+
+      setTxt("");
+      setFile(null);
+    } catch (e: any) {
+      setErr(e.message || "Nie udało się dodać wpisu");
     }
-
-    const rec = {
-      text: text.trim(),
-      imageUrl: imageUrl || undefined,
-      createdAt: serverTimestamp(),
-      author: login || "nieznany",
-      type: "note",
-    };
-
-    const r = await addDoc(collection(db, "dossiers", id, "records"), rec);
-    await addDoc(collection(db, "logs"), {
-      type: "dossier_record_add", dossierId: id, recordId: r.id, by: login, ts: serverTimestamp(),
-    });
-
-    setText("");
-    if (fileRef.current) fileRef.current.value = "";
   };
 
-  const editRecord = async (r: RecordItem) => {
-    if (!can.editRecords(role)) return alert("Brak uprawnień.");
-    const nt = prompt("Edytuj wpis:", r.text || "") ?? "";
-    if (!id || nt === null) return;
-    await updateDoc(doc(db, "dossiers", id, "records", r.id), { text: nt });
+  const editRecord = async (rid: string, currentText: string) => {
+    const t = prompt("Edytuj treść wpisu:", currentText);
+    if (t == null) return;
+    await updateDoc(doc(db, "dossiers", id, "records", rid), { text: t });
     await addDoc(collection(db, "logs"), {
-      type: "dossier_record_edit", dossierId: id, recordId: r.id, by: login, ts: serverTimestamp(),
+      type: "dossier_record_edit",
+      dossierId: id,
+      recordId: rid,
+      author: auth.currentUser?.email || "",
+      ts: serverTimestamp(),
     });
   };
 
-  const removeRecord = async (r: RecordItem) => {
-    if (!can.editRecords(role)) return alert("Brak uprawnień.");
-    if (!id) return;
-    if (!confirm("Usunąć wpis z teczki?")) return;
-    await deleteDoc(doc(db, "dossiers", id, "records", r.id));
+  const deleteRecord = async (rid: string) => {
+    if (!confirm("Usunąć wpis?")) return;
+    await deleteDoc(doc(db, "dossiers", id, "records", rid));
     await addDoc(collection(db, "logs"), {
-      type: "dossier_record_delete", dossierId: id, recordId: r.id, by: login, ts: serverTimestamp(),
+      type: "dossier_record_delete",
+      dossierId: id,
+      recordId: rid,
+      author: auth.currentUser?.email || "",
+      ts: serverTimestamp(),
     });
   };
+
+  const personTitle = useMemo(() => {
+    const n = [info.first, info.last].filter(Boolean).join(" ");
+    return n ? `${title} • ${n} (CID: ${info.cid || "?"})` : title || "Teczka";
+  }, [title, info]);
 
   return (
     <AuthGate>
       <>
-        <Head><title>DPS 77RP — {title}</title></Head>
+        <Head><title>DPS 77RP — {personTitle}</title></Head>
         <Nav />
-        <div className="max-w-5xl mx-auto px-4 py-6 grid gap-6">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold">{title}</h1>
-            <a className="btn" href="/dossiers">← Wróć do listy</a>
+        <div className="max-w-5xl mx-auto px-4 py-6 grid gap-4">
+          {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
+
+          <div className="card p-4">
+            <h1 className="text-xl font-bold">{personTitle}</h1>
           </div>
 
-          <div className="card p-4 grid gap-3">
-            <h2 className="font-semibold">Dodaj wpis</h2>
-            <textarea className="input h-28" placeholder="Opis / okoliczności / skrót..." value={text} onChange={(e)=>setText(e.target.value)} />
-            <input ref={fileRef} type="file" accept="image/*" className="input" />
-            <button className="btn w-max" onClick={addRecord}>Dodaj</button>
+          {/* Dodaj wpis (tekst opcjonalnie ze zdjęciem) */}
+          <div className="card p-4 grid gap-2">
+            <h2 className="font-semibold mb-2">Dodaj wpis</h2>
+            <textarea
+              className="input h-28"
+              placeholder="Treść wpisu (opcjonalnie)…"
+              value={txt}
+              onChange={(e) => setTxt(e.target.value)}
+            />
+            <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+            <div className="flex gap-2">
+              <button className="btn" onClick={addRecord}>Dodaj</button>
+              <button className="btn" onClick={() => { setTxt(""); setFile(null); }}>Wyczyść</button>
+            </div>
           </div>
 
+          {/* Lista wpisów */}
           <div className="grid gap-2">
-            {records.map(r => (
+            {records.map((r) => (
               <div key={r.id} className="card p-3">
                 <div className="text-sm text-beige-700 mb-1">
-                  {r.author} • {r.createdAt?.toDate ? r.createdAt.toDate().toLocaleString() : "—"}
+                  {new Date(r.createdAt?.toDate?.() || Date.now()).toLocaleString()} • {r.author || r.authorUid}
                 </div>
                 {r.text && <div className="whitespace-pre-wrap mb-2">{r.text}</div>}
                 {r.imageUrl && (
-                  <a href={r.imageUrl} target="_blank" className="text-blue-700 underline">Zobacz zdjęcie dowodu</a>
+                  <a className="text-blue-700 underline" href={r.imageUrl} target="_blank" rel="noreferrer">
+                    Zobacz zdjęcie
+                  </a>
                 )}
-                {can.editRecords(role) && (
+                {canEditRecord(r) && (
                   <div className="mt-2 flex gap-2">
-                    <button className="btn" onClick={()=>editRecord(r)}>Edytuj</button>
-                    <button className="btn bg-red-700 text-white" onClick={()=>removeRecord(r)}>Usuń</button>
+                    <button className="btn" onClick={() => editRecord(r.id, r.text || "")}>Edytuj</button>
+                    <button className="btn bg-red-700 text-white" onClick={() => deleteRecord(r.id)}>Usuń</button>
                   </div>
                 )}
               </div>
             ))}
-            {records.length===0 && <p>Brak wpisów.</p>}
+            {records.length === 0 && <div className="card p-3">Brak wpisów.</div>}
           </div>
         </div>
       </>
