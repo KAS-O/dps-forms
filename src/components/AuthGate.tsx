@@ -1,58 +1,65 @@
 import { ReactNode, useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { useIdleLogout } from "@/hooks/useIdleLogout";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useRouter } from "next/router";
 import { auth, db } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
+const IDLE_MS = 15 * 60 * 1000; // 15 min
+
 export default function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const [ready, setReady] = useIdleLogout(); // auto-logout po 15 min braku aktywności
-
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    let interval: any;
-
-    const unsub = onAuthStateChanged(auth, (user) => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
       const isLoginPage = router.pathname === "/";
-
       if (!user && !isLoginPage) {
         router.replace("/");
       } else if (user && isLoginPage) {
         router.replace("/dashboard");
       }
 
-      setReady(true);
-
-      // --- Presence / heartbeat ---
+      // presence + heartbeat
       if (user) {
-        const domain = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
-        const email = user.email || "";
-        const suffix = `@${domain}`;
-        const login = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
-
-        const updatePresence = () =>
-          setDoc(
-            doc(db, "presence", user.uid),
-            { login, lastSeen: serverTimestamp() },
-            { merge: true }
-          );
-
-        // od razu oznacz jako aktywnego
-        updatePresence();
-        // i aktualizuj co 60s
-        interval = setInterval(updatePresence, 60_000);
-      } else {
-        if (interval) clearInterval(interval);
+        await setDoc(
+          doc(db, "presence", user.uid),
+          { login: user.email, lastSeen: serverTimestamp() },
+          { merge: true }
+        );
       }
-      // --- /Presence ---
+
+      setReady(true);
+    });
+    return () => unsub();
+  }, [router]);
+
+  // Auto-logout on idle + on tab close
+  useEffect(() => {
+    let t: any;
+
+    const reset = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        signOut(auth);
+      }, IDLE_MS);
+    };
+
+    reset();
+    window.addEventListener("mousemove", reset);
+    window.addEventListener("keydown", reset);
+    window.addEventListener("click", reset);
+    window.addEventListener("beforeunload", () => {
+      // best-effort; nie zawsze zdąży
+      signOut(auth);
     });
 
     return () => {
-      unsub();
-      if (interval) clearInterval(interval);
+      clearTimeout(t);
+      window.removeEventListener("mousemove", reset);
+      window.removeEventListener("keydown", reset);
+      window.removeEventListener("click", reset);
     };
-  }, [router]);
+  }, []);
 
   if (!ready) {
     return (
