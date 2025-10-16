@@ -1,9 +1,9 @@
 import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
 import { TEMPLATES, Template } from "@/lib/templates";
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { auth, db, storage } from "@/lib/firebase";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp, getDocs, query, orderBy } from "firebase/firestore";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
@@ -21,6 +21,19 @@ export default function DocPage() {
   const [ok, setOk] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+
+  // --- Teczki dowodowe (lista + wybór) ---
+  const [dossiers, setDossiers] = useState<any[]>([]);
+  const [dossierId, setDossierId] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const q = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
+      const snap = await getDocs(q);
+      setDossiers(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
+    })();
+  }, []);
+  // ---------------------------------------
 
   if (!template) {
     return (
@@ -54,19 +67,20 @@ export default function DocPage() {
       const suffix = `@${LOGIN_DOMAIN}`;
       const userLogin = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
 
-      // === NOWE: zapis do Storage + Firestore ===
+      // === Zapis do Storage + Firestore ===
       // 1) Upload obrazu do Firebase Storage
       const storagePath = `archives/${filename}`;
       const sref = ref(storage, storagePath);
       await uploadString(sref, dataUrl, "data_url");
       const downloadURL = await getDownloadURL(sref);
 
-      // 2) Wpis do Firestore → kolekcja "archives"
+      // 2) Wpis do Firestore → kolekcja "archives" (DODANO dossierId)
       await addDoc(collection(db, "archives"), {
         templateName: template.name,
         userLogin: userLogin || "nieznany",
         createdAt: serverTimestamp(),
         values,
+        dossierId: dossierId || null,
         imagePath: storagePath,
         imageUrl: downloadURL,
       });
@@ -78,9 +92,9 @@ export default function DocPage() {
         login: userLogin,
         ts: serverTimestamp(),
       });
-      // === /NOWE ===
+      // === /Zapis ===
 
-      // Wysyłka na Discord (pozostaje jak miałeś – z base64)
+      // Wysyłka na Discord (jak wcześniej – z base64)
       const res = await fetch('/api/send-to-discord', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -111,6 +125,34 @@ export default function DocPage() {
           <div className="card p-6">
             <h1 className="text-2xl font-bold mb-4">{template.name}</h1>
             <form onSubmit={onSubmit} className="grid gap-4">
+
+              {/* --- Powiązanie z teczką (opcjonalne) --- */}
+              <div className="grid gap-1">
+                <label className="label">Powiąż z teczką (opcjonalnie)</label>
+                <input
+                  className="input mb-1"
+                  placeholder="Szukaj po imieniu/nazwisku/CID..."
+                  onChange={e=>{
+                    const v = e.target.value.toLowerCase();
+                    setDossiers(prev => prev.map(x => ({
+                      ...x,
+                      _hidden: !(
+                        (x.first||"").toLowerCase().includes(v) ||
+                        (x.last||"").toLowerCase().includes(v) ||
+                        (x.cid||"").toLowerCase().includes(v)
+                      )
+                    })));
+                  }}
+                />
+                <select className="input" value={dossierId} onChange={e=>setDossierId(e.target.value)}>
+                  <option value="">— bez teczki —</option>
+                  {dossiers.filter(d=>!d._hidden).map(d => (
+                    <option key={d.id} value={d.id}>{d.title}</option>
+                  ))}
+                </select>
+              </div>
+              {/* ---------------------------------------- */}
+
               {template.fields.map(f => (
                 <div key={f.key} className="grid gap-1">
                   <label className="label">{f.label}{f.required && ' *'}</label>
