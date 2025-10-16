@@ -2,7 +2,9 @@ import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
 import { TEMPLATES, Template } from "@/lib/templates";
 import { FormEvent, useMemo, useRef, useState } from "react";
-import { auth } from "@/lib/firebase";
+import { auth, db, storage } from "@/lib/firebase";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { ref, uploadString, getDownloadURL } from "firebase/storage";
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
 
@@ -52,6 +54,33 @@ export default function DocPage() {
       const suffix = `@${LOGIN_DOMAIN}`;
       const userLogin = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
 
+      // === NOWE: zapis do Storage + Firestore ===
+      // 1) Upload obrazu do Firebase Storage
+      const storagePath = `archives/${filename}`;
+      const sref = ref(storage, storagePath);
+      await uploadString(sref, dataUrl, "data_url");
+      const downloadURL = await getDownloadURL(sref);
+
+      // 2) Wpis do Firestore → kolekcja "archives"
+      await addDoc(collection(db, "archives"), {
+        templateName: template.name,
+        userLogin: userLogin || "nieznany",
+        createdAt: serverTimestamp(),
+        values,
+        imagePath: storagePath,
+        imageUrl: downloadURL,
+      });
+
+      // 3) Log do Firestore → kolekcja "logs"
+      await addDoc(collection(db, "logs"), {
+        type: "doc_sent",
+        template: template.name,
+        login: userLogin,
+        ts: serverTimestamp(),
+      });
+      // === /NOWE ===
+
+      // Wysyłka na Discord (pozostaje jak miałeś – z base64)
       const res = await fetch('/api/send-to-discord', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -63,7 +92,8 @@ export default function DocPage() {
         }),
       });
       if (!res.ok) throw new Error(`Błąd wysyłki: ${res.status}`);
-      setOk('Wysłano do ARCHIWUM na Discordzie.');
+
+      setOk('Wysłano do ARCHIWUM (Discord + wewnętrzne).');
     } catch (e: any) {
       setErr(e?.message || 'Nie udało się wygenerować/wysłać obrazu.');
     } finally {
@@ -85,7 +115,6 @@ export default function DocPage() {
                 <div key={f.key} className="grid gap-1">
                   <label className="label">{f.label}{f.required && ' *'}</label>
                   {f.type === 'textarea' ? (
-                    // ZWIĘKSZONE POLE TEKSTOWE: h-40 (było h-28)
                     <textarea
                       className="input h-40"
                       required={f.required}
@@ -132,7 +161,7 @@ export default function DocPage() {
               className="bg-white text-black mx-auto w-[794px] max-w-full aspect-[210/297] p-10 border border-beige-300 shadow-sm"
             >
               <div className="flex items-center gap-3 mb-6">
-                {/* Jeśli używasz PNG: zmień na /logo.png */}
+                {/* Jeśli używasz PNG: zamień na /logo.png */}
                 <img src="/logo.png" alt="DPS" width={180} />
                 <div>
                   <div className="text-xl font-bold">Department of Public Safety</div>
@@ -140,7 +169,6 @@ export default function DocPage() {
                 </div>
               </div>
               <hr className="border-beige-300 mb-6" />
-              {/* MNIEJSZA CZCIONKA: text-[12px] (było 14px) */}
               <div className="space-y-3 text-[12px] leading-6">
                 {template.fields.map(f => (
                   <div key={f.key} className="grid grid-cols-[220px_1fr] gap-3">
