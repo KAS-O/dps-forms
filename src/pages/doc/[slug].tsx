@@ -1,4 +1,5 @@
 import { useRouter } from "next/router";
+import Head from "next/head";
 import AuthGate from "@/components/AuthGate";
 import { TEMPLATES, Template } from "@/lib/templates";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
