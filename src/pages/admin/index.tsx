@@ -7,6 +7,7 @@ import {
   collection,
   query,
   where,
+  orderBy,
   getCountFromServer,
   getDoc,
   getDocs,
@@ -15,32 +16,36 @@ import {
   updateDoc,
   increment,
   Timestamp,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 type Range = "all" | "30" | "7";
 
+type Person = { uid: string; fullName?: string; login?: string };
+
 export default function Admin() {
   const { role, login, ready } = useProfile();
-  const [range, setRange] = useState<Range>("all");
 
+  const [range, setRange] = useState<Range>("all");
   const [err, setErr] = useState<string | null>(null);
+
+  // ogólne liczniki
   const [mandaty, setMandaty] = useState(0);
   const [lseb, setLseb] = useState(0);
   const [areszty, setAreszty] = useState(0);
 
-  // Finanse
-  const [finesTotal, setFinesTotal] = useState(0);
-  const [manualAdj, setManualAdj] = useState(0);
-  const displayBalance = (finesTotal + manualAdj);
+  // saldo
+  const [baseTotal, setBaseTotal] = useState(0);      // suma z archiwum (mandaty + grzywny)
+  const [manualDelta, setManualDelta] = useState(0);  // ręczne operacje
+  const balance = useMemo(() => baseTotal + manualDelta, [baseTotal, manualDelta]);
 
-  // Personel
-  const [people, setPeople] = useState<{ uid: string; fullName?: string; login?: string; statsResetAt?: any }[]>([]);
-  const [person, setPerson] = useState<string>("");
+  // personel
+  const [people, setPeople] = useState<Person[]>([]);
+  const [person, setPerson] = useState<string>(""); // uid
   const [pStats, setPStats] = useState({ m: 0, k: 0, a: 0, income: 0 });
-  const [amount, setAmount] = useState<string>("");
 
-  // od kiedy (zakres)
+  // „od kiedy”
   const since: Timestamp | null = useMemo(() => {
     if (range === "all") return null;
     const days = range === "30" ? 30 : 7;
@@ -49,125 +54,296 @@ export default function Admin() {
     return Timestamp.fromDate(d);
   }, [range]);
 
-  const archivesCol = collection(db, "archives");
+  // pomocnicze: nazwy/klucze grzywien w templates
+  const FINE_TEMPLATES: { name: string; field: string }[] = [
+    { name: "Bloczek mandatowy", field: "kwota" },
+    { name: "Protokół aresztowania", field: "grzywna" },
+  ];
 
-  // Liczenie globalne (z fallbackiem bez indeksów)
-  const countBy = async (slug: string, sinceTs: Timestamp | null) => {
+  // ===== Recalc całej karty (ogólne + saldo + lista osób)
+  const recalcAll = async () => {
     try {
-      const parts = [where("templateSlug", "==", slug)];
-      if (sinceTs) parts.push(where("createdAt", ">=", sinceTs));
-      const qMain = query(archivesCol, ...parts);
-      const cnt = await getCountFromServer(qMain);
-      return cnt.data().count;
-    } catch {
-      const snap = await getDocs(query(archivesCol, where("templateSlug", "==", slug)));
-      return snap.docs.filter((d) => {
-        if (!sinceTs) return true;
-        const ts: any = d.data().createdAt;
-        const date = ts?.toDate?.() || null;
-        return date ? date >= sinceTs.toDate() : false;
-      }).length;
+      setErr(null);
+
+      const archives = collection(db, "archives");
+      const time = since ? [where("createdAt", ">=", since)] : [];
+
+      // ogólne liczniki
+      const qM = query(archives, where("templateName", "==", "Bloczek mandatowy"), ...time);
+      const qK = query(archives, where("templateName", "==", "Kontrola LSEB"), ...time);
+      const qA = query(archives, where("templateName", "==", "Protokół aresztowania"), ...time);
+
+      setMandaty((await getCountFromServer(qM)).data().count);
+      setLseb((await getCountFromServer(qK)).data().count);
+      setAreszty((await getCountFromServer(qA)).data().count);
+
+      // suma grzywien/mandatów (baseTotal)
+      let base = 0;
+      for (const t of FINE_TEMPLATES) {
+        const qF = query(archives, where("templateName", "==", t.name), ...time);
+        const sF = await getDocs(qF);
+        sF.docs.forEach((d) => {
+          const val = (d.data()?.values || {}) as any;
+          const n = Number(val[t.field] || 0);
+          if (!Number.isNaN(n)) base += n;
+        });
+      }
+      setBaseTotal(base);
+
+      // manualDelta z /accounts/dps
+      const accRef = doc(db, "accounts", "dps");
+      const accSnap = await getDoc(accRef);
+      setManualDelta(Number(accSnap.data()?.manualDelta || 0));
+
+      // lista funkcjonariuszy
+      const ps = await getDocs(collection(db, "profiles"));
+      const arr = ps.docs.map((d) => ({ uid: d.id, ...(d.data() as any) }));
+      setPeople(arr);
+      if (!person && arr.length) setPerson(arr[0].uid);
+    } catch (e: any) {
+      setErr(e?.message || "Błąd pobierania danych");
     }
   };
 
-  // Liczenie dla wybranego funkcjonariusza (od effectiveSince = max(since, statsResetAt))
-  const countByOwner = async (slug: string, ownerLogin: string, effectiveSince: Timestamp | null) => {
+  // ==== Statystyki wybranego funkcjonariusza (z uwzględnieniem resetu)
+  const recalcPerson = async () => {
+    if (!person) return;
     try {
-      const parts = [where("templateSlug", "==", slug), where("userLogin", "==", ownerLogin)];
-      if (effectiveSince) parts.push(where("createdAt", ">=", effectiveSince));
-      const qMain = query(archivesCol, ...parts);
-      const cnt = await getCountFromServer(qMain);
-      return cnt.data().count;
-    } catch {
-      const snap = await getDocs(query(archivesCol, where("templateSlug", "==", slug)));
-      return snap.docs.filter((d) => {
-        const data: any = d.data();
-        if ((data.userLogin || "").toLowerCase() !== ownerLogin) return false;
-        if (!effectiveSince) return true;
-        const date = data.createdAt?.toDate?.() || null;
-        return !!date && date >= effectiveSince.toDate();
-      }).length;
-    }
-  };
+      setErr(null);
 
-  // Suma kwot (mandaty + areszty) – BEZ zakresu (od początku)
-  const calcFinesTotal = async () => {
-    let sum = 0;
-    const addFrom = async (slug: string) => {
-      const snap = await getDocs(query(archivesCol, where("templateSlug", "==", slug)));
-      snap.docs.forEach((d) => {
-        const data: any = d.data();
-        const num = Number((data.values || {}).kwota || 0);
-        if (!Number.isNaN(num)) sum += num;
+      // odczytaj lastResetAt (jeśli był) → efektywny start = max(since, lastResetAt)
+      const resetRef = doc(db, "profiles", person, "counters", "personal");
+      const rSnap = await getDoc(resetRef);
+      const lastResetAt = (rSnap.data()?.lastResetAt || null) as Timestamp | null;
+      const effSince =
+        since && lastResetAt ? (since.toMillis() > lastResetAt.toMillis() ? since : lastResetAt)
+        : since || lastResetAt || null;
+
+      const personName =
+        people.find((p) => p.uid === person)?.fullName ||
+        people.find((p) => p.uid === person)?.login ||
+        "";
+
+      if (!personName) {
+        setPStats({ m: 0, k: 0, a: 0, income: 0 });
+        return;
+      }
+
+      const archives = collection(db, "archives");
+      const time = effSince ? [where("createdAt", ">=", effSince)] : [];
+      const who = where("officers", "array-contains", personName);
+
+      // liczniki osobowe
+      const m = await getCountFromServer(
+        query(archives, where("templateName", "==", "Bloczek mandatowy"), who, ...time)
+      );
+      const k = await getCountFromServer(
+        query(archives, where("templateName", "==", "Kontrola LSEB"), who, ...time)
+      );
+      const a = await getCountFromServer(
+        query(archives, where("templateName", "==", "Protokół aresztowania"), who, ...time)
+      );
+
+      // przychód osobisty (z mandatów)
+      let income = 0;
+      const s = await getDocs(
+        query(archives, where("templateName", "==", "Bloczek mandatowy"), who, ...time)
+      );
+      s.docs.forEach((d) => {
+        const val = (d.data()?.values || {}) as any;
+        const n = Number(val.kwota || 0);
+        if (!Number.isNaN(n)) income += n;
       });
-    };
-    await addFrom("bloczek-mandatowy");
-    await addFrom("protokol-aresztowania");
-    setFinesTotal(sum);
+
+      setPStats({
+        m: m.data().count,
+        k: k.data().count,
+        a: a.data().count,
+        income,
+      });
+    } catch (e: any) {
+      setErr(e?.message || "Błąd statystyk personelu");
+    }
   };
 
-  // Load global + people + manualAdj
+  // —— Lifecycle
   useEffect(() => {
     if (!ready || role !== "director") return;
-    (async () => {
-      try {
-        setErr(null);
-
-        // Globalne liczniki wg zakresu
-        setMandaty(await countBy("bloczek-mandatowy", since));
-        setLseb(await countBy("kontrola-lseb", since));
-        setAreszty(await countBy("protokol-aresztowania", since));
-
-        // Finanse: manualAdj + finesTotal
-        const accRef = doc(db, "accounts", "dps");
-        const accSnap = await getDoc(accRef);
-        setManualAdj(Number(accSnap.data()?.manualAdj || 0));
-        await calcFinesTotal();
-
-        // Personel
-        const ps = await getDocs(collection(db, "profiles"));
-        const arr = ps.docs.map((d) => ({ uid: d.id, ...(d.data() as any) }));
-        setPeople(arr);
-        if (!person && arr.length) setPerson(arr[0].uid);
-      } catch (e: any) {
-        setErr(e?.message || "Błąd pobierania danych");
-      }
-    })();
+    recalcAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, role, since]);
 
-  // Statystyki personelu (z resetem)
   useEffect(() => {
     if (!ready || role !== "director" || !person) return;
-    (async () => {
-      try {
-        setErr(null);
-        const p = people.find((x) => x.uid === person);
-        const personLogin = (p?.login || "").toLowerCase();
-        const resetAt: Timestamp | null = p?.statsResetAt || null;
-        const effectiveSince =
-          since && resetAt ? (since.toDate() > resetAt.toDate() ? since : resetAt) :
-          (since || resetAt || null);
+    recalcPerson();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, role, person, since, people]);
 
-        const m = await countByOwner("bloczek-mandatowy", personLogin, effectiveSince);
-        const k = await countByOwner("kontrola-lseb", personLogin, effectiveSince);
-        const a = await countByOwner("protokol-aresztowania", personLogin, effectiveSince);
+  // —— Operacje finansowe (manualDelta)
+  const deposit = async (v: number) => {
+    if (v <= 0) return;
+    const ref = doc(db, "accounts", "dps");
+    await setDoc(ref, { manualDelta: 0, createdAt: serverTimestamp() }, { merge: true });
+    await updateDoc(ref, { manualDelta: increment(v) });
+    await recalcAll();
+  };
+  const withdraw = async (v: number) => {
+    if (v <= 0) return;
+    const ref = doc(db, "accounts", "dps");
+    await setDoc(ref, { manualDelta: 0, createdAt: serverTimestamp() }, { merge: true });
+    await updateDoc(ref, { manualDelta: increment(-v) });
+    await recalcAll();
+  };
+  const withdrawAll = async () => {
+    // ustaw manualDelta tak, by zniwelować bieżącą część bazową
+    const ref = doc(db, "accounts", "dps");
+    await setDoc(ref, { manualDelta: 0, createdAt: serverTimestamp() }, { merge: true });
+    // manualDelta = -baseTotal
+    await updateDoc(ref, { manualDelta: -baseTotal });
+    await recalcAll();
+  };
 
-        // przychód tego funkcjonariusza od effectiveSince
-        let income = 0;
-        const pull = async () => {
-          const qs = await getDocs(query(archivesCol, where("userLogin", "==", personLogin)));
-          qs.docs.forEach((d) => {
-            const data: any = d.data();
-            if (!["bloczek-mandatowy", "protokol-aresztowania"].includes(data.templateSlug)) return;
-            if (effectiveSince) {
-              const date = data.createdAt?.toDate?.() || null;
-              if (!date || date < effectiveSince.toDate()) return;
-            }
-            const val = Number((data.values || {}).kwota || 0);
-            if (!Number.isNaN(val)) income += val;
-          });
-        };
-        await pull();
+  // —— Reset osobisty (tylko osobiste liczniki)
+  const resetPerson = async () => {
+    if (!person) return;
+    const pName =
+      people.find((p) => p.uid === person)?.fullName ||
+      people.find((p) => p.uid === person)?.login ||
+      person;
+    if (!confirm(`Wyzerować licznik dla ${pName}? (nie wpływa na ogólne statystyki)`)) return;
+    const ref = doc(db, "profiles", person, "counters", "personal");
+    await setDoc(ref, { lastResetAt: serverTimestamp() }, { merge: true });
+    await recalcPerson();
+  };
 
-       
+  // ——— UI
+  if (!ready) {
+    return (
+      <AuthGate>
+        <Head><title>DPS 77RP — Panel zarządu</title></Head>
+        <Nav />
+        <div className="max-w-6xl mx-auto px-4 py-8">
+          <div className="card p-6">Ładowanie…</div>
+        </div>
+      </AuthGate>
+    );
+  }
+  if (role !== "director") {
+    return (
+      <AuthGate>
+        <Head><title>DPS 77RP — Panel zarządu</title></Head>
+        <Nav />
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          <div className="card p-6 text-center">
+            Brak dostępu. Tylko <b>Director</b> może otworzyć Panel zarządu.
+          </div>
+        </div>
+      </AuthGate>
+    );
+  }
+
+  return (
+    <AuthGate>
+      <Head><title>DPS 77RP — Panel zarządu</title></Head>
+      <Nav />
+
+      <div className="max-w-6xl mx-auto px-4 py-6 grid gap-4">
+        {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
+
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-bold">Panel zarządu</h1>
+          <span className="text-sm text-beige-700">Zalogowany: {login}</span>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-sm">Okres:</span>
+            <select className="input" value={range} onChange={e=>setRange(e.target.value as Range)}>
+              <option value="all">Od początku</option>
+              <option value="30">Ostatnie 30 dni</option>
+              <option value="7">Ostatnie 7 dni</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Kafle globalne */}
+        <div className="grid md:grid-cols-3 gap-4">
+          <div className="card p-4">
+            <div className="text-sm text-beige-700">Liczba mandatów</div>
+            <div className="text-2xl font-bold">{mandaty}</div>
+          </div>
+          <div className="card p-4">
+            <div className="text-sm text-beige-700">Kontrole LSEB</div>
+            <div className="text-2xl font-bold">{lseb}</div>
+          </div>
+          <div className="card p-4">
+            <div className="text-sm text-beige-700">Areszty</div>
+            <div className="text-2xl font-bold">{areszty}</div>
+          </div>
+        </div>
+
+        {/* Finanse */}
+        <div className="card p-4 grid gap-3">
+          <div className="text-sm text-beige-700">Stan konta DPS</div>
+          <div className="text-3xl font-bold">${balance.toFixed(2)}</div>
+          <div className="text-xs text-beige-700">
+            (Z archiwum: ${baseTotal.toFixed(2)} + ręczne operacje: ${manualDelta.toFixed(2)})
+          </div>
+          <div className="flex items-center gap-2">
+            <input id="kw" className="input w-40" placeholder="Kwota (USD)" />
+            <button className="btn" onClick={()=>{
+              const v = Number((document.getElementById("kw") as HTMLInputElement)?.value || 0);
+              deposit(v).catch(e=>setErr(e.message));
+            }}>Wpłać</button>
+            <button className="btn" onClick={()=>{
+              const v = Number((document.getElementById("kw") as HTMLInputElement)?.value || 0);
+              withdraw(v).catch(e=>setErr(e.message));
+            }}>Wypłać</button>
+            <button className="btn bg-red-700 text-white" onClick={()=>{
+              if (confirm("Na pewno wypłacić wszystko?")) withdrawAll().catch(e=>setErr(e.message));
+            }}>Wypłać wszystko</button>
+          </div>
+        </div>
+
+        {/* Personel */}
+        <div className="card p-4 grid gap-3">
+          <div className="flex items-center gap-2">
+            <span>Funkcjonariusz:</span>
+            <select className="input w-64" value={person} onChange={e=>setPerson(e.target.value)}>
+              {people.map(p=>(
+                <option key={p.uid} value={p.uid}>{p.fullName || p.login || p.uid}</option>
+              ))}
+            </select>
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-sm">Okres:</span>
+              <select className="input" value={range} onChange={e=>setRange(e.target.value as Range)}>
+                <option value="all">Cały okres</option>
+                <option value="30">30 dni</option>
+                <option value="7">7 dni</option>
+              </select>
+            </div>
+            <button className="btn bg-red-700 text-white" onClick={resetPerson}>
+              Wyzeruj licznik tego funkcjonariusza
+            </button>
+          </div>
+
+          <div className="grid md:grid-cols-4 gap-4">
+            <div className="card p-3">
+              <div className="text-sm text-beige-700">Mandaty</div>
+              <div className="text-2xl font-bold">{pStats.m}</div>
+            </div>
+            <div className="card p-3">
+              <div className="text-sm text-beige-700">Kontrole LSEB</div>
+              <div className="text-2xl font-bold">{pStats.k}</div>
+            </div>
+            <div className="card p-3">
+              <div className="text-sm text-beige-700">Areszty</div>
+              <div className="text-2xl font-bold">{pStats.a}</div>
+            </div>
+            <div className="card p-3">
+              <div className="text-sm text-beige-700">Przychód dla DPS</div>
+              <div className="text-2xl font-bold">${pStats.income.toFixed(2)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </AuthGate>
+  );
+}
