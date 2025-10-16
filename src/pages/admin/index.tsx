@@ -1,7 +1,7 @@
 import Head from "next/head";
 import Nav from "@/components/Nav";
 import AuthGate from "@/components/AuthGate";
-import { useProfile } from "@/hooks/useProfile";
+import { useProfile, Role } from "@/hooks/useProfile";
 import { useEffect, useMemo, useState } from "react";
 import {
   addDoc,
@@ -18,17 +18,56 @@ import {
   Timestamp,
   serverTimestamp,
   writeBatch,
+  deleteDoc,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { useDialog } from "@/components/DialogProvider";
+import { useAnnouncement } from "@/hooks/useAnnouncement";
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
+type AdminSection = "overview" | "hr" | "announcements";
+
+type Account = {
+  uid: string;
+  login: string;
+  fullName?: string;
+  role: Role;
+  email: string;
+  createdAt?: string;
+};
+
+const ROLE_NAMES: Record<Role, string> = {
+  director: "Director",
+  chief: "Chief Agent",
+  senior: "Senior Agent",
+  agent: "Agent",
+  rookie: "Rookie",
+};
+
+const ANNOUNCEMENT_WINDOWS: { value: string; label: string; ms: number | null }[] = [
+  { value: "30m", label: "30 minut", ms: 30 * 60 * 1000 },
+  { value: "1h", label: "1 godzina", ms: 60 * 60 * 1000 },
+  { value: "3h", label: "3 godziny", ms: 3 * 60 * 60 * 1000 },
+  { value: "5h", label: "5 godzin", ms: 5 * 60 * 60 * 1000 },
+  { value: "8h", label: "8 godzin", ms: 8 * 60 * 60 * 1000 },
+  { value: "12h", label: "12 godzin", ms: 12 * 60 * 60 * 1000 },
+  { value: "24h", label: "24 godziny", ms: 24 * 60 * 60 * 1000 },
+  { value: "2d", label: "2 dni", ms: 2 * 24 * 60 * 60 * 1000 },
+  { value: "3d", label: "3 dni", ms: 3 * 24 * 60 * 60 * 1000 },
+  { value: "7d", label: "Tydzień", ms: 7 * 24 * 60 * 60 * 1000 },
+  { value: "forever", label: "Do czasu usunięcia", ms: null },
+];
 
 export default function Admin() {
-  const { role, login, ready } = useProfile();
+  const { role, login, fullName, ready } = useProfile();
+  const { confirm, prompt, alert } = useDialog();
+  const { announcement } = useAnnouncement();
+  const loginDomain = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
 
   const [range, setRange] = useState<Range>("all");
   const [err, setErr] = useState<string | null>(null);
+  const [section, setSection] = useState<AdminSection>("overview");
 
   // ogólne
   const [mandaty, setMandaty] = useState(0);
@@ -44,6 +83,46 @@ export default function Admin() {
   const [people, setPeople] = useState<Person[]>([]);
   const [person, setPerson] = useState<string>(""); // uid
   const [pStats, setPStats] = useState({ m: 0, k: 0, a: 0, income: 0 });
+
+  // dzial kadr
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [accountSearch, setAccountSearch] = useState("");
+  const [editorState, setEditorState] = useState<{
+    mode: "create" | "edit";
+    account: Partial<Account>;
+    password?: string;
+  } | null>(null);
+  const [accountSaving, setAccountSaving] = useState(false);
+  const [accountActionUid, setAccountActionUid] = useState<string | null>(null);
+
+  // ogłoszenia
+  const [announcementMessage, setAnnouncementMessage] = useState("");
+  const [announcementDuration, setAnnouncementDuration] = useState<string>("30m");
+  const [announcementSaving, setAnnouncementSaving] = useState(false);
+  const rangeLabel = useMemo(() => {
+    switch (range) {
+      case "30":
+        return "Ostatnie 30 dni";
+      case "7":
+        return "Ostatnie 7 dni";
+      default:
+        return "Od początku";
+    }
+  }, [range]);
+
+  useEffect(() => {
+    if (announcementSaving) return;
+    if (announcement?.message) {
+      setAnnouncementMessage(announcement.message);
+      if (announcement.duration) {
+        setAnnouncementDuration(announcement.duration);
+      }
+    } else {
+      setAnnouncementMessage("");
+    }
+  }, [announcement, announcementSaving]);
+
 
   // okres
   const since: Timestamp | null = useMemo(() => {
@@ -163,6 +242,229 @@ export default function Admin() {
     }
   };
 
+  const loadAccounts = async () => {
+    try {
+      setErr(null);
+      setAccountsLoading(true);
+      const user = auth.currentUser;
+      if (!user) throw new Error("Brak zalogowanego użytkownika.");
+      const token = await user.getIdToken();
+      const res = await fetch("/api/admin/accounts", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Nie udało się pobrać kont.");
+      }
+      const data = await res.json();
+      setAccounts(data.accounts || []);
+    } catch (e: any) {
+      console.error(e);
+      setErr(e?.message || "Nie udało się pobrać kont.");
+    } finally {
+      setAccountsLoading(false);
+    }
+  };
+
+  const openCreateAccount = () => {
+    setEditorState({
+      mode: "create",
+      account: { login: "", fullName: "", role: "rookie", email: "" },
+      password: "",
+    });
+  };
+
+  const openEditAccount = (account: Account) => {
+    setEditorState({
+      mode: "edit",
+      account: { ...account },
+      password: "",
+    });
+  };
+
+  const saveAccount = async () => {
+    if (!editorState) return;
+    const loginValue = (editorState.account.login || "").trim().toLowerCase();
+    const fullNameValue = (editorState.account.fullName || "").trim();
+    const roleValue = (editorState.account.role || "rookie") as Role;
+    const passwordValue = (editorState.password || "").trim();
+
+    if (!loginValue) {
+      setErr("Login jest wymagany.");
+      return;
+    }
+    if (editorState.mode === "create" && !passwordValue) {
+      setErr("Hasło jest wymagane przy tworzeniu nowego konta.");
+      return;
+    }
+    if (passwordValue && passwordValue.length < 6) {
+      setErr("Hasło musi mieć co najmniej 6 znaków.");
+      return;
+    }
+
+    try {
+      setAccountSaving(true);
+      setErr(null);
+      const user = auth.currentUser;
+      if (!user) throw new Error("Brak zalogowanego użytkownika.");
+      const token = await user.getIdToken();
+      const payload: Record<string, any> = {
+        login: loginValue,
+        fullName: fullNameValue,
+        role: roleValue,
+      };
+      if (passwordValue) payload.password = passwordValue;
+      if (editorState.mode === "edit") {
+        payload.uid = editorState.account.uid;
+      }
+
+      const res = await fetch("/api/admin/accounts", {
+        method: editorState.mode === "create" ? "POST" : "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Nie udało się zapisać konta.");
+      }
+      setEditorState(null);
+      await loadAccounts();
+      await recalcAll();
+    } catch (e: any) {
+      console.error(e);
+      setErr(e?.message || "Nie udało się zapisać konta.");
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
+  const removeAccount = async (account: Account) => {
+    const ok = await confirm({
+      title: "Usuń konto",
+      message: `Czy na pewno chcesz usunąć konto ${account.fullName || account.login}?`,
+      confirmLabel: "Usuń konto",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      setAccountActionUid(account.uid);
+      setErr(null);
+      const user = auth.currentUser;
+      if (!user) throw new Error("Brak zalogowanego użytkownika.");
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/admin/accounts?uid=${account.uid}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Nie udało się usunąć konta.");
+      }
+      await loadAccounts();
+      await recalcAll();
+    } catch (e: any) {
+      console.error(e);
+      setErr(e?.message || "Nie udało się usunąć konta.");
+    } finally {
+      setAccountActionUid(null);
+    }
+  };
+
+  const filteredAccounts = useMemo(() => {
+    const phrase = accountSearch.trim().toLowerCase();
+    const base = accounts
+      .filter((acc) =>
+        !phrase
+          ? true
+          : acc.login.toLowerCase().includes(phrase) || (acc.fullName || "").toLowerCase().includes(phrase)
+      )
+      .slice();
+    base.sort((a, b) => {
+      const nameA = (a.fullName || a.login).toLowerCase();
+      const nameB = (b.fullName || b.login).toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+    return base;
+  }, [accounts, accountSearch]);
+
+  const publishAnnouncement = async () => {
+    const message = announcementMessage.trim();
+    if (!message) {
+      await alert({
+        title: "Brak treści",
+        message: "Wpisz treść ogłoszenia.",
+        tone: "info",
+      });
+      return;
+    }
+    try {
+      setAnnouncementSaving(true);
+      setErr(null);
+      const windowConfig = ANNOUNCEMENT_WINDOWS.find((w) => w.value === announcementDuration);
+      const payload: Record<string, any> = {
+        message,
+        duration: announcementDuration,
+        createdAt: serverTimestamp(),
+        createdBy: login,
+        createdByName: fullName || login,
+      };
+      if (windowConfig) {
+        payload.expiresAt = windowConfig.ms ? Timestamp.fromDate(new Date(Date.now() + windowConfig.ms)) : null;
+      }
+      await setDoc(doc(db, "configs", "announcement"), payload, { merge: false });
+      await alert({
+        title: "Opublikowano",
+        message: "Ogłoszenie zostało opublikowane.",
+        tone: "info",
+      });
+    } catch (e: any) {
+      console.error(e);
+      setErr(e?.message || "Nie udało się opublikować ogłoszenia.");
+    } finally {
+      setAnnouncementSaving(false);
+    }
+  };
+
+  const removeAnnouncement = async () => {
+    if (!announcement?.message) {
+      setAnnouncementMessage("");
+      return;
+    }
+    const ok = await confirm({
+      title: "Usuń ogłoszenie",
+      message: "Czy na pewno chcesz usunąć bieżące ogłoszenie?",
+      confirmLabel: "Usuń",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      setAnnouncementSaving(true);
+      setErr(null);
+      await deleteDoc(doc(db, "configs", "announcement"));
+      setAnnouncementMessage("");
+    } catch (e: any) {
+      console.error(e);
+      setErr(e?.message || "Nie udało się usunąć ogłoszenia.");
+    } finally {
+      setAnnouncementSaving(false);
+    }
+  };
+
+  const sectionButtonClass = (value: AdminSection) =>
+    `rounded-2xl px-4 py-3 text-left transition border ${
+      section === value
+        ? "bg-white/20 border-white/50 shadow-[0_0_18px_rgba(59,130,246,0.45)]"
+        : "bg-white/5 border-white/10 hover:bg-white/15"
+    }`;
+
+
   // lifecycle
   useEffect(() => {
     if (!ready || role !== "director") return;
@@ -175,6 +477,13 @@ export default function Admin() {
     recalcPerson();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, role, person, since, people]);
+
+  useEffect(() => {
+    if (!ready || role !== "director") return;
+    if (section !== "hr") return;
+    loadAccounts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, role, section]);
 
   // operacje finansowe
   const deposit = async (v: number) => {
@@ -202,25 +511,51 @@ export default function Admin() {
     if (!person) return;
     const p = people.find((x) => x.uid === person);
     const label = p?.fullName || p?.login || person;
-    if (!confirm(`Wyzerować licznik dla ${label}? (nie wpływa na ogólne)`)) return;
+    const ok = await confirm({
+      title: "Wyzeruj statystyki",
+      message: `Wyzerować licznik dla ${label}? (nie wpływa na ogólne)`,
+      confirmLabel: "Wyzeruj",
+      tone: "danger",
+    });
+    if (!ok) return;
     await setDoc(doc(db, "profiles", person, "counters", "personal"), { lastResetAt: serverTimestamp() }, { merge: true });
     await recalcPerson();
   };
 
   const clearStats = async () => {
-    const input = prompt("Podaj liczbę dni, z których chcesz usunąć statystyki (np. 7):");
+    const input = await prompt({
+      title: "Wyczyść statystyki",
+      message: "Podaj liczbę dni, z których chcesz usunąć statystyki (np. 7).",
+      confirmLabel: "Dalej",
+      cancelLabel: "Anuluj",
+      placeholder: "np. 7",
+    });
     if (input == null) return;
     const days = Number(input);
     if (!Number.isFinite(days) || days <= 0) {
-      alert("Podaj dodatnią liczbę dni.");
+      await alert({
+        title: "Nieprawidłowa wartość",
+        message: "Podaj dodatnią liczbę dni.",
+        tone: "info",
+      });
       return;
     }
     const normalizedDays = Math.floor(days);
     if (normalizedDays <= 0) {
-      alert("Podaj dodatnią liczbę dni.");
+      await alert({
+        title: "Nieprawidłowa wartość",
+        message: "Podaj dodatnią liczbę dni.",
+        tone: "info",
+      });
       return;
     }
-    if (!confirm(`Na pewno usunąć statystyki z ostatnich ${normalizedDays} dni? (spowoduje usunięcie wpisów z archiwum)`)) return;
+    const ok = await confirm({
+      title: "Potwierdź czyszczenie",
+      message: `Na pewno usunąć statystyki z ostatnich ${normalizedDays} dni? Spowoduje to również usunięcie wpisów z archiwum.`,
+      confirmLabel: "Wyczyść",
+      tone: "danger",
+    });
+    if (!ok) return;
 
     try {
       setErr(null);
@@ -287,103 +622,394 @@ export default function Admin() {
       <Head><title>DPS 77RP — Panel zarządu</title></Head>
       <Nav />
 
-      <div className="max-w-6xl mx-auto px-4 py-6 grid gap-4">
+      <div className="max-w-7xl mx-auto px-4 py-6 grid gap-5">
         {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <h1 className="text-xl font-bold">Panel zarządu</h1>
-          <span className="text-sm text-beige-700">Zalogowany: {login}</span>
-          <div className="ml-auto flex items-center gap-2 flex-wrap">
-            <span className="text-sm">Okres:</span>
-            <select className="input" value={range} onChange={e=>setRange(e.target.value as Range)}>
-              <option value="all">Od początku</option>
-              <option value="30">Ostatnie 30 dni</option>
-              <option value="7">Ostatnie 7 dni</option>
-            </select>
-            <button className="btn bg-red-700 text-white" onClick={clearStats}>
-              Wyczyść statystyki
-            </button>
-          </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold">Panel zarządu</h1>
+          <span className="text-sm text-beige-700">Zalogowany: {fullName || login} ({login})</span>
         </div>
 
-        {/* Kafle globalne */}
-        <div className="grid md:grid-cols-3 gap-4">
-          <div className="card p-4">
-            <div className="text-sm text-beige-700">Liczba mandatów</div>
-            <div className="text-2xl font-bold">{mandaty}</div>
-          </div>
-          <div className="card p-4">
-            <div className="text-sm text-beige-700">Kontrole LSEB</div>
-            <div className="text-2xl font-bold">{lseb}</div>
-          </div>
-          <div className="card p-4">
-            <div className="text-sm text-beige-700">Areszty</div>
-            <div className="text-2xl font-bold">{areszty}</div>
-          </div>
-        </div>
+        <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
+          <aside className="card bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900 text-white p-5 shadow-xl">
+            <h2 className="text-lg font-semibold mb-4">Sekcje</h2>
+            <div className="grid gap-2 text-sm">
+              <button type="button" className={sectionButtonClass("overview")} onClick={() => setSection("overview")}>
+                <span className="text-base font-semibold">Podsumowanie</span>
+                <span className="block text-xs text-white/70">Statystyki i finanse</span>
+              </button>
+              <button type="button" className={sectionButtonClass("hr")} onClick={() => setSection("hr")}>
+                <span className="text-base font-semibold">Dział Kadr</span>
+                <span className="block text-xs text-white/70">Kontrola kont i rang</span>
+              </button>
+              <button type="button" className={sectionButtonClass("announcements")} onClick={() => setSection("announcements")}>
+                <span className="text-base font-semibold">Ogłoszenia</span>
+                <span className="block text-xs text-white/70">Komunikaty dla funkcjonariuszy</span>
+              </button>
+            </div>
+          </aside>
 
-        {/* Finanse */}
-        <div className="card p-4 grid gap-3">
-          <div className="text-sm text-beige-700">Stan konta DPS</div>
-          <div className="text-3xl font-bold">${balance.toFixed(2)}</div>
-          <div className="flex items-center gap-2">
-            <input id="kw" className="input w-40" placeholder="Kwota (USD)" />
-            <button className="btn" onClick={()=>{
-              const v = Number((document.getElementById("kw") as HTMLInputElement)?.value || 0);
-              deposit(v).catch(e=>setErr(e.message));
-            }}>Wpłać</button>
-            <button className="btn" onClick={()=>{
-              const v = Number((document.getElementById("kw") as HTMLInputElement)?.value || 0);
-              withdraw(v).catch(e=>setErr(e.message));
-            }}>Wypłać</button>
-            <button className="btn bg-red-700 text-white" onClick={()=>{
-              if (confirm("Na pewno wypłacić wszystko?")) withdrawAll().catch(e=>setErr(e.message));
-            }}>Wypłać wszystko</button>
-          </div>
-        </div>
+          <div className="grid gap-6">
+            {section === "overview" && (
+              <div className="grid gap-6">
+                <div className="card p-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h2 className="text-xl font-semibold">Podsumowanie działań</h2>
+                    <p className="text-sm text-beige-700">Okres raportowania: {rangeLabel}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select className="input w-48" value={range} onChange={(e) => setRange(e.target.value as Range)}>
+                      <option value="all">Od początku</option>
+                      <option value="30">Ostatnie 30 dni</option>
+                      <option value="7">Ostatnie 7 dni</option>
+                    </select>
+                    <button className="btn bg-red-700 text-white" onClick={clearStats}>
+                      Wyczyść statystyki
+                    </button>
+                  </div>
+                </div>
 
-        {/* Personel */}
-        <div className="card p-4 grid gap-3">
-          <div className="flex items-center gap-2">
-            <span>Funkcjonariusz:</span>
-            <select className="input w-64" value={person} onChange={e=>setPerson(e.target.value)}>
-              {people.map(p=>(
-                <option key={p.uid} value={p.uid}>{p.fullName || p.login || p.uid}</option>
-              ))}
-            </select>
-            <div className="ml-auto flex items-center gap-2">
-              <span className="text-sm">Okres:</span>
-              <select className="input" value={range} onChange={e=>setRange(e.target.value as Range)}>
-                <option value="all">Cały okres</option>
-                <option value="30">30 dni</option>
-                <option value="7">7 dni</option>
-              </select>
-            </div>
-            <button className="btn bg-red-700 text-white" onClick={resetPerson}>
-              Wyzeruj licznik tego funkcjonariusza
-            </button>
-          </div>
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div className="card p-4 bg-white/70">
+                    <div className="text-sm text-beige-700">Liczba mandatów</div>
+                    <div className="text-3xl font-bold">{mandaty}</div>
+                  </div>
+                  <div className="card p-4 bg-white/70">
+                    <div className="text-sm text-beige-700">Kontrole LSEB</div>
+                    <div className="text-3xl font-bold">{lseb}</div>
+                  </div>
+                  <div className="card p-4 bg-white/70">
+                    <div className="text-sm text-beige-700">Areszty</div>
+                    <div className="text-3xl font-bold">{areszty}</div>
+                  </div>
+                </div>
 
-          <div className="grid md:grid-cols-4 gap-4">
-            <div className="card p-3">
-              <div className="text-sm text-beige-700">Mandaty</div>
-              <div className="text-2xl font-bold">{pStats.m}</div>
-            </div>
-            <div className="card p-3">
-              <div className="text-sm text-beige-700">Kontrole LSEB</div>
-              <div className="text-2xl font-bold">{pStats.k}</div>
-            </div>
-            <div className="card p-3">
-              <div className="text-sm text-beige-700">Areszty</div>
-              <div className="text-2xl font-bold">{pStats.a}</div>
-            </div>
-            <div className="card p-3">
-              <div className="text-sm text-beige-700">Przychód dla DPS</div>
-              <div className="text-2xl font-bold">${pStats.income.toFixed(2)}</div>
-            </div>
+                <div className="card p-5 grid gap-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-sm text-beige-700">Stan konta DPS</div>
+                    <span className="text-3xl font-bold tracking-tight">${balance.toFixed(2)}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input id="kw" className="input w-40" placeholder="Kwota (USD)" />
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        const v = Number((document.getElementById("kw") as HTMLInputElement)?.value || 0);
+                        deposit(v).catch((e) => setErr(e.message));
+                      }}
+                    >
+                      Wpłać
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        const v = Number((document.getElementById("kw") as HTMLInputElement)?.value || 0);
+                        withdraw(v).catch((e) => setErr(e.message));
+                      }}
+                    >
+                      Wypłać
+                    </button>
+                    <button
+                      className="btn bg-red-700 text-white"
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: "Wypłać środki",
+                          message: "Na pewno wypłacić całe saldo konta DPS?",
+                          confirmLabel: "Wypłać wszystko",
+                          tone: "danger",
+                        });
+                        if (ok) withdrawAll().catch((e) => setErr(e.message));
+                      }}
+                    >
+                      Wypłać wszystko
+                    </button>
+                  </div>
+                </div>
+
+                <div className="card p-5 grid gap-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="font-semibold">Funkcjonariusz:</span>
+                    <select className="input w-64" value={person} onChange={(e) => setPerson(e.target.value)}>
+                      {people.map((p) => (
+                        <option key={p.uid} value={p.uid}>
+                          {p.fullName || p.login || p.uid}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
+                      <span>Okres:</span>
+                      <select className="input w-40" value={range} onChange={(e) => setRange(e.target.value as Range)}>
+                        <option value="all">Cały okres</option>
+                        <option value="30">30 dni</option>
+                        <option value="7">7 dni</option>
+                      </select>
+                    </div>
+                    <button className="btn bg-red-700 text-white" onClick={resetPerson}>
+                      Wyzeruj licznik tego funkcjonariusza
+                    </button>
+                  </div>
+
+                  <div className="grid md:grid-cols-4 gap-4">
+                    <div className="card p-4 bg-white/70">
+                      <div className="text-sm text-beige-700">Mandaty</div>
+                      <div className="text-2xl font-bold">{pStats.m}</div>
+                    </div>
+                    <div className="card p-4 bg-white/70">
+                      <div className="text-sm text-beige-700">Kontrole LSEB</div>
+                      <div className="text-2xl font-bold">{pStats.k}</div>
+                    </div>
+                    <div className="card p-4 bg-white/70">
+                      <div className="text-sm text-beige-700">Areszty</div>
+                      <div className="text-2xl font-bold">{pStats.a}</div>
+                    </div>
+                    <div className="card p-4 bg-white/70">
+                      <div className="text-sm text-beige-700">Przychód dla DPS</div>
+                      <div className="text-2xl font-bold">${pStats.income.toFixed(2)}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {section === "hr" && (
+              <div className="grid gap-5">
+                <div className="card bg-gradient-to-br from-sky-900/85 via-indigo-900/80 to-purple-900/80 text-white p-6 shadow-xl">
+                  <div className="flex flex-wrap items-start gap-3">
+                    <div className="flex-1">
+                      <h2 className="text-xl font-semibold">Dział Kadr</h2>
+                      <p className="text-sm text-white/70">Zarządzaj kontami funkcjonariuszy DPS.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn border-white/40 bg-white/10 text-white hover:bg-white/20"
+                      onClick={openCreateAccount}
+                    >
+                      Nowe konto
+                    </button>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <input
+                      className="input w-full md:w-72 bg-white/15 border-white/30 text-white placeholder:text-white/60"
+                      placeholder="Szukaj po loginie lub imieniu..."
+                      value={accountSearch}
+                      onChange={(e) => setAccountSearch(e.target.value)}
+                    />
+                    <span className="text-xs text-white/60">Domena logowania: @{loginDomain}</span>
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  {accountsLoading ? (
+                    <div className="card p-5 text-center">Ładowanie kont…</div>
+                  ) : filteredAccounts.length === 0 ? (
+                    <div className="card p-5 text-center">Brak kont spełniających kryteria.</div>
+                  ) : (
+                    filteredAccounts.map((acc) => (
+                      <div
+                        key={acc.uid}
+                        className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+                      >
+                        <div>
+                          <h3 className="text-lg font-semibold">{acc.fullName || "Bez nazwy"}</h3>
+                          <p className="text-sm text-beige-700">
+                            Login: <span className="font-mono text-base">{acc.login}@{loginDomain}</span>
+                          </p>
+                          <p className="text-xs uppercase tracking-wide text-beige-600 mt-1">
+                            Ranga: {ROLE_NAMES[acc.role] || acc.role}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button className="btn" onClick={() => openEditAccount(acc)}>Edytuj</button>
+                          <button
+                            className="btn bg-red-700 text-white"
+                            onClick={() => removeAccount(acc)}
+                            disabled={accountActionUid === acc.uid}
+                          >
+                            {accountActionUid === acc.uid ? "Usuwanie..." : "Usuń"}
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {section === "announcements" && (
+              <div className="grid gap-5">
+                <div className="card bg-gradient-to-br from-purple-900/85 via-indigo-900/80 to-blue-900/80 text-white p-6 shadow-xl">
+                  <h2 className="text-xl font-semibold">Ogłoszenia</h2>
+                  <p className="text-sm text-white/70">
+                    Komunikaty są wyświetlane na stronie dokumentów, teczek i archiwum.
+                  </p>
+                  <textarea
+                    className="mt-4 h-44 w-full rounded-2xl border border-white/30 bg-white/10 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/60 focus:border-white focus:outline-none focus:ring-2 focus:ring-white/70"
+                    value={announcementMessage}
+                    onChange={(e) => setAnnouncementMessage(e.target.value)}
+                    placeholder="Treść ogłoszenia..."
+                  />
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-white/80">Czas wyświetlania:</span>
+                      <select
+                        className="input bg-white/15 border-white/30 text-white"
+                        value={announcementDuration}
+                        onChange={(e) => setAnnouncementDuration(e.target.value)}
+                      >
+                        {ANNOUNCEMENT_WINDOWS.map((w) => (
+                          <option key={w.value} value={w.value}>
+                            {w.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      className="btn border-white/30 bg-white/10 text-white hover:bg-white/20"
+                      onClick={publishAnnouncement}
+                      disabled={announcementSaving}
+                    >
+                      {announcementSaving ? "Zapisywanie..." : "Opublikuj"}
+                    </button>
+                    <button
+                      className="btn bg-red-600/80 text-white"
+                      onClick={removeAnnouncement}
+                      disabled={announcementSaving || !announcement?.message}
+                    >
+                      Usuń
+                    </button>
+                  </div>
+
+                  {announcement?.message && (
+                    <div className="mt-5 rounded-2xl border border-white/30 bg-black/30 p-4 text-sm text-white/80">
+                      <div className="font-semibold text-white">Aktualnie opublikowane</div>
+                      <p className="mt-2 whitespace-pre-wrap">{announcement.message}</p>
+                      <div className="mt-2 text-xs text-white/60 flex flex-wrap gap-2">
+                        <span>
+                          Widoczne: {
+                            ANNOUNCEMENT_WINDOWS.find((w) => w.value === announcement.duration)?.label || "—"
+                          }
+                        </span>
+                        <span>
+                          {announcement.expiresAt
+                            ? `Wygasa: ${announcement.expiresAt.toDate().toLocaleString()}`
+                            : "Wygasa: do czasu usunięcia"}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+       {editorState && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-xl rounded-3xl border border-indigo-400 bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 p-6 text-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-semibold">
+                  {editorState.mode === "create" ? "Nowe konto" : "Edytuj konto"}
+                </h2>
+                <p className="text-sm text-white/70 mt-1">Loginy wykorzystują domenę @{loginDomain}.</p>
+              </div>
+              <button
+                type="button"
+                className="text-white/70 hover:text-white"
+                onClick={() => setEditorState(null)}
+              >
+                ✕
+              </button>
+            </div>
+            
+
+          <div className="mt-4 grid gap-4">
+              <div>
+                <label className="text-sm font-semibold text-white/80">Login</label>
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    className="input flex-1 bg-white/15 border-white/30 text-white placeholder:text-white/60"
+                    value={editorState.account.login || ""}
+                    onChange={(e) =>
+                      setEditorState((prev) =>
+                        prev ? { ...prev, account: { ...prev.account, login: e.target.value } } : prev
+                      )
+                    }
+                  />
+                  <span className="text-sm text-white/70">@{loginDomain}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">Imię i nazwisko</label>
+                <input
+                  className="input bg-white/15 border-white/30 text-white placeholder:text-white/60"
+                  value={editorState.account.fullName || ""}
+                  onChange={(e) =>
+                    setEditorState((prev) =>
+                      prev ? { ...prev, account: { ...prev.account, fullName: e.target.value } } : prev
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">Ranga</label>
+                <select
+                  className="input bg-white/15 border-white/30 text-white"
+                  value={editorState.account.role || "rookie"}
+                  onChange={(e) =>
+                    setEditorState((prev) =>
+                      prev
+                        ? { ...prev, account: { ...prev.account, role: e.target.value as Role } }
+                        : prev
+                    )
+                  }
+                >
+                  {Object.entries(ROLE_NAMES).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">
+                  {editorState.mode === "create" ? "Hasło" : "Nowe hasło"}
+                </label>
+                <input
+                  type="password"
+                  className="input bg-white/15 border-white/30 text-white placeholder:text-white/60"
+                  value={editorState.password || ""}
+                  placeholder={editorState.mode === "create" ? "Wprowadź hasło" : "Pozostaw puste aby nie zmieniać"}
+                  onChange={(e) =>
+                    setEditorState((prev) => (prev ? { ...prev, password: e.target.value } : prev))
+                  }
+                />
+              </div>
+            </div>
+            
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                className="btn border-white/30 bg-white/10 text-white hover:bg-white/20"
+                onClick={() => setEditorState(null)}
+                disabled={accountSaving}
+              >
+                Anuluj
+              </button>
+              <button
+                className="btn bg-white text-indigo-900 font-semibold hover:bg-white/90"
+                onClick={saveAccount}
+                disabled={accountSaving}
+              >
+                {accountSaving ? "Zapisywanie..." : "Zapisz"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AuthGate>
   );
 }
