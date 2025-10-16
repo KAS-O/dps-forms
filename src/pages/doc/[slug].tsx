@@ -62,14 +62,15 @@ export default function DocPage() {
       setProfiles(arr);
 
       // domyślnie – zalogowany użytkownik
+      const authUserUid = auth.currentUser?.uid || "";
       const email = auth.currentUser?.email || "";
       const suffix = `@${LOGIN_DOMAIN}`;
       const loginOnly = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
       const me = arr.find((p) => p.login === loginOnly);
-      if (me) {
-        setCurrentUid(me.id);
-        setSelectedUids([me.id]);
-      }
+
+      const resolvedUid = me?.id || authUserUid;
+      setCurrentUid(resolvedUid);
+      setSelectedUids(resolvedUid ? [resolvedUid] : []);
     })();
   }, []);
 
