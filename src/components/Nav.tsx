@@ -27,7 +27,9 @@ export default function Nav() {
           {can.seeArchive(role) && (
             <Link href="/archive" className="hover:underline">Archiwum</Link>
           )}
-          <Link href="/admin" className="hover:underline">Panel zarządu</Link>
+          {role === "director" && (
+  <Link href="/admin" className="hover:underline">Panel zarządu</Link>
+)}
           <span className="ml-2 px-2 py-1 rounded bg-beige-200 text-beige-900">
             {fullName || "—"}{role ? ` • ${roleLabel}` : ""}
           </span>
