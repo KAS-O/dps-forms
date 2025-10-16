@@ -4,10 +4,10 @@ import AuthGate from "@/components/AuthGate";
 import { useProfile } from "@/hooks/useProfile";
 import { useEffect, useMemo, useState } from "react";
 import {
+  addDoc,
   collection,
   query,
   where,
-  orderBy,
   getCountFromServer,
   getDoc,
   getDocs,
@@ -17,6 +17,7 @@ import {
   increment,
   Timestamp,
   serverTimestamp,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -56,6 +57,7 @@ export default function Admin() {
   // które szablony mają kary pieniężne
   const FINE_TEMPLATES: { name: string; field: string }[] = [
     { name: "Bloczek mandatowy", field: "kwota" },
+    { name: "Kontrola LSEB", field: "grzywna" },
     { name: "Protokół aresztowania", field: "grzywna" },
   ];
 
@@ -144,6 +146,9 @@ export default function Admin() {
           if (!Number.isNaN(n)) income += n;
         } else if (template === "Kontrola LSEB") {
           k += 1;
+          const val = (data?.values || {}) as any;
+          const n = Number(val.grzywna || 0);
+          if (!Number.isNaN(n)) income += n;
         } else if (template === "Protokół aresztowania") {
           a += 1;
           const val = (data?.values || {}) as any;
@@ -202,6 +207,59 @@ export default function Admin() {
     await recalcPerson();
   };
 
+  const clearStats = async () => {
+    const input = prompt("Podaj liczbę dni, z których chcesz usunąć statystyki (np. 7):");
+    if (input == null) return;
+    const days = Number(input);
+    if (!Number.isFinite(days) || days <= 0) {
+      alert("Podaj dodatnią liczbę dni.");
+      return;
+    }
+    const normalizedDays = Math.floor(days);
+    if (normalizedDays <= 0) {
+      alert("Podaj dodatnią liczbę dni.");
+      return;
+    }
+    if (!confirm(`Na pewno usunąć statystyki z ostatnich ${normalizedDays} dni? (spowoduje usunięcie wpisów z archiwum)`)) return;
+
+    try {
+      setErr(null);
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - normalizedDays);
+      const cutoffTs = Timestamp.fromDate(cutoff);
+      const archivesRef = collection(db, "archives");
+      const snap = await getDocs(query(archivesRef, where("createdAt", ">=", cutoffTs)));
+
+      let batch = writeBatch(db);
+      const commits: Promise<void>[] = [];
+      let counter = 0;
+      snap.docs.forEach((docSnap, idx) => {
+        batch.delete(docSnap.ref);
+        counter += 1;
+        if (counter === 400 || idx === snap.docs.length - 1) {
+          commits.push(batch.commit());
+          batch = writeBatch(db);
+          counter = 0;
+        }
+      });
+      await Promise.all(commits);
+      await addDoc(collection(db, "logs"), {
+        type: "stats_clear",
+        days: normalizedDays,
+        removed: snap.size,
+        author: login,
+        ts: serverTimestamp(),
+      });
+
+      await recalcAll();
+      await recalcPerson();
+    } catch (e: any) {
+      console.error(e);
+      setErr(e?.message || "Nie udało się wyczyścić statystyk.");
+    }
+  };
+
+
   // UI
   if (!ready) {
     return (
@@ -232,16 +290,19 @@ export default function Admin() {
       <div className="max-w-6xl mx-auto px-4 py-6 grid gap-4">
         {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <h1 className="text-xl font-bold">Panel zarządu</h1>
           <span className="text-sm text-beige-700">Zalogowany: {login}</span>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
             <span className="text-sm">Okres:</span>
             <select className="input" value={range} onChange={e=>setRange(e.target.value as Range)}>
               <option value="all">Od początku</option>
               <option value="30">Ostatnie 30 dni</option>
               <option value="7">Ostatnie 7 dni</option>
             </select>
+            <button className="btn bg-red-700 text-white" onClick={clearStats}>
+              Wyczyść statystyki
+            </button>
           </div>
         </div>
 
@@ -265,9 +326,6 @@ export default function Admin() {
         <div className="card p-4 grid gap-3">
           <div className="text-sm text-beige-700">Stan konta DPS</div>
           <div className="text-3xl font-bold">${balance.toFixed(2)}</div>
-          <div className="text-xs text-beige-700">
-            (Z archiwum: ${baseTotal.toFixed(2)} + ręczne operacje: ${manualDelta.toFixed(2)})
-          </div>
           <div className="flex items-center gap-2">
             <input id="kw" className="input w-40" placeholder="Kwota (USD)" />
             <button className="btn" onClick={()=>{
