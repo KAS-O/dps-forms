@@ -1,5 +1,5 @@
 export type Field =
-  | { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'date' | 'select'; required?: boolean; options?: string[] };
+  | { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'date' | 'select' | 'multiselect'; required?: boolean; options?: string[] };
 
 export type Template = {
   slug: string;
@@ -10,16 +10,16 @@ export type Template = {
 
 export const TEMPLATES: Template[] = [
   {
-    slug: 'protokol-kontroli-sanitarnej',
-    name: 'Protokół kontroli sanitarnej',
+    slug: "kontrola-lseb",
+    name: "Kontrola LSEB",
+    description: "Kontrola sanitarna/BHP/Ochrona prawa pracy",
     fields: [
-      { key: 'data', label: 'Data', type: 'date', required: true },
-      { key: 'funkcjonariusz', label: 'Funkcjonariusz', type: 'text', required: true },
-      { key: 'jednostka', label: 'Jednostka', type: 'text' },
-      { key: 'miejsce', label: 'Miejsce', type: 'text', required: true },
-      { key: 'opis', label: 'Opis czynności', type: 'textarea', required: true },
-      { key: 'wynik', label: 'Wynik/uwagi', type: 'textarea' },
-    ]
+      { key: "typ", label: "Rodzaj kontroli", type: "multiselect", options: ["Kontrola sanitarna", "Kontrola BHP", "Ochrona prawa pracy"], required: true },
+      { key: "firma", label: "Nazwa firmy / miejsce", type: "text", required: true },
+      { key: "adres", label: "Adres", type: "text", required: true },
+      { key: "ustalenia", label: "Ustalenia", type: "textarea", required: true },
+      { key: "zalecenia", label: "Zalecenia", type: "textarea" },
+    ],
   },
   {
     slug: 'bloczek-mandatowy',
@@ -31,7 +31,7 @@ export const TEMPLATES: Template[] = [
       { key: 'miejsce', label: 'Miejsce zdarzenia', type: 'text', required: true },
       { key: 'wykroczenie', label: 'Wykroczenie', type: 'textarea', required: true },
       { key: 'kwota', label: 'Kwota (USD)', type: 'number', required: true },
-      { key: 'pkt', label: 'Punkty karne', type: 'number' },
+      // punkty karne USUNIĘTE zgodnie z prośbą
       { key: 'kroki', label: 'Podjęte kroki', type: 'textarea' },
       { key: 'funkcjonariusz', label: 'Funkcjonariusz', type: 'text', required: true },
     ]
