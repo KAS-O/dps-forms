@@ -21,7 +21,6 @@ import {
 import { db } from "@/lib/firebase";
 
 type Range = "all" | "30" | "7";
-
 type Person = { uid: string; fullName?: string; login?: string };
 
 export default function Admin() {
@@ -30,14 +29,14 @@ export default function Admin() {
   const [range, setRange] = useState<Range>("all");
   const [err, setErr] = useState<string | null>(null);
 
-  // ogólne liczniki
+  // ogólne
   const [mandaty, setMandaty] = useState(0);
   const [lseb, setLseb] = useState(0);
   const [areszty, setAreszty] = useState(0);
 
   // saldo
-  const [baseTotal, setBaseTotal] = useState(0);      // suma z archiwum (mandaty + grzywny)
-  const [manualDelta, setManualDelta] = useState(0);  // ręczne operacje
+  const [baseTotal, setBaseTotal] = useState(0);
+  const [manualDelta, setManualDelta] = useState(0);
   const balance = useMemo(() => baseTotal + manualDelta, [baseTotal, manualDelta]);
 
   // personel
@@ -45,7 +44,7 @@ export default function Admin() {
   const [person, setPerson] = useState<string>(""); // uid
   const [pStats, setPStats] = useState({ m: 0, k: 0, a: 0, income: 0 });
 
-  // „od kiedy”
+  // okres
   const since: Timestamp | null = useMemo(() => {
     if (range === "all") return null;
     const days = range === "30" ? 30 : 7;
@@ -54,13 +53,13 @@ export default function Admin() {
     return Timestamp.fromDate(d);
   }, [range]);
 
-  // pomocnicze: nazwy/klucze grzywien w templates
+  // które szablony mają kary pieniężne
   const FINE_TEMPLATES: { name: string; field: string }[] = [
     { name: "Bloczek mandatowy", field: "kwota" },
     { name: "Protokół aresztowania", field: "grzywna" },
   ];
 
-  // ===== Recalc całej karty (ogólne + saldo + lista osób)
+  // ===== ogólne + saldo + personel
   const recalcAll = async () => {
     try {
       setErr(null);
@@ -77,7 +76,7 @@ export default function Admin() {
       setLseb((await getCountFromServer(qK)).data().count);
       setAreszty((await getCountFromServer(qA)).data().count);
 
-      // suma grzywien/mandatów (baseTotal)
+      // suma kar z archiwum
       let base = 0;
       for (const t of FINE_TEMPLATES) {
         const qF = query(archives, where("templateName", "==", t.name), ...time);
@@ -90,7 +89,7 @@ export default function Admin() {
       }
       setBaseTotal(base);
 
-      // manualDelta z /accounts/dps
+      // manualDelta
       const accRef = doc(db, "accounts", "dps");
       const accSnap = await getDoc(accRef);
       setManualDelta(Number(accSnap.data()?.manualDelta || 0));
@@ -105,35 +104,25 @@ export default function Admin() {
     }
   };
 
-  // ==== Statystyki wybranego funkcjonariusza (z uwzględnieniem resetu)
+  // ===== statystyki personalne (po UID)
   const recalcPerson = async () => {
     if (!person) return;
     try {
       setErr(null);
 
-      // odczytaj lastResetAt (jeśli był) → efektywny start = max(since, lastResetAt)
+      // efektywny start: max(since, lastResetAt)
       const resetRef = doc(db, "profiles", person, "counters", "personal");
       const rSnap = await getDoc(resetRef);
       const lastResetAt = (rSnap.data()?.lastResetAt || null) as Timestamp | null;
       const effSince =
-        since && lastResetAt ? (since.toMillis() > lastResetAt.toMillis() ? since : lastResetAt)
-        : since || lastResetAt || null;
-
-      const personName =
-        people.find((p) => p.uid === person)?.fullName ||
-        people.find((p) => p.uid === person)?.login ||
-        "";
-
-      if (!personName) {
-        setPStats({ m: 0, k: 0, a: 0, income: 0 });
-        return;
-      }
+        since && lastResetAt
+          ? (since.toMillis() > lastResetAt.toMillis() ? since : lastResetAt)
+          : since || lastResetAt || null;
 
       const archives = collection(db, "archives");
       const time = effSince ? [where("createdAt", ">=", effSince)] : [];
-      const who = where("officers", "array-contains", personName);
+      const who = where("officersUid", "array-contains", person); // <— PO UID!
 
-      // liczniki osobowe
       const m = await getCountFromServer(
         query(archives, where("templateName", "==", "Bloczek mandatowy"), who, ...time)
       );
@@ -144,7 +133,7 @@ export default function Admin() {
         query(archives, where("templateName", "==", "Protokół aresztowania"), who, ...time)
       );
 
-      // przychód osobisty (z mandatów)
+      // przychód osobisty (mandaty)
       let income = 0;
       const s = await getDocs(
         query(archives, where("templateName", "==", "Bloczek mandatowy"), who, ...time)
@@ -155,18 +144,13 @@ export default function Admin() {
         if (!Number.isNaN(n)) income += n;
       });
 
-      setPStats({
-        m: m.data().count,
-        k: k.data().count,
-        a: a.data().count,
-        income,
-      });
+      setPStats({ m: m.data().count, k: k.data().count, a: a.data().count, income });
     } catch (e: any) {
       setErr(e?.message || "Błąd statystyk personelu");
     }
   };
 
-  // —— Lifecycle
+  // lifecycle
   useEffect(() => {
     if (!ready || role !== "director") return;
     recalcAll();
@@ -179,7 +163,7 @@ export default function Admin() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, role, person, since, people]);
 
-  // —— Operacje finansowe (manualDelta)
+  // operacje finansowe
   const deposit = async (v: number) => {
     if (v <= 0) return;
     const ref = doc(db, "accounts", "dps");
@@ -195,36 +179,28 @@ export default function Admin() {
     await recalcAll();
   };
   const withdrawAll = async () => {
-    // ustaw manualDelta tak, by zniwelować bieżącą część bazową
     const ref = doc(db, "accounts", "dps");
     await setDoc(ref, { manualDelta: 0, createdAt: serverTimestamp() }, { merge: true });
-    // manualDelta = -baseTotal
     await updateDoc(ref, { manualDelta: -baseTotal });
     await recalcAll();
   };
 
-  // —— Reset osobisty (tylko osobiste liczniki)
   const resetPerson = async () => {
     if (!person) return;
-    const pName =
-      people.find((p) => p.uid === person)?.fullName ||
-      people.find((p) => p.uid === person)?.login ||
-      person;
-    if (!confirm(`Wyzerować licznik dla ${pName}? (nie wpływa na ogólne statystyki)`)) return;
-    const ref = doc(db, "profiles", person, "counters", "personal");
-    await setDoc(ref, { lastResetAt: serverTimestamp() }, { merge: true });
+    const p = people.find((x) => x.uid === person);
+    const label = p?.fullName || p?.login || person;
+    if (!confirm(`Wyzerować licznik dla ${label}? (nie wpływa na ogólne)`)) return;
+    await setDoc(doc(db, "profiles", person, "counters", "personal"), { lastResetAt: serverTimestamp() }, { merge: true });
     await recalcPerson();
   };
 
-  // ——— UI
+  // UI
   if (!ready) {
     return (
       <AuthGate>
         <Head><title>DPS 77RP — Panel zarządu</title></Head>
         <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-8">
-          <div className="card p-6">Ładowanie…</div>
-        </div>
+        <div className="max-w-6xl mx-auto px-4 py-8"><div className="card p-6">Ładowanie…</div></div>
       </AuthGate>
     );
   }
@@ -234,9 +210,7 @@ export default function Admin() {
         <Head><title>DPS 77RP — Panel zarządu</title></Head>
         <Nav />
         <div className="max-w-4xl mx-auto px-4 py-8">
-          <div className="card p-6 text-center">
-            Brak dostępu. Tylko <b>Director</b> może otworzyć Panel zarządu.
-          </div>
+          <div className="card p-6 text-center">Brak dostępu. Tylko <b>Director</b> może otworzyć Panel zarządu.</div>
         </div>
       </AuthGate>
     );
