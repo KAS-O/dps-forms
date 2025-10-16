@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { db } from "@/lib/firebase";
 import { addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, serverTimestamp, writeBatch } from "firebase/firestore";
 import { useProfile, can } from "@/hooks/useProfile";
+import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
+import { useDialog } from "@/components/DialogProvider";
 
 type Archive = {
   id: string;
@@ -22,6 +24,7 @@ export default function ArchivePage() {
   const [items, setItems] = useState<Archive[]>([]);
   const [qtxt, setQ] = useState("");
   const [clearing, setClearing] = useState(false);
+  const { alert, confirm } = useDialog();
 
   useEffect(() => {
     (async () => {
@@ -31,7 +34,11 @@ export default function ArchivePage() {
         setItems(sa.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
       } catch (e) {
         console.error(e);
-        alert("Brak uprawnień lub błąd wczytania archiwum.");
+       await alert({
+          title: "Błąd archiwum",
+          message: "Brak uprawnień lub błąd wczytania archiwum.",
+          tone: "danger",
+        });
       }
     })();
   }, []);
@@ -46,16 +53,42 @@ export default function ArchivePage() {
   }, [items, qtxt]);
 
   const remove = async (id: string) => {
-    if (!can.deleteArchive(role)) return alert("Brak uprawnień.");
-    if (!confirm("Usunąć wpis z archiwum?")) return;
+    if (!can.deleteArchive(role)) {
+      await alert({
+        title: "Brak uprawnień",
+        message: "Tylko Director może usuwać wpisy z archiwum.",
+        tone: "info",
+      });
+      return;
+    }
+    const ok = await confirm({
+      title: "Usuń wpis",
+      message: "Czy na pewno chcesz usunąć wybrany wpis z archiwum?",
+      confirmLabel: "Usuń",
+      tone: "danger",
+    });
+    if (!ok) return;
     await deleteDoc(doc(db, "archives", id));
     await addDoc(collection(db, "logs"), { type: "archive_delete", id, by: login, ts: serverTimestamp() });
     setItems(prev => prev.filter(x => x.id !== id));
   };
 
   const clearAll = async () => {
-    if (!can.deleteArchive(role)) return alert("Brak uprawnień.");
-    if (!confirm("Na pewno chcesz usunąć całe archiwum?")) return;
+    if (!can.deleteArchive(role)) {
+      await alert({
+        title: "Brak uprawnień",
+        message: "Tylko Director może czyścić archiwum.",
+        tone: "info",
+      });
+      return;
+    }
+    const ok = await confirm({
+      title: "Wyczyść archiwum",
+      message: "Czy na pewno chcesz trwale usunąć całe archiwum?",
+      confirmLabel: "Wyczyść",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       setClearing(true);
       const snap = await getDocs(collection(db, "archives"));
@@ -81,7 +114,11 @@ export default function ArchivePage() {
       setItems([]);
     } catch (e) {
       console.error(e);
-      alert("Nie udało się wyczyścić archiwum.");
+      await alert({
+        title: "Błąd",
+        message: "Nie udało się wyczyścić archiwum.",
+        tone: "danger",
+      });
     } finally {
       setClearing(false);
     }
@@ -107,42 +144,47 @@ export default function ArchivePage() {
       <>
         <Head><title>DPS 77RP — Archiwum</title></Head>
         <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-6 grid gap-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-bold">Archiwum</h1>
-            <div className="ml-auto flex items-center gap-2">
-              <input className="input w-[220px] sm:w-[280px]" placeholder="Szukaj..." value={qtxt} onChange={e=>setQ(e.target.value)} />
-              {can.deleteArchive(role) && (
-                <button className="btn bg-red-700 text-white" onClick={clearAll} disabled={clearing}>
-                  {clearing ? "Czyszczenie..." : "Wyczyść archiwum"}
-                </button>
-              )}
+        <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="grid gap-4">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-2xl font-bold">Archiwum</h1>
+              <div className="ml-auto flex items-center gap-2">
+                <input className="input w-[220px] sm:w-[280px]" placeholder="Szukaj..." value={qtxt} onChange={e=>setQ(e.target.value)} />
+                {can.deleteArchive(role) && (
+                  <button className="btn bg-red-700 text-white" onClick={clearAll} disabled={clearing}>
+                    {clearing ? "Czyszczenie..." : "Wyczyść archiwum"}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+  
 
           <div className="grid gap-2">
-            {filtered.map(it => (
-              <div key={it.id} className="card p-4 grid md:grid-cols-[1fr_auto] gap-3">
-                <div>
-                  <div className="font-semibold">{it.templateName}</div>
-                  <div className="text-sm text-beige-700">
-                    Autor (login): {it.userLogin || "—"} • Funkcjonariusze: {(it.officers || []).join(", ") || "—"}
+              {filtered.map(it => (
+                <div key={it.id} className="card p-4 grid md:grid-cols-[1fr_auto] gap-3">
+                  <div>
+                    <div className="font-semibold">{it.templateName}</div>
+                    <div className="text-sm text-beige-700">
+                      Autor (login): {it.userLogin || "—"} • Funkcjonariusze: {(it.officers || []).join(", ") || "—"}
+                    </div>
+                    <div className="text-sm text-beige-700">
+                      {it.createdAt?.toDate ? it.createdAt.toDate().toLocaleString() : "—"}
+                      {it.dossierId && <> • <a className="underline" href={`/dossiers/${it.dossierId}`}>Zobacz teczkę</a></>}
+                    </div>
+                    {it.imageUrl && <div className="mt-1"><a className="text-blue-700 underline" href={it.imageUrl} target="_blank" rel="noreferrer">Otwórz obraz</a></div>}
                   </div>
-                  <div className="text-sm text-beige-700">
-                    {it.createdAt?.toDate ? it.createdAt.toDate().toLocaleString() : "—"}
-                    {it.dossierId && <> • <a className="underline" href={`/dossiers/${it.dossierId}`}>Zobacz teczkę</a></>}
+                  <div className="flex items-center justify-end gap-2">
+                    {can.deleteArchive(role) && (
+                      <button className="btn bg-red-700 text-white" onClick={()=>remove(it.id)}>Usuń</button>
+                    )}
                   </div>
-                  {it.imageUrl && <div className="mt-1"><a className="text-blue-700 underline" href={it.imageUrl} target="_blank">Otwórz obraz</a></div>}
+                  
                 </div>
-                <div className="flex items-center justify-end gap-2">
-                  {can.deleteArchive(role) && (
-                    <button className="btn bg-red-700 text-white" onClick={()=>remove(it.id)}>Usuń</button>
-                  )}
-                </div>
-              </div>
-            ))}
-            {filtered.length === 0 && <p>Brak wpisów.</p>}
+             ))}
+              {filtered.length === 0 && <p>Brak wpisów.</p>}
+            </div>
           </div>
+          <AnnouncementSpotlight />
         </div>
       </>
     </AuthGate>
