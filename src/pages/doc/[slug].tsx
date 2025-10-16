@@ -13,6 +13,9 @@ import {
   orderBy,
   doc,
   getDoc,
+  setDoc,
+  updateDoc,
+  increment,
 } from "firebase/firestore";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 
@@ -162,6 +165,7 @@ export default function DocPage() {
       const email = auth.currentUser?.email || "";
       const suffix = `@${LOGIN_DOMAIN}`;
       const userLogin = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
+      const ownerUid = auth.currentUser?.uid || null;
 
       // 1) Upload obrazu do Storage
       const storagePath = `archives/${filename}`;
@@ -172,17 +176,26 @@ export default function DocPage() {
       // wartości do zapisu (dodajemy „funkcjonariusze” jako tekst do podglądu)
       const valuesOut = { ...values, funkcjonariusze: officers.join(", ") };
 
+      // kwota do salda (dla mandatu)
+      let amount = 0;
+      if (template.slug === "bloczek-mandatowy") {
+        amount = Number(values.kwota || 0);
+        if (!Number.isFinite(amount)) amount = 0;
+      }
+
       // 2) Wpis do Firestore → "archives"
       const archiveRef = await addDoc(collection(db, "archives"), {
         templateName: template.name,
-        templateSlug: template.slug, // <— dla panelu statystyk
-        userLogin: userLogin || "nieznany",
+        templateSlug: template.slug,       // dla panelu statystyk
+        ownerUid,                          // dla statystyk funkcjonariusza
+        userLogin: (userLogin || "nieznany").toLowerCase(),
         createdAt: serverTimestamp(),
         values: valuesOut,
-        officers, // <— lista nazwisk
+        officers,                          // lista nazwisk
         dossierId: dossierId || null,
         imagePath: storagePath,
         imageUrl: downloadURL,
+        amount,                            // dla salda DPS (mandaty)
       });
 
       // 2a) Jeśli powiązano teczkę — dopisz wpis w records
@@ -197,12 +210,26 @@ export default function DocPage() {
         });
       }
 
+      // 2b) Aktualizacja salda DPS przy mandacie
+      if (amount > 0) {
+        try {
+          const accRef = doc(db, "accounts", "dps"); // jeśli używasz /finance, zmień tu i w panelu
+          await setDoc(accRef, { balance: 0, createdAt: serverTimestamp() }, { merge: true });
+          await updateDoc(accRef, { balance: increment(amount) });
+        } catch (e) {
+          console.warn("Nie udało się zaktualizować salda DPS:", e);
+        }
+      }
+
       // 3) Log
       await addDoc(collection(db, "logs"), {
         type: "doc_sent",
         template: template.name,
+        slug: template.slug,
         login: userLogin,
+        ownerUid,
         officers,
+        amount,
         ts: serverTimestamp(),
       });
 
