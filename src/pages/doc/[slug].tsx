@@ -18,6 +18,8 @@ import { ref, uploadString, getDownloadURL } from "firebase/storage";
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
 
+type Person = { id: string; fullName?: string; login?: string };
+
 function findTemplate(slug: string | string[] | undefined): Template | undefined {
   if (!slug || typeof slug !== "string") return undefined;
   return TEMPLATES.find((t) => t.slug === slug);
@@ -32,14 +34,20 @@ export default function DocPage() {
   const [err, setErr] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
 
-  // --- Teczki ---
+  // teczki
   const [dossiers, setDossiers] = useState<any[]>([]);
   const [dossierId, setDossierId] = useState("");
 
-  // --- Funkcjonariusze (z profili) ---
-  const [profiles, setProfiles] = useState<any[]>([]);
-  const [currentName, setCurrentName] = useState<string>("");
-  const [officers, setOfficers] = useState<string[]>([]); // wybrane nazwiska
+  // funkcjonariusze (UID-y!)
+  const [profiles, setProfiles] = useState<Person[]>([]);
+  const [currentUid, setCurrentUid] = useState<string>("");
+  const [selectedUids, setSelectedUids] = useState<string[]>([]); // zawsze zawiera currentUid
+
+  const uidToName = (uid: string) => {
+    const p = profiles.find((x) => x.id === uid);
+    return p?.fullName || p?.login || uid;
+  };
+  const selectedNames = selectedUids.map(uidToName);
 
   useEffect(() => {
     (async () => {
@@ -48,20 +56,20 @@ export default function DocPage() {
       const sd = await getDocs(qd);
       setDossiers(sd.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
 
-      // profile -> lista funkcjonariuszy
-      const qp = query(collection(db, "profiles"));
-      const sp = await getDocs(qp);
-      const arr = sp.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      // profile
+      const sp = await getDocs(query(collection(db, "profiles")));
+      const arr = sp.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Person[];
       setProfiles(arr);
 
-      // ustaw domyślnie ZALOGOWANEGO funkcjonariusza i zablokuj jego odznaczenie
+      // domyślnie – zalogowany użytkownik
       const email = auth.currentUser?.email || "";
       const suffix = `@${LOGIN_DOMAIN}`;
-      const userLogin = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
-      const me = arr.find((p) => p.login === userLogin);
-      const name = (me?.fullName || userLogin) as string;
-      setCurrentName(name);
-      setOfficers([name]); // zawsze wybrany autor
+      const loginOnly = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
+      const me = arr.find((p) => p.login === loginOnly);
+      if (me) {
+        setCurrentUid(me.id);
+        setSelectedUids([me.id]);
+      }
     })();
   }, []);
 
@@ -69,15 +77,13 @@ export default function DocPage() {
     return (
       <AuthGate>
         <div className="min-h-screen flex items-center justify-center">
-          <div className="card p-6">
-            <p>Nie znaleziono szablonu.</p>
-          </div>
+          <div className="card p-6"><p>Nie znaleziono szablonu.</p></div>
         </div>
       </AuthGate>
     );
   }
 
-  // === AUTO–UZUPEŁNIANIE POL Z TECZKI ===
+  // auto-uzupełnianie z teczki
   const prefillFromDossier = async (id: string) => {
     try {
       const snap = await getDoc(doc(db, "dossiers", id));
@@ -87,7 +93,7 @@ export default function DocPage() {
       let cid = (data.cid ?? "").toString();
 
       if (!fullName || !cid) {
-        const title: string = (data.title || "") as string; // "Akta Imię Nazwisko CID:1234"
+        const title: string = (data.title || "") as string;
         const m = title.match(/akta\s+(.+?)\s+cid\s*:\s*([0-9]+)/i);
         if (m) { fullName = fullName || m[1]; cid = cid || m[2]; }
       }
@@ -104,43 +110,42 @@ export default function DocPage() {
       console.warn("prefillFromDossier error:", e);
     }
   };
-  // ======================================
 
-  // RENDER — „funkcjonariusze”
-  const OfficersPicker = () => {
-    return (
-      <div className="grid gap-1">
-        <label className="label">Funkcjonariusze</label>
-        <div className="grid xs:grid-cols-1 sm:grid-cols-2 gap-2">
-          {profiles.map((p) => {
-            const name = p.fullName || p.login;
-            const checked = officers.includes(name);
-            const isMe = name === currentName;
-            return (
-              <label key={p.id} className="flex items-center gap-2 p-2 border border-beige-300 rounded">
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={isMe} // autor zawsze zaznaczony
-                  onChange={(e) => {
-                    setOfficers((prev) => {
-                      const set = new Set(prev);
-                      if (e.target.checked) set.add(name);
-                      else set.delete(name);
-                      set.add(currentName);
-                      return Array.from(set);
-                    });
-                  }}
-                />
-                <span>{name}</span>
-              </label>
-            );
-          })}
-        </div>
-        <p className="text-xs text-beige-700">Domyślnie wybrany jest autor dokumentu (nie można odznaczyć). Możesz dodać pozostałych.</p>
+  // wybór funkcjonariuszy (checkboxy po UID)
+  const OfficersPicker = () => (
+    <div className="grid gap-1">
+      <label className="label">Funkcjonariusze</label>
+      <div className="grid xs:grid-cols-1 sm:grid-cols-2 gap-2">
+        {profiles.map((p) => {
+          const name = p.fullName || p.login || p.id;
+          const checked = selectedUids.includes(p.id);
+          const isMe = p.id === currentUid;
+          return (
+            <label key={p.id} className="flex items-center gap-2 p-2 border border-beige-300 rounded">
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={isMe}
+                onChange={(e) => {
+                  setSelectedUids((prev) => {
+                    const s = new Set(prev);
+                    if (e.target.checked) s.add(p.id);
+                    else s.delete(p.id);
+                    if (currentUid) s.add(currentUid); // autor zawsze
+                    return Array.from(s);
+                  });
+                }}
+              />
+              <span>{name}</span>
+            </label>
+          );
+        })}
       </div>
-    );
-  };
+      <p className="text-xs text-beige-700">
+        Domyślnie wybrany jest autor dokumentu (nie można odznaczyć). Możesz dodać pozostałych.
+      </p>
+    </div>
+  );
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -162,29 +167,28 @@ export default function DocPage() {
       const suffix = `@${LOGIN_DOMAIN}`;
       const userLogin = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
 
-      // 1) Upload obrazu do Storage
+      // 1) Storage
       const storagePath = `archives/${filename}`;
       const sref = ref(storage, storagePath);
       await uploadString(sref, dataUrl, "data_url");
       const downloadURL = await getDownloadURL(sref);
 
-      // wartości do zapisu (dodajemy „funkcjonariusze” jako tekst do podglądu)
-      const valuesOut = { ...values, funkcjonariusze: officers.join(", ") };
-
-      // 2) Wpis do Firestore → "archives"
+      // 2) Firestore – zapis archiwum
+      const valuesOut = { ...values, funkcjonariusze: selectedNames.join(", ") };
       const archiveRef = await addDoc(collection(db, "archives"), {
         templateName: template.name,
         templateSlug: template.slug,
         userLogin: userLogin || "nieznany",
         createdAt: serverTimestamp(),
         values: valuesOut,
-        officers,
+        officers: selectedNames,        // dla podglądu
+        officersUid: selectedUids,      // <— KLUCZ DO STATYSTYK
         dossierId: dossierId || null,
         imagePath: storagePath,
         imageUrl: downloadURL,
       });
 
-      // 2a) Jeśli powiązano teczkę — dopisz wpis w records (Z AUTHOR UID!)
+      // 2a) wpis w teczce (opcjonalnie)
       if (dossierId) {
         await addDoc(collection(db, "dossiers", dossierId, "records"), {
           text: `Dokument: ${template.name}\nAutor: ${userLogin}\nURL: ${downloadURL}`,
@@ -197,12 +201,13 @@ export default function DocPage() {
         });
       }
 
-      // 3) Log
+      // 3) log
       await addDoc(collection(db, "logs"), {
         type: "doc_sent",
         template: template.name,
         login: userLogin,
-        officers,
+        officers: selectedNames,
+        officersUid: selectedUids,
         ts: serverTimestamp(),
       });
 
@@ -210,12 +215,7 @@ export default function DocPage() {
       const res = await fetch("/api/send-to-discord", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename,
-          imageBase64: base64,
-          templateName: template.name,
-          userLogin,
-        }),
+        body: JSON.stringify({ filename, imageBase64: base64, templateName: template.name, userLogin }),
       });
       if (!res.ok) throw new Error(`Błąd wysyłki: ${res.status}`);
 
@@ -227,7 +227,7 @@ export default function DocPage() {
     }
   };
 
-  // Wyliczanie pomocnicze: data następnej wypłaty w „swiadczenie-spoleczne”
+  // pomocnicze: następna data świadczenia
   const nextDateDisplay = useMemo(() => {
     if (!template || template.slug !== "swiadczenie-spoleczne") return "";
     const base = values["data"];
@@ -252,10 +252,9 @@ export default function DocPage() {
           <div className="card p-6">
             <h1 className="text-2xl font-bold mb-4">{template.name}</h1>
             <form onSubmit={onSubmit} className="grid gap-4">
-              {/* Funkcjonariusze */}
               <OfficersPicker />
 
-              {/* Powiązanie z teczką */}
+              {/* teczka */}
               <div className="grid gap-1">
                 <label className="label">Powiąż z teczką (opcjonalnie)</label>
                 <input
@@ -292,12 +291,10 @@ export default function DocPage() {
                 </select>
               </div>
 
-              {/* Pola szablonu */}
+              {/* pola */}
               {template.fields.map((f) => (
                 <div key={f.key} className="grid gap-1">
-                  <label className="label">
-                    {f.label}{f.required && " *"}
-                  </label>
+                  <label className="label">{f.label}{f.required && " *"}</label>
 
                   {f.type === "multiselect" ? (
                     <div className="grid gap-1">
@@ -314,12 +311,8 @@ export default function DocPage() {
                               checked={checked}
                               onChange={(e) => {
                                 const now = new Set(arr);
-                                if (e.target.checked) now.add(opt);
-                                else now.delete(opt);
-                                setValues((v) => ({
-                                  ...v,
-                                  [f.key]: Array.from(now).join("|"),
-                                }));
+                                if (e.target.checked) now.add(opt); else now.delete(opt);
+                                setValues((v) => ({ ...v, [f.key]: Array.from(now).join("|") }));
                               }}
                             />
                             <span>{opt}</span>
@@ -332,23 +325,17 @@ export default function DocPage() {
                       className="input h-40"
                       required={f.required}
                       value={values[f.key] || ""}
-                      onChange={(e) =>
-                        setValues((v) => ({ ...v, [f.key]: e.target.value }))
-                      }
+                      onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
                     />
                   ) : f.type === "select" ? (
                     <select
                       className="input"
                       required={f.required}
                       value={values[f.key] || ""}
-                      onChange={(e) =>
-                        setValues((v) => ({ ...v, [f.key]: e.target.value }))
-                      }
+                      onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
                     >
                       <option value="">-- wybierz --</option>
-                      {(f.options || []).map((o) => (
-                        <option key={o} value={o}>{o}</option>
-                      ))}
+                      {(f.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
                     </select>
                   ) : (
                     <input
@@ -390,18 +377,17 @@ export default function DocPage() {
               </div>
               <hr className="border-beige-300 mb-6" />
 
-              {/* Funkcjonariusze w dokumencie */}
+              {/* Funkcjonariusze */}
               <div className="mb-4 text-[12px]">
-                <span className="font-semibold">Funkcjonariusze:</span> {officers.join(", ")}
+                <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ")}
               </div>
 
               <div className="space-y-3 text-[12px] leading-6">
                 {template.fields.map((f) => {
                   const raw = values[f.key];
-                  const display =
-                    typeof raw === "string" && raw.includes("|")
-                      ? raw.split("|").join(", ")
-                      : (raw || "—");
+                  const display = typeof raw === "string" && raw.includes("|")
+                    ? raw.split("|").join(", ")
+                    : (raw || "—");
 
                   return (
                     <div key={f.key} className="grid grid-cols-[220px_1fr] gap-3">
