@@ -1,12 +1,14 @@
 import { ReactNode, useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
+import { useIdleLogout } from "@/hooks/useIdleLogout";
 import { useRouter } from "next/router";
 import { auth, db } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 export default function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useIdleLogout(); // auto-logout po 15 min braku aktywności
+
 
   useEffect(() => {
     let interval: any;
