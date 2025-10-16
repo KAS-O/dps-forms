@@ -85,14 +85,31 @@ export default function DocPage() {
                 <div key={f.key} className="grid gap-1">
                   <label className="label">{f.label}{f.required && ' *'}</label>
                   {f.type === 'textarea' ? (
-                    <textarea className="input h-28" required={f.required} value={values[f.key] || ''} onChange={e=>setValues(v=>({...v,[f.key]:e.target.value}))}/>
+                    // ZWIĘKSZONE POLE TEKSTOWE: h-40 (było h-28)
+                    <textarea
+                      className="input h-40"
+                      required={f.required}
+                      value={values[f.key] || ''}
+                      onChange={e=>setValues(v=>({...v,[f.key]:e.target.value}))}
+                    />
                   ) : f.type === 'select' ? (
-                    <select className="input" required={f.required} value={values[f.key] || ''} onChange={e=>setValues(v=>({...v,[f.key]:e.target.value}))}>
+                    <select
+                      className="input"
+                      required={f.required}
+                      value={values[f.key] || ''}
+                      onChange={e=>setValues(v=>({...v,[f.key]:e.target.value}))}
+                    >
                       <option value="">-- wybierz --</option>
                       {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
                   ) : (
-                    <input className="input" type={f.type === 'number' ? 'number' : (f.type === 'date' ? 'date' : 'text')} required={f.required} value={values[f.key] || ''} onChange={e=>setValues(v=>({...v,[f.key]:e.target.value}))}/>
+                    <input
+                      className="input"
+                      type={f.type === 'number' ? 'number' : (f.type === 'date' ? 'date' : 'text')}
+                      required={f.required}
+                      value={values[f.key] || ''}
+                      onChange={e=>setValues(v=>({...v,[f.key]:e.target.value}))}
+                    />
                   )}
                 </div>
               ))}
@@ -110,20 +127,29 @@ export default function DocPage() {
             </div>
 
             {/* A4 sheet preview */}
-            <div ref={previewRef} className="bg-white text-black mx-auto w-[794px] max-w-full aspect-[210/297] p-10 border border-beige-300 shadow-sm">
+            <div
+              ref={previewRef}
+              className="bg-white text-black mx-auto w-[794px] max-w-full aspect-[210/297] p-10 border border-beige-300 shadow-sm"
+            >
               <div className="flex items-center gap-3 mb-6">
-                <img src="/logo.svg" alt="DPS" width={180} />
+                {/* Jeśli używasz PNG: zmień na /logo.png */}
+                <img src="/logo.png" alt="DPS" width={180} />
                 <div>
                   <div className="text-xl font-bold">Department of Public Safety</div>
                   <div className="text-sm text-gray-600">{template.name}</div>
                 </div>
               </div>
               <hr className="border-beige-300 mb-6" />
-              <div className="space-y-3 text-[14px] leading-6">
+              {/* MNIEJSZA CZCIONKA: text-[12px] (było 14px) */}
+              <div className="space-y-3 text-[12px] leading-6">
                 {template.fields.map(f => (
                   <div key={f.key} className="grid grid-cols-[220px_1fr] gap-3">
-                    <div className="font-semibold">{f.label}{f.required ? ' *' : ''}</div>
-                    <div className="whitespace-pre-wrap">{values[f.key] || '—'}</div>
+                    <div className="font-semibold">
+                      {f.label}{f.required ? ' *' : ''}
+                    </div>
+                    <div className="whitespace-pre-wrap">
+                      {values[f.key] || '—'}
+                    </div>
                   </div>
                 ))}
               </div>
