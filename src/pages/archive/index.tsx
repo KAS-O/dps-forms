@@ -3,7 +3,7 @@ import Nav from "@/components/Nav";
 import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
 import { db } from "@/lib/firebase";
-import { addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, serverTimestamp, writeBatch } from "firebase/firestore";
 import { useProfile, can } from "@/hooks/useProfile";
 
 type Archive = {
@@ -21,6 +21,7 @@ export default function ArchivePage() {
   const { role, login } = useProfile();
   const [items, setItems] = useState<Archive[]>([]);
   const [qtxt, setQ] = useState("");
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -52,6 +53,41 @@ export default function ArchivePage() {
     setItems(prev => prev.filter(x => x.id !== id));
   };
 
+  const clearAll = async () => {
+    if (!can.deleteArchive(role)) return alert("Brak uprawnień.");
+    if (!confirm("Na pewno chcesz usunąć całe archiwum?")) return;
+    try {
+      setClearing(true);
+      const snap = await getDocs(collection(db, "archives"));
+      let batch = writeBatch(db);
+      const commits: Promise<void>[] = [];
+      let counter = 0;
+      snap.docs.forEach((docSnap, idx) => {
+        batch.delete(docSnap.ref);
+        counter += 1;
+        if (counter === 400 || idx === snap.docs.length - 1) {
+          commits.push(batch.commit());
+          batch = writeBatch(db);
+          counter = 0;
+        }
+      });
+      await Promise.all(commits);
+      await addDoc(collection(db, "logs"), {
+        type: "archive_clear",
+        by: login,
+        removed: snap.size,
+        ts: serverTimestamp(),
+      });
+      setItems([]);
+    } catch (e) {
+      console.error(e);
+      alert("Nie udało się wyczyścić archiwum.");
+    } finally {
+      setClearing(false);
+    }
+  };
+
+
   if (!can.seeArchive(role)) {
     return (
       <AuthGate>
@@ -72,9 +108,16 @@ export default function ArchivePage() {
         <Head><title>DPS 77RP — Archiwum</title></Head>
         <Nav />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold">Archiwum</h1>
-            <input className="input ml-auto w-[280px]" placeholder="Szukaj..." value={qtxt} onChange={e=>setQ(e.target.value)} />
+            <div className="ml-auto flex items-center gap-2">
+              <input className="input w-[220px] sm:w-[280px]" placeholder="Szukaj..." value={qtxt} onChange={e=>setQ(e.target.value)} />
+              {can.deleteArchive(role) && (
+                <button className="btn bg-red-700 text-white" onClick={clearAll} disabled={clearing}>
+                  {clearing ? "Czyszczenie..." : "Wyczyść archiwum"}
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="grid gap-2">
