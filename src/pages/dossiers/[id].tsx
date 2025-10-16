@@ -2,88 +2,89 @@ import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import Head from "next/head";
 import { useRouter } from "next/router";
-import { addDoc, collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
-import { db, storage } from "@/lib/firebase";
-import { useEffect, useState } from "react";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { useEffect, useMemo, useState } from "react";
+import { db } from "@/lib/firebase";
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, serverTimestamp, updateDoc } from "firebase/firestore";
+import { useProfile, can } from "@/hooks/useProfile";
 
 export default function DossierDetail() {
-  const r = useRouter();
-  const { id } = r.query;
-  const [dossier, setDossier] = useState<any>(null);
-  const [evid, setEvid] = useState<any[]>([]);
-  const [form, setForm] = useState({ date: "", time: "", desc: "" });
-  const [files, setFiles] = useState<FileList | null>(null);
+  const { role, login } = useProfile();
+  const router = useRouter();
+  const id = useMemo(() => router.query.id as string, [router.query.id]);
 
-  useEffect(() => {
+  const [title, setTitle] = useState("");
+  const [records, setRecords] = useState<any[]>([]);
+
+  const load = async () => {
     if (!id) return;
-    const dref = doc(db, "dossiers", String(id));
-    const unsub1 = onSnapshot(dref, (s) => setDossier({ id: s.id, ...(s.data() as any) }));
-    const q = query(collection(dref, "evidence"), orderBy("createdAt", "desc"));
-    const unsub2 = onSnapshot(q, (snap)=> setEvid(snap.docs.map(d=>({ id: d.id, ...(d.data() as any) }))));
-    return () => { unsub1(); unsub2(); }
-  }, [id]);
-
-  const add = async () => {
-    const dref = doc(db, "dossiers", String(id));
-    const evRef = collection(dref, "evidence");
-
-    // upload obrazów
-    const urls: string[] = [];
-    if (files && files.length) {
-      for (const f of Array.from(files)) {
-        const path = `dossiers/${id}/${Date.now()}-${f.name}`;
-        const sref = ref(storage, path);
-        await uploadBytes(sref, f);
-        const url = await getDownloadURL(sref);
-        urls.push(url);
-      }
-    }
-
-    await addDoc(evRef, {
-      date: form.date, time: form.time, desc: form.desc,
-      images: urls,
-      createdAt: new Date()
-    });
-
-    setForm({ date: "", time: "", desc: "" });
-    setFiles(null);
+    const meta = await getDoc(doc(db, "dossiers", id));
+    setTitle((meta.data()?.title as string) || "");
+    const snap = await getDocs(query(collection(db, "dossiers", id, "records"), orderBy("createdAt","desc")));
+    setRecords(snap.docs.map(d=>({ id: d.id, ...(d.data() as any) })));
   };
 
-  if (!dossier) return <AuthGate><Nav /><div className="max-w-4xl mx-auto p-6">Ładowanie...</div></AuthGate>;
+  useEffect(()=>{ load(); },[id]);
+
+  const rename = async () => {
+    const t = prompt("Nowy tytuł", title);
+    if (!t) return;
+    await updateDoc(doc(db, "dossiers", id), { title: t });
+    await addDoc(collection(db,"logs"), { type:"dossier_edit", id, title:t, login, ts:serverTimestamp() });
+    setTitle(t);
+  };
+
+  const addRecord = async () => {
+    const text = prompt("Dodaj notatkę (data/godzina/okoliczności/itp.)");
+    if (!text) return;
+    await addDoc(collection(db, "dossiers", id, "records"), { text, createdAt: serverTimestamp(), author: login });
+    await addDoc(collection(db,"logs"), { type:"dossier_record_add", id, login, ts:serverTimestamp() });
+    load();
+  };
+
+  const editRecord = async (r: any) => {
+    const text = prompt("Edytuj wpis", r.text || "");
+    if (text == null) return;
+    await updateDoc(doc(db, "dossiers", id, "records", r.id), { text });
+    await addDoc(collection(db,"logs"), { type:"dossier_record_edit", id, recordId:r.id, login, ts:serverTimestamp() });
+    load();
+  };
+
+  const removeRecord = async (r: any) => {
+    if (!confirm("Usunąć wpis?")) return;
+    await deleteDoc(doc(db, "dossiers", id, "records", r.id));
+    await addDoc(collection(db,"logs"), { type:"dossier_record_delete", id, recordId:r.id, login, ts:serverTimestamp() });
+    load();
+  };
 
   return (
     <AuthGate>
-      <Head><title>DPS 77RP — {dossier.title}</title></Head>
-      <Nav />
-      <div className="max-w-5xl mx-auto px-4 py-6 grid gap-6">
-        <div className="card p-4">
-          <h1 className="text-xl font-bold mb-2">{dossier.title}</h1>
+      <>
+        <Head><title>DPS 77RP — Teczka</title></Head>
+        <Nav />
+        <div className="max-w-5xl mx-auto px-4 py-6">
+          <div className="flex items-center gap-3 mb-4">
+            <button className="btn" onClick={()=>history.back()}>← Wróć</button>
+            <h1 className="text-2xl font-bold">{title || "Teczka"}</h1>
+            {can.manageRoles(role) && <button className="btn" onClick={rename}>Zmień nazwę</button>}
+            <button className="btn" onClick={addRecord}>+ Dodaj wpis</button>
+          </div>
+
           <div className="grid gap-2">
-            {evid.map(e => (
-              <div key={e.id} className="card p-3">
-                <div className="text-sm text-beige-700">{e.date} {e.time}</div>
-                <div className="whitespace-pre-wrap">{e.desc}</div>
-                <div className="flex gap-2 mt-2 flex-wrap">
-                  {(e.images||[]).map((u:string,i:number)=> <a key={i} href={u} target="_blank" className="border block"><img src={u} alt="" className="w-28 h-28 object-cover"/></a>)}
+            {records.map(r => (
+              <div key={r.id} className="card p-3">
+                <div className="text-sm text-beige-700 mb-1">
+                  {r.createdAt?.toDate ? r.createdAt.toDate().toLocaleString() : ""} • {r.author || "-"}
+                </div>
+                <div className="whitespace-pre-wrap">{r.text}</div>
+                <div className="mt-2 flex items-center gap-2">
+                  <button className="btn" onClick={()=>editRecord(r)}>Edytuj</button>
+                  <button className="btn bg-red-700 text-white" onClick={()=>removeRecord(r)}>Usuń</button>
                 </div>
               </div>
             ))}
-            {evid.length===0 && <p>Brak dowodów.</p>}
           </div>
         </div>
-
-        <div className="card p-4">
-          <h2 className="font-semibold mb-2">Dodaj dowód</h2>
-          <div className="grid md:grid-cols-2 gap-2">
-            <input className="input" placeholder="Data" type="date" value={form.date} onChange={e=>setForm({...form, date:e.target.value})}/>
-            <input className="input" placeholder="Godzina" type="time" value={form.time} onChange={e=>setForm({...form, time:e.target.value})}/>
-          </div>
-          <textarea className="input h-32 mt-2" placeholder="Okoliczności zdarzenia" value={form.desc} onChange={e=>setForm({...form, desc:e.target.value})}/>
-          <input className="mt-2" type="file" multiple onChange={e=>setFiles(e.target.files)} />
-          <button className="btn mt-3" onClick={add}>Dodaj</button>
-        </div>
-      </div>
+      </>
     </AuthGate>
   );
 }
