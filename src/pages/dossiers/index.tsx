@@ -2,14 +2,26 @@ import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
-import { addDoc, collection, onSnapshot, orderBy, query, serverTimestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { FirebaseError } from "firebase/app";
+import {
+  addDoc,
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  runTransaction,
+  serverTimestamp,
+} from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 
 export default function Dossiers() {
   const [list, setList] = useState<any[]>([]);
   const [qtxt, setQ] = useState("");
   const [form, setForm] = useState({ first: "", last: "", cid: "" });
   const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     const q = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
@@ -29,6 +41,8 @@ export default function Dossiers() {
   const create = async () => {
     try {
       setErr(null);
+      setOk(null);
+      setCreating(true);
       const first = form.first.trim();
       const last  = form.last.trim();
       const cid   = form.cid.trim();
@@ -36,14 +50,49 @@ export default function Dossiers() {
         setErr("Uzupełnij imię, nazwisko i CID.");
         return;
       }
+      const normalizedCid = cid.toLowerCase();
+      if (list.some((d) => (d.cid || "").toString().toLowerCase() === normalizedCid)) {
+        setErr("Teczka z tym CID już istnieje.");
+        return;
+      }
       const title = `Akta ${first} ${last} CID:${cid}`;
-      await addDoc(collection(db, "dossiers"), {
-        first, last, cid, title,
+      const user = auth.currentUser;
+      const dossierId = normalizedCid;
+      const dossierRef = doc(db, "dossiers", dossierId);
+      await runTransaction(db, async (tx) => {
+        const existing = await tx.get(dossierRef);
+        if (existing.exists()) {
+          throw new Error("Teczka z tym CID już istnieje.");
+        }
+        tx.set(dossierRef, {
+          first,
+          last,
+          cid,
+          title,
+          createdAt: serverTimestamp(),
+          createdBy: user?.email || "",
+          createdByUid: user?.uid || "",
+        });
+      });
+      await addDoc(collection(db, "logs"), {
+        type: "dossier_create",
+        first,
+        last,
+        cid,
         createdAt: serverTimestamp(),
+        author: user?.email || "",
+        authorUid: user?.uid || "",
       });
       setForm({ first: "", last: "", cid: "" });
+      setOk("Teczka została utworzona.");
     } catch (e: any) {
-      setErr(e?.message || "Nie udało się utworzyć teczki");
+      if (e instanceof FirebaseError && e.code === "permission-denied") {
+        setErr("Brak uprawnień do zapisu. Zdeployuj aktualne reguły Firestore z katalogu firebase/.");
+      } else {
+        setErr(e?.message || "Nie udało się utworzyć teczki");
+      }
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -59,6 +108,7 @@ export default function Dossiers() {
               <input className="input flex-1" placeholder="Szukaj po imieniu/nazwisku/CID..." value={qtxt} onChange={e=>setQ(e.target.value)} />
             </div>
             {err && <div className="card p-3 bg-red-50 text-red-700 mb-3">{err}</div>}
+            {ok && <div className="card p-3 bg-green-50 text-green-700 mb-3">{ok}</div>}
             <div className="grid gap-2">
               {filtered.map(d => (
                 <a key={d.id} className="card p-3 hover:shadow" href={`/dossiers/${d.id}`}>
@@ -77,7 +127,9 @@ export default function Dossiers() {
               <input className="input" placeholder="Nazwisko" value={form.last} onChange={e=>setForm({...form, last:e.target.value})}/>
               <input className="input" placeholder="CID" value={form.cid} onChange={e=>setForm({...form, cid:e.target.value})}/>
             </div>
-            <button className="btn mt-3" onClick={create}>Utwórz</button>
+            <button className="btn mt-3" onClick={create} disabled={creating}>
+              {creating ? "Tworzenie..." : "Utwórz"}
+            </button>
           </div>
         </div>
       </>

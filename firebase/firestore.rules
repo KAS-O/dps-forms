@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function roleOf(uid) {
+      return get(/databases/$(database)/documents/profiles/$(uid)).data.role;
+    }
+
+    function isDirector() {
+      return signedIn() && roleOf(request.auth.uid) == "director";
+    }
+
+    function isChief() {
+      return signedIn() && roleOf(request.auth.uid) == "chief";
+    }
+
+    function isStaff() {
+      let r = roleOf(request.auth.uid);
+      return signedIn() && (r == "director" || r == "chief" || r == "senior" || r == "agent");
+    }
+
+    match /profiles/{uid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && uid == request.auth.uid;
+      allow update: if (isDirector() || isChief()) || (signedIn() && uid == request.auth.uid);
+      allow delete: if isDirector() || isChief();
+
+      match /counters/{counterId} {
+        allow read, write: if isDirector();
+      }
+    }
+
+    match /presence/{uid} {
+      allow read: if signedIn() && (uid == request.auth.uid || isStaff());
+      allow create, update: if signedIn() && uid == request.auth.uid;
+      allow delete: if isDirector() || isChief();
+    }
+
+    match /accounts/{docId} {
+      allow read, write: if isDirector();
+    }
+
+    match /archives/{id} {
+      allow create: if signedIn();
+      allow read: if isStaff();
+      allow update, delete: if isDirector() || isChief();
+    }
+
+    match /dossiers/{dossierId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if (isDirector() || isChief()) ||
+        (signedIn() && resource.data.createdByUid == request.auth.uid);
+
+      match /records/{recordId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if (isDirector() || isChief()) ||
+          (signedIn() && resource.data.authorUid == request.auth.uid);
+      }
+    }
+
+    match /logs/{logId} {
+      allow create: if signedIn();
+      allow read: if isDirector() || isChief();
+    }
+
+    match /finance/{docId} {
+      allow read, write: if isDirector();
+
+      match /accounts/{accountId} {
+        allow read, write: if isDirector();
+      }
+    }
+  }
+}

@@ -48,6 +48,7 @@ export default function DocPage() {
     return p?.fullName || p?.login || uid;
   };
   const selectedNames = selectedUids.map(uidToName);
+  const requiresDossier = template?.slug === "swiadczenie-spoleczne";
 
   useEffect(() => {
     (async () => {
@@ -62,14 +63,15 @@ export default function DocPage() {
       setProfiles(arr);
 
       // domyślnie – zalogowany użytkownik
+      const authUserUid = auth.currentUser?.uid || "";
       const email = auth.currentUser?.email || "";
       const suffix = `@${LOGIN_DOMAIN}`;
       const loginOnly = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
       const me = arr.find((p) => p.login === loginOnly);
-      if (me) {
-        setCurrentUid(me.id);
-        setSelectedUids([me.id]);
-      }
+
+      const resolvedUid = me?.id || authUserUid;
+      setCurrentUid(resolvedUid);
+      setSelectedUids(resolvedUid ? [resolvedUid] : []);
     })();
   }, []);
 
@@ -149,9 +151,13 @@ export default function DocPage() {
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setSending(true);
     setOk(null);
     setErr(null);
+    if (requiresDossier && !dossierId) {
+      setErr("Ten dokument wymaga powiązania z teczką.");
+      return;
+    }
+    setSending(true);
     try {
       const el = previewRef.current;
       if (!el) throw new Error("Brak podglądu do zrzutu.");
@@ -175,6 +181,9 @@ export default function DocPage() {
 
       // 2) Firestore – zapis archiwum
       const valuesOut = { ...values, funkcjonariusze: selectedNames.join(", ") };
+      if (requiresDossier && nextPayoutDate) {
+        valuesOut["dni"] = nextPayoutDate;
+      }
       const archiveRef = await addDoc(collection(db, "archives"), {
         templateName: template.name,
         templateSlug: template.slug,
@@ -227,18 +236,18 @@ export default function DocPage() {
     }
   };
 
-  // pomocnicze: następna data świadczenia
-  const nextDateDisplay = useMemo(() => {
-    if (!template || template.slug !== "swiadczenie-spoleczne") return "";
-    const base = values["data"];
-    const dni = Number(values["dni"] || 0);
-    if (!base || !dni) return "";
-    try {
-      const d = new Date(base);
-      d.setDate(d.getDate() + dni);
-      return d.toLocaleDateString();
-    } catch { return ""; }
-  }, [template, values]);
+  // pomocnicze: następna data świadczenia (liczona od dziś)
+  const nextPayoutDate = useMemo(() => {
+    if (!requiresDossier) return "";
+    const dniRaw = values["dni"];
+    if (!dniRaw) return "";
+    const dni = Number(dniRaw);
+    if (Number.isNaN(dni)) return "";
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+    base.setDate(base.getDate() + dni);
+    return base.toLocaleDateString();
+  }, [requiresDossier, values]);
 
   return (
     <AuthGate>
@@ -256,7 +265,9 @@ export default function DocPage() {
 
               {/* teczka */}
               <div className="grid gap-1">
-                <label className="label">Powiąż z teczką (opcjonalnie)</label>
+                <label className="label">
+                  Powiąż z teczką{requiresDossier ? " *" : " (opcjonalnie)"}
+                </label>
                 <input
                   className="input mb-1"
                   placeholder="Szukaj po imieniu/nazwisku/CID..."
@@ -278,17 +289,23 @@ export default function DocPage() {
                 <select
                   className="input"
                   value={dossierId}
+                  required={!!requiresDossier}
                   onChange={async (e) => {
                     const id = e.target.value;
                     setDossierId(id);
                     if (id) await prefillFromDossier(id);
                   }}
                 >
-                  <option value="">— bez teczki —</option>
+                  <option value="" disabled={!!requiresDossier}>
+                    — {requiresDossier ? "wybierz teczkę" : "bez teczki"} —
+                  </option>
                   {dossiers.filter(d=>!d._hidden).map(d => (
                     <option key={d.id} value={d.id}>{d.title}</option>
                   ))}
                 </select>
+                {requiresDossier && (
+                  <p className="text-xs text-beige-700">Dokument wymaga wskazania teczki beneficjenta.</p>
+                )}
               </div>
 
               {/* pola */}
@@ -349,7 +366,7 @@ export default function DocPage() {
                 </div>
               ))}
 
-              <button className="btn" disabled={sending}>
+              <button className="btn" disabled={sending || (requiresDossier && !dossierId)}>
                 {sending ? "Wysyłanie..." : "Wyślij do ARCHIWUM (obraz PNG)"}
               </button>
               {ok && <p className="text-green-700 text-sm">{ok}</p>}
@@ -385,25 +402,21 @@ export default function DocPage() {
               <div className="space-y-3 text-[12px] leading-6">
                 {template.fields.map((f) => {
                   const raw = values[f.key];
-                  const display = typeof raw === "string" && raw.includes("|")
+                  let display = typeof raw === "string" && raw.includes("|")
                     ? raw.split("|").join(", ")
                     : (raw || "—");
+                  if (template.slug === "swiadczenie-spoleczne" && f.key === "dni") {
+                    display = nextPayoutDate || "—";
+                  }
 
                   return (
                     <div key={f.key} className="grid grid-cols-[220px_1fr] gap-3">
                       <div className="font-semibold">{f.label}{f.required ? " *" : ""}</div>
                       <div className="whitespace-pre-wrap">
                         {display}
-                        {template.slug === "swiadczenie-spoleczne" && f.key === "dni" && (() => {
-                          const base = values["data"];
-                          const dni = Number(values["dni"] || 0);
-                          if (!base || !dni) return null;
-                          try {
-                            const d = new Date(base);
-                            d.setDate(d.getDate() + dni);
-                            return <div className="text-[11px] text-gray-600">Następna możliwa wypłata: {d.toLocaleDateString()}</div>;
-                          } catch { return null; }
-                        })()}
+                        {template.slug === "swiadczenie-spoleczne" && f.key === "dni" && nextPayoutDate && (
+                          <div className="text-[11px] text-gray-600">Wyliczono z dnia dzisiejszego.</div>
+                        )}
                       </div>
                     </div>
                   );
