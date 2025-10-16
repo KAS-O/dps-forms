@@ -1,0 +1,7 @@
+node_modules/
+.next/
+.env.local
+firebase-debug.log
+
+# macOS
+.DS_Store
