@@ -13,9 +13,6 @@ import {
   orderBy,
   doc,
   getDoc,
-  setDoc,
-  updateDoc,
-  increment,
 } from "firebase/firestore";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 
@@ -109,7 +106,7 @@ export default function DocPage() {
   };
   // ======================================
 
-  // RENDER — „funkcjonariusze” (zawsze nad polami)
+  // RENDER — „funkcjonariusze”
   const OfficersPicker = () => {
     return (
       <div className="grid gap-1">
@@ -130,7 +127,6 @@ export default function DocPage() {
                       const set = new Set(prev);
                       if (e.target.checked) set.add(name);
                       else set.delete(name);
-                      // gwarancja, że autor zostanie
                       set.add(currentName);
                       return Array.from(set);
                     });
@@ -165,7 +161,6 @@ export default function DocPage() {
       const email = auth.currentUser?.email || "";
       const suffix = `@${LOGIN_DOMAIN}`;
       const userLogin = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
-      const ownerUid = auth.currentUser?.uid || null;
 
       // 1) Upload obrazu do Storage
       const storagePath = `archives/${filename}`;
@@ -176,60 +171,38 @@ export default function DocPage() {
       // wartości do zapisu (dodajemy „funkcjonariusze” jako tekst do podglądu)
       const valuesOut = { ...values, funkcjonariusze: officers.join(", ") };
 
-      // kwota do salda (dla mandatu)
-      let amount = 0;
-      if (template.slug === "bloczek-mandatowy") {
-        amount = Number(values.kwota || 0);
-        if (!Number.isFinite(amount)) amount = 0;
-      }
-
       // 2) Wpis do Firestore → "archives"
       const archiveRef = await addDoc(collection(db, "archives"), {
         templateName: template.name,
-        templateSlug: template.slug,       // dla panelu statystyk
-        ownerUid,                          // dla statystyk funkcjonariusza
-        userLogin: (userLogin || "nieznany").toLowerCase(),
+        templateSlug: template.slug,
+        userLogin: userLogin || "nieznany",
         createdAt: serverTimestamp(),
         values: valuesOut,
-        officers,                          // lista nazwisk
+        officers,
         dossierId: dossierId || null,
         imagePath: storagePath,
         imageUrl: downloadURL,
-        amount,                            // dla salda DPS (mandaty)
       });
 
-      // 2a) Jeśli powiązano teczkę — dopisz wpis w records
+      // 2a) Jeśli powiązano teczkę — dopisz wpis w records (Z AUTHOR UID!)
       if (dossierId) {
         await addDoc(collection(db, "dossiers", dossierId, "records"), {
           text: `Dokument: ${template.name}\nAutor: ${userLogin}\nURL: ${downloadURL}`,
           createdAt: serverTimestamp(),
-          author: userLogin,
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
           type: "archive_link",
           archiveId: archiveRef.id,
           imageUrl: downloadURL,
         });
       }
 
-      // 2b) Aktualizacja salda DPS przy mandacie
-      if (amount > 0) {
-        try {
-          const accRef = doc(db, "accounts", "dps"); // jeśli używasz /finance, zmień tu i w panelu
-          await setDoc(accRef, { balance: 0, createdAt: serverTimestamp() }, { merge: true });
-          await updateDoc(accRef, { balance: increment(amount) });
-        } catch (e) {
-          console.warn("Nie udało się zaktualizować salda DPS:", e);
-        }
-      }
-
       // 3) Log
       await addDoc(collection(db, "logs"), {
         type: "doc_sent",
         template: template.name,
-        slug: template.slug,
         login: userLogin,
-        ownerUid,
         officers,
-        amount,
         ts: serverTimestamp(),
       });
 
@@ -279,7 +252,6 @@ export default function DocPage() {
           <div className="card p-6">
             <h1 className="text-2xl font-bold mb-4">{template.name}</h1>
             <form onSubmit={onSubmit} className="grid gap-4">
-
               {/* Funkcjonariusze */}
               <OfficersPicker />
 
@@ -436,12 +408,16 @@ export default function DocPage() {
                       <div className="font-semibold">{f.label}{f.required ? " *" : ""}</div>
                       <div className="whitespace-pre-wrap">
                         {display}
-                        {/* Specjalny dopisek dla świadczenia: wyliczona następna data */}
-                        {template.slug === "swiadczenie-spoleczne" && f.key === "dni" && nextDateDisplay && (
-                          <div className="text-[11px] text-gray-600">
-                            Następna możliwa wypłata: {nextDateDisplay}
-                          </div>
-                        )}
+                        {template.slug === "swiadczenie-spoleczne" && f.key === "dni" && (() => {
+                          const base = values["data"];
+                          const dni = Number(values["dni"] || 0);
+                          if (!base || !dni) return null;
+                          try {
+                            const d = new Date(base);
+                            d.setDate(d.getDate() + dni);
+                            return <div className="text-[11px] text-gray-600">Następna możliwa wypłata: {d.toLocaleDateString()}</div>;
+                          } catch { return null; }
+                        })()}
                       </div>
                     </div>
                   );
