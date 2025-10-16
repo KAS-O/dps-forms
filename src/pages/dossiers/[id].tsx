@@ -16,9 +16,10 @@ import {
   query,
   serverTimestamp,
   updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { useProfile, can } from "@/hooks/useProfile";
+import { useProfile } from "@/hooks/useProfile";
 
 export default function DossierPage() {
   const router = useRouter();
@@ -31,8 +32,10 @@ export default function DossierPage() {
   const [txt, setTxt] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // uprawnienia do edycji wpisu: Director/Chief lub autor wpisu
+  const canDeleteDossier = role === "director" || role === "chief";
   const canEditRecord = (r: any) => {
     const me = auth.currentUser?.uid;
     return (role === "director" || role === "chief" || (!!me && r.authorUid === me));
@@ -119,6 +122,34 @@ export default function DossierPage() {
     });
   };
 
+  const deleteDossier = async () => {
+    if (!id || !canDeleteDossier) return;
+    if (!confirm("Na pewno usunąć całą teczkę wraz z wpisami?")) return;
+    try {
+      setErr(null);
+      setDeleting(true);
+      const recordsSnap = await getDocs(collection(db, "dossiers", id, "records"));
+      const batch = writeBatch(db);
+      recordsSnap.docs.forEach((docSnap) => {
+        batch.delete(docSnap.ref);
+      });
+      batch.delete(doc(db, "dossiers", id));
+      await batch.commit();
+      await addDoc(collection(db, "logs"), {
+        type: "dossier_delete",
+        dossierId: id,
+        author: auth.currentUser?.email || "",
+        authorUid: auth.currentUser?.uid || "",
+        ts: serverTimestamp(),
+      });
+      await router.replace("/dossiers");
+    } catch (e: any) {
+      setErr(e?.message || "Nie udało się usunąć teczki.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const personTitle = useMemo(() => {
     const n = [info.first, info.last].filter(Boolean).join(" ");
     return n ? `${title} • ${n} (CID: ${info.cid || "?"})` : title || "Teczka";
@@ -132,8 +163,17 @@ export default function DossierPage() {
         <div className="max-w-5xl mx-auto px-4 py-6 grid gap-4">
           {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
-          <div className="card p-4">
+          <div className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <h1 className="text-xl font-bold">{personTitle}</h1>
+            {canDeleteDossier && (
+              <button
+                className="btn bg-red-700 text-white"
+                onClick={deleteDossier}
+                disabled={deleting}
+              >
+                {deleting ? "Usuwanie..." : "Usuń teczkę"}
+              </button>
+            )}
           </div>
 
           {/* Dodaj wpis (tekst opcjonalnie ze zdjęciem) */}
