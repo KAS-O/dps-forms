@@ -1,34 +1,27 @@
-import { ReactNode, useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { useRouter } from "next/router";
+// src/components/Nav.tsx
+import Link from "next/link";
+import Image from "next/image";
+import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { useProfile, can } from "@/hooks/useProfile";
 
-export default function AuthGate({ children }: { children: ReactNode }) {
-  const router = useRouter();
-  const [ready, setReady] = useState(false);
+export default function Nav() {
+  const { role, login } = useProfile();
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      const isLoginPage = router.pathname === "/";
-      if (!user && !isLoginPage) {
-        router.replace("/");
-      } else if (user && isLoginPage) {
-        router.replace("/dashboard");
-      }
-      setReady(true);
-    });
-    return () => unsub();
-  }, [router]);
-
-  if (!ready) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="card p-6 text-center">
-          <p>Ładowanie...</p>
+  return (
+    <nav className="w-full sticky top-0 z-10 bg-[var(--bg)]/85 backdrop-blur border-b border-beige-200">
+      <div className="max-w-5xl mx-auto px-4 py-2 flex items-center gap-4">
+        <Image src="/logo.png" alt="DPS" width={32} height={32} />
+        <Link href="/dashboard" className="font-semibold">DPS 77RP</Link>
+        <div className="flex-1" />
+        <div className="flex items-center gap-3 text-sm">
+          <Link href="/dossiers">Teczki</Link>
+          {can.seeArchive(role) && <Link href="/archive">Archiwum</Link>}
+          {can.seeLogs(role) && <Link href="/logs">Logi</Link>}
+          <span className="text-beige-700">({login} • {role ?? "..."})</span>
+          <button className="btn" onClick={() => signOut(auth)}>Wyloguj</button>
         </div>
       </div>
-    );
-  }
-
-  return <>{children}</>;
+    </nav>
+  );
 }
