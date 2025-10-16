@@ -2,96 +2,49 @@ import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
-import {
-  addDoc,
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  doc,
-  updateDoc,
-  deleteDoc,
-} from "firebase/firestore";
+import { addDoc, collection, onSnapshot, orderBy, query, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { useProfile, can } from "@/hooks/useProfile";
 
-type Dossier = {
-  id: string;
-  first?: string;
-  last?: string;
-  cid?: string;
-  title: string;
-  createdAt?: any;
-};
-
-const buildTitle = (first: string, last: string, cid: string) =>
-  `Akta ${first.trim()} ${last.trim()} CID:${cid.trim()}`;
-
-export default function DossiersPage() {
-  const { role, login } = useProfile();
-
-  const [list, setList] = useState<Dossier[]>([]);
+export default function Dossiers() {
+  const [list, setList] = useState<any[]>([]);
   const [qtxt, setQ] = useState("");
   const [form, setForm] = useState({ first: "", last: "", cid: "" });
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     const q = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
-    return onSnapshot(q, (snap) =>
-      setList(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))
-    );
+    return onSnapshot(q, (snap) => setList(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))));
   }, []);
 
   const filtered = useMemo(() => {
     const l = qtxt.toLowerCase();
-    return list.filter((x) => {
-      const t = (x.title || "").toLowerCase();
-      return (
-        t.includes(l) ||
-        (x.first || "").toLowerCase().includes(l) ||
-        (x.last || "").toLowerCase().includes(l) ||
-        (x.cid || "").toLowerCase().includes(l)
-      );
-    });
+    return list.filter(x =>
+      (x.first||"").toLowerCase().includes(l) ||
+      (x.last||"").toLowerCase().includes(l) ||
+      (x.cid||"").toLowerCase().includes(l) ||
+      (x.title||"").toLowerCase().includes(l)
+    );
   }, [qtxt, list]);
 
   const create = async () => {
-    const first = form.first.trim();
-    const last = form.last.trim();
-    const cid = form.cid.trim();
-    if (!first || !last || !cid) return alert("Uzupełnij Imię, Nazwisko i CID.");
-
-    const title = buildTitle(first, last, cid);
-    await addDoc(collection(db, "dossiers"), {
-      first, last, cid, title, createdAt: serverTimestamp(),
-    });
-    await addDoc(collection(db, "logs"), {
-      type: "dossier_add", by: login, title, first, last, cid, ts: serverTimestamp(),
-    });
-    setForm({ first: "", last: "", cid: "" });
-  };
-
-  const edit = async (d: Dossier) => {
-    const nf = prompt("Nowe imię:", d.first || "") ?? "";
-    const nl = prompt("Nowe nazwisko:", d.last || "") ?? "";
-    const nc = prompt("Nowy CID:", d.cid || "") ?? "";
-    if (!nf.trim() || !nl.trim() || !nc.trim()) return;
-
-    const newTitle = buildTitle(nf, nl, nc);
-    await updateDoc(doc(db, "dossiers", d.id), { first: nf.trim(), last: nl.trim(), cid: nc.trim(), title: newTitle });
-    await addDoc(collection(db, "logs"), {
-      type: "dossier_edit", by: login, id: d.id, title: newTitle, first: nf.trim(), last: nl.trim(), cid: nc.trim(), ts: serverTimestamp(),
-    });
-  };
-
-  const remove = async (d: Dossier) => {
-    if (!can.manageRoles(role)) return alert("Brak uprawnień.");
-    if (!confirm(`Usunąć teczkę: ${d.title}?`)) return;
-
-    await deleteDoc(doc(db, "dossiers", d.id));
-    await addDoc(collection(db, "logs"), {
-      type: "dossier_delete", by: login, id: d.id, title: d.title, ts: serverTimestamp(),
-    });
+    try {
+      setErr(null);
+      const first = form.first.trim();
+      const last  = form.last.trim();
+      const cid   = form.cid.trim();
+      if (!first || !last || !cid) {
+        setErr("Uzupełnij imię, nazwisko i CID.");
+        return;
+      }
+      const title = `Akta ${first} ${last} CID:${cid}`;
+      await addDoc(collection(db, "dossiers"), {
+        first, last, cid, title,
+        createdAt: serverTimestamp(),
+      });
+      setForm({ first: "", last: "", cid: "" });
+    } catch (e: any) {
+      setErr(e?.message || "Nie udało się utworzyć teczki");
+    }
   };
 
   return (
@@ -103,22 +56,15 @@ export default function DossiersPage() {
           <div className="card p-4">
             <h1 className="text-xl font-bold mb-2">Teczki dowodowe</h1>
             <div className="flex gap-2 mb-3">
-              <input className="input flex-1" placeholder="Szukaj po imieniu/nazwisku/CID..." value={qtxt} onChange={(e)=>setQ(e.target.value)} />
+              <input className="input flex-1" placeholder="Szukaj po imieniu/nazwisku/CID..." value={qtxt} onChange={e=>setQ(e.target.value)} />
             </div>
+            {err && <div className="card p-3 bg-red-50 text-red-700 mb-3">{err}</div>}
             <div className="grid gap-2">
-              {filtered.map((d) => (
-                <div key={d.id} className="card p-3 flex items-center justify-between">
-                  <a className="hover:underline" href={`/dossiers/${d.id}`}>
-                    <div className="font-semibold">{d.title}</div>
-                    {!!d.cid && <div className="text-sm text-beige-700">CID: {d.cid}</div>}
-                  </a>
-                  <div className="flex items-center gap-2">
-                    <button className="btn" onClick={()=>edit(d)}>Edytuj</button>
-                    {can.manageRoles(role) && (
-                      <button className="btn bg-red-700 text-white" onClick={()=>remove(d)}>Usuń</button>
-                    )}
-                  </div>
-                </div>
+              {filtered.map(d => (
+                <a key={d.id} className="card p-3 hover:shadow" href={`/dossiers/${d.id}`}>
+                  <div className="font-semibold">{d.title}</div>
+                  <div className="text-sm text-beige-700">CID: {d.cid}</div>
+                </a>
               ))}
               {filtered.length===0 && <p>Brak teczek.</p>}
             </div>
