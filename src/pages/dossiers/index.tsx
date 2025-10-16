@@ -16,6 +16,8 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useProfile } from "@/hooks/useProfile";
+import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
+import { useDialog } from "@/components/DialogProvider";
 
 export default function Dossiers() {
   const [list, setList] = useState<any[]>([]);
@@ -27,6 +29,7 @@ export default function Dossiers() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const { role } = useProfile();
   const isDirector = role === "director";
+  const { confirm, alert } = useDialog();
 
   useEffect(() => {
     const q = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
@@ -98,8 +101,21 @@ export default function Dossiers() {
   };
 
   const remove = async (dossierId: string) => {
-    if (!isDirector) return;
-    if (!confirm("Na pewno usunąć całą teczkę wraz z wpisami?")) return;
+   if (!isDirector) {
+      await alert({
+        title: "Brak uprawnień",
+        message: "Tylko Director może usuwać teczki.",
+        tone: "info",
+      });
+      return;
+    }
+    const ok = await confirm({
+      title: "Usuń teczkę",
+      message: "Czy na pewno chcesz usunąć tę teczkę wraz ze wszystkimi wpisami?",
+      confirmLabel: "Usuń",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       setErr(null);
       setOk(null);
@@ -133,51 +149,55 @@ export default function Dossiers() {
       <>
         <Head><title>DPS 77RP — Teczki</title></Head>
         <Nav />
-        <div className="max-w-5xl mx-auto px-4 py-6 grid gap-6">
-          <div className="card p-4">
-            <h1 className="text-xl font-bold mb-2">Teczki dowodowe</h1>
-            <div className="flex gap-2 mb-3">
-              <input className="input flex-1" placeholder="Szukaj po imieniu/nazwisku/CID..." value={qtxt} onChange={e=>setQ(e.target.value)} />
+        <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="grid gap-6">
+            <div className="card p-4">
+              <h1 className="text-xl font-bold mb-2">Teczki dowodowe</h1>
+              <div className="flex gap-2 mb-3">
+                <input className="input flex-1" placeholder="Szukaj po imieniu/nazwisku/CID..." value={qtxt} onChange={e=>setQ(e.target.value)} />
+              </div>
+              {err && <div className="card p-3 bg-red-50 text-red-700 mb-3">{err}</div>}
+              {ok && <div className="card p-3 bg-green-50 text-green-700 mb-3">{ok}</div>}
+              <div className="grid gap-2">
+                {filtered.map(d => (
+                  <div key={d.id} className="card p-3 hover:shadow flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <a className="flex-1" href={`/dossiers/${d.id}`}>
+                      <div className="font-semibold">{d.title}</div>
+                      <div className="text-sm text-beige-700">CID: {d.cid}</div>
+                    </a>
+                    {isDirector && (
+                      <button
+                        className="btn bg-red-700 text-white w-full md:w-auto"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          remove(d.id);
+                        }}
+                        disabled={deletingId === d.id}
+                      >
+                        {deletingId === d.id ? "Usuwanie..." : "Usuń"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {filtered.length===0 && <p>Brak teczek.</p>}
+              </div>
             </div>
-            {err && <div className="card p-3 bg-red-50 text-red-700 mb-3">{err}</div>}
-            {ok && <div className="card p-3 bg-green-50 text-green-700 mb-3">{ok}</div>}
-            <div className="grid gap-2">
-              {filtered.map(d => (
-                <div key={d.id} className="card p-3 hover:shadow flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <a className="flex-1" href={`/dossiers/${d.id}`}>
-                    <div className="font-semibold">{d.title}</div>
-                    <div className="text-sm text-beige-700">CID: {d.cid}</div>
-                  </a>
-                  {isDirector && (
-                    <button
-                      className="btn bg-red-700 text-white w-full md:w-auto"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        remove(d.id);
-                      }}
-                      disabled={deletingId === d.id}
-                    >
-                      {deletingId === d.id ? "Usuwanie..." : "Usuń"}
-                    </button>
-                  )}
-                </div>
-              ))}
-              {filtered.length===0 && <p>Brak teczek.</p>}
-            </div>
-          </div>
+        
 
           <div className="card p-4">
-            <h2 className="font-semibold mb-2">Załóż nową teczkę</h2>
-            <div className="grid md:grid-cols-3 gap-2">
-              <input className="input" placeholder="Imię" value={form.first} onChange={e=>setForm({...form, first:e.target.value})}/>
-              <input className="input" placeholder="Nazwisko" value={form.last} onChange={e=>setForm({...form, last:e.target.value})}/>
-              <input className="input" placeholder="CID" value={form.cid} onChange={e=>setForm({...form, cid:e.target.value})}/>
+              <h2 className="font-semibold mb-2">Załóż nową teczkę</h2>
+              <div className="grid md:grid-cols-3 gap-2">
+                <input className="input" placeholder="Imię" value={form.first} onChange={e=>setForm({...form, first:e.target.value})}/>
+                <input className="input" placeholder="Nazwisko" value={form.last} onChange={e=>setForm({...form, last:e.target.value})}/>
+                <input className="input" placeholder="CID" value={form.cid} onChange={e=>setForm({...form, cid:e.target.value})}/>
+              </div>
+              <button className="btn mt-3" onClick={create} disabled={creating}>
+                {creating ? "Tworzenie..." : "Utwórz"}
+              </button>
             </div>
-            <button className="btn mt-3" onClick={create} disabled={creating}>
-              {creating ? "Tworzenie..." : "Utwórz"}
-            </button>
           </div>
+          <AnnouncementSpotlight />
         </div>
       </>
     </AuthGate>
