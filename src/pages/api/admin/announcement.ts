@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { adminAuth, adminDb, adminFieldValue, adminTimestamp } from "@/lib/firebaseAdmin";
-import type { Role } from "@/hooks/useProfile";
+import { Role, normalizeRole } from "@/lib/roles";
 
 const ANNOUNCEMENT_WINDOWS: Record<string, number | null> = {
   "30m": 30 * 60 * 1000,
@@ -32,7 +32,7 @@ async function verifyManager(req: NextApiRequest) {
   const decoded = await adminAuth.verifyIdToken(token);
   const profileSnap = await adminDb.collection("profiles").doc(decoded.uid).get();
   const profileData = profileSnap.data() || {};
-  const role = (profileData.role || "rookie") as Role;
+  const role = normalizeRole(profileData.role);
 
   if (!MANAGER_ROLES.includes(role)) {
     const err: Error & { code?: string } = new Error("FORBIDDEN");
