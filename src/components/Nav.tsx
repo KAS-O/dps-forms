@@ -2,7 +2,8 @@ import Link from "next/link";
 import { useProfile, can } from "@/hooks/useProfile";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { useDialog } from "@/components/DialogProvider"
+import { useDialog } from "@/components/DialogProvider";
+import { useSessionActivity } from "@/components/ActivityLogger";
 
 const ROLE_LABELS: Record<string, string> = {
   director: "Director",
@@ -16,6 +17,7 @@ export default function Nav() {
   const { fullName, role } = useProfile();
   const roleLabel = role ? (ROLE_LABELS[role] || role) : "";
   const { confirm } = useDialog();
+  const { logLogout } = useSessionActivity();
 
   const logout = async () => {
     const ok = await confirm({
@@ -26,6 +28,7 @@ export default function Nav() {
       tone: "danger",
     });
     if (!ok) return;
+    await logLogout("logout")
     await signOut(auth);
   };
 
