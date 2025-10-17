@@ -33,12 +33,57 @@ async function verifyDirector(req: NextApiRequest) {
   return decoded;
 }
 
+function profileTimestampToString(value: any): string | undefined {
+  if (!value) return undefined;
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value.toDate === "function") {
+    try {
+      const date = value.toDate();
+      if (date instanceof Date) {
+        return date.toISOString();
+      }
+    } catch (err) {
+      console.warn("Nie udało się przekształcić znacznika czasu profilu na string:", err);
+    }
+  }
+  return undefined;
+}
+
+function buildAccountsFromProfiles(profiles: Map<string, any>): AccountResponse[] {
+  const fallbackAccounts: AccountResponse[] = [];
+  profiles.forEach((profile, uid) => {
+    const rawLogin = typeof profile?.login === "string" ? profile.login.trim() : "";
+    const loginFromEmail = typeof profile?.email === "string" ? profile.email.split("@")[0] : "";
+    const login = (rawLogin || loginFromEmail || uid || "").toLowerCase();
+    const email = `${login}@${LOGIN_DOMAIN}`;
+    const fullName = typeof profile?.fullName === "string" && profile.fullName ? profile.fullName : login;
+    const createdAt = profileTimestampToString(profile?.createdAt);
+
+    fallbackAccounts.push({
+      uid,
+      login,
+      fullName,
+      role: normalizeRole(profile?.role),
+      email,
+      ...(createdAt ? { createdAt } : {}),
+    });
+  });
+
+  fallbackAccounts.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login));
+  return fallbackAccounts;
+}
+
 async function listAccounts(): Promise<AccountResponse[]> {
-  if (!adminAuth || !adminDb) return [];
+  if (!adminDb) return [];
 
   const profilesSnap = await adminDb.collection("profiles").get();
   const profiles = new Map<string, any>();
   profilesSnap.forEach((doc) => profiles.set(doc.id, doc.data()));
+
+  if (!adminAuth) {
+    return buildAccountsFromProfiles(profiles);
+  }
 
   const accounts: AccountResponse[] = [];
   let pageToken: string | undefined;
@@ -57,13 +102,14 @@ async function listAccounts(): Promise<AccountResponse[]> {
           createdAt: user.metadata.creationTime || undefined,
         });
       });
-  pageToken = res.pageToken;
+      pageToken = res.pageToken;
     } while (pageToken);
   } catch (error: any) {
     if (error?.code === "auth/insufficient-permission" || error?.code === "auth/admin-restricted-operation") {
-      throw new Error(
-        "Konto serwisowe Firebase nie ma uprawnień do listowania użytkowników. Upewnij się, że w konsoli GCP nadałeś mu rolę Firebase Admin lub przynajmniej Firebase Authentication Admin."
+     console.warn(
+        "Brak uprawnień Firebase Admin do listowania użytkowników, używam danych z kolekcji 'profiles'."
       );
+      return buildAccountsFromProfiles(profiles);
     }
     throw error;
   }
