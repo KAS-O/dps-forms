@@ -98,11 +98,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         displayName: fullName || normalizedLogin,
       });
 
-       const createdAt = adminFieldValue?.serverTimestamp?.();
+      const createdAt = adminFieldValue?.serverTimestamp?.();
       await adminDb.collection("profiles").doc(newUser.uid).set({
         login: normalizedLogin,
         fullName: fullName || normalizedLogin,
-       role: normalizeRole(role),
+      role: normalizeRole(role),
         ...(createdAt ? { createdAt } : {}),
       });
 
@@ -128,21 +128,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             {
               login: normalizedLogin,
               fullName: fullName || normalizedLogin,
-            ...(role ? { role: normalizeRole(role) } : {}),
+         ...(role ? { role: normalizeRole(role) } : {})
               ...(updatedAt ? { updatedAt } : {}),
             },
             { merge: true }
           );
         updates.push("login");
       } else if (fullName || role) {
-       const updatedAt = adminFieldValue?.serverTimestamp?.();
+    const updatedAt = adminFieldValue?.serverTimestamp?.();
         await adminDb
           .collection("profiles")
           .doc(uid)
           .set(
             {
               ...(fullName ? { fullName } : {}),
-            ...(role ? { role: normalizeRole(role) } : {}),
+           ...(role ? { role: normalizeRole(role) } : {}),
               ...(updatedAt ? { updatedAt } : {}),
             },
             { merge: true }
