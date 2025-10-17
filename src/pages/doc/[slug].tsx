@@ -412,7 +412,7 @@ export default function DocPage() {
                   return (
                     <div key={f.key} className="grid grid-cols-[220px_1fr] gap-3">
                       <div className="font-semibold">{f.label}{f.required ? " *" : ""}</div>
-                      <div className="whitespace-pre-wrap">
+                      <div className="whitespace-pre-wrap break-words">
                         {display}
                         {template.slug === "swiadczenie-spoleczne" && f.key === "dni" && nextPayoutDate && (
                           <div className="text-[11px] text-gray-600">Wyliczono z dnia dzisiejszego.</div>
