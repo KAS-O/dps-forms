@@ -836,7 +836,7 @@ export default function Admin() {
                   </div>
                   <div className="mt-4 flex flex-wrap items-center gap-3">
                     <input
-                      className="input w-full md:w-72 text-black placeholder:text-slate-500"
+                    className="input w-full md:w-72 bg-white text-black placeholder:text-slate-500"
                       placeholder="Szukaj po loginie lub imieniu..."
                       value={accountSearch}
                       onChange={(e) => setAccountSearch(e.target.value)}
@@ -900,9 +900,9 @@ export default function Admin() {
                       <span className="text-white/80">Czas wyświetlania:</span>
                       <select
                          className="input bg-white text-black"
-                    value={announcementDuration}
-                    onChange={(e) => setAnnouncementDuration(e.target.value)}
-                  >
+                        value={announcementDuration}
+                        onChange={(e) => setAnnouncementDuration(e.target.value)}
+                      >
                         {ANNOUNCEMENT_WINDOWS.map((w) => (
                           <option key={w.value} value={w.value}>
                             {w.label}
@@ -991,7 +991,7 @@ export default function Admin() {
               <div>
                 <label className="text-sm font-semibold text-white/80">Imię i nazwisko</label>
                 <input
-                  className="input bg-white/15 border-white/30 text-white placeholder:text-white/60"
+                className="input bg-white text-black placeholder:text-slate-500"
                   value={editorState.account.fullName || ""}
                   onChange={(e) =>
                     setEditorState((prev) =>
@@ -1028,7 +1028,7 @@ export default function Admin() {
                 </label>
                 <input
                   type="password"
-                  className="input bg-white/15 border-white/30 text-white placeholder:text-white/60"
+                   className="input bg-white text-black placeholder:text-slate-500"
                   value={editorState.password || ""}
                   placeholder={editorState.mode === "create" ? "Wprowadź hasło" : "Pozostaw puste aby nie zmieniać"}
                   onChange={(e) =>
