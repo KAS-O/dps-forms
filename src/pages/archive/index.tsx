@@ -7,6 +7,7 @@ import { addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, serverTime
 import { useProfile, can } from "@/hooks/useProfile";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
+import { useSessionActivity } from "@/components/ActivityLogger";
 
 type Archive = {
   id: string;
@@ -25,6 +26,7 @@ export default function ArchivePage() {
   const [qtxt, setQ] = useState("");
   const [clearing, setClearing] = useState(false);
   const { alert, confirm } = useDialog();
+  const { logActivity, session } = useSessionActivity();
 
   useEffect(() => {
     (async () => {
@@ -41,7 +43,9 @@ export default function ArchivePage() {
         });
       }
     })();
-  }, []);
+    if (!session) return;
+    void logActivity({ type: "archive_view" });
+  }, [alert, logActivity, session]);
 
   const filtered = useMemo(() => {
     const l = qtxt.toLowerCase();
@@ -171,7 +175,22 @@ export default function ArchivePage() {
                       {it.createdAt?.toDate ? it.createdAt.toDate().toLocaleString() : "—"}
                       {it.dossierId && <> • <a className="underline" href={`/dossiers/${it.dossierId}`}>Zobacz teczkę</a></>}
                     </div>
-                    {it.imageUrl && <div className="mt-1"><a className="text-blue-700 underline" href={it.imageUrl} target="_blank" rel="noreferrer">Otwórz obraz</a></div>}
+                   {it.imageUrl && (
+                      <div className="mt-1">
+                        <a
+                          className="text-blue-700 underline"
+                          href={it.imageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={() => {
+                            if (!session) return;
+                            void logActivity({ type: "archive_image_open", archiveId: it.id });
+                          }}
+                        >
+                          Otwórz obraz
+                        </a>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center justify-end gap-2">
                     {can.deleteArchive(role) && (
