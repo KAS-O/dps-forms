@@ -43,21 +43,30 @@ async function listAccounts(): Promise<AccountResponse[]> {
   const accounts: AccountResponse[] = [];
   let pageToken: string | undefined;
 
-  do {
-    const res = await adminAuth.listUsers(1000, pageToken);
-    res.users.forEach((user) => {
-      const profile = profiles.get(user.uid) || {};
-      accounts.push({
-        uid: user.uid,
-        login: profile.login || user.email?.split("@")[0] || "",
-        fullName: profile.fullName || user.displayName || "",
-        role: normalizeRole(profile.role),
-        email: user.email || "",
-        createdAt: user.metadata.creationTime || undefined,
+  try {
+    do {
+      const res = await adminAuth.listUsers(1000, pageToken);
+      res.users.forEach((user) => {
+        const profile = profiles.get(user.uid) || {};
+        accounts.push({
+          uid: user.uid,
+          login: profile.login || user.email?.split("@")[0] || "",
+          fullName: profile.fullName || user.displayName || "",
+          role: normalizeRole(profile.role),
+          email: user.email || "",
+          createdAt: user.metadata.creationTime || undefined,
+        });
       });
-    });
-    pageToken = res.pageToken;
-  } while (pageToken);
+  pageToken = res.pageToken;
+    } while (pageToken);
+  } catch (error: any) {
+    if (error?.code === "auth/insufficient-permission" || error?.code === "auth/admin-restricted-operation") {
+      throw new Error(
+        "Konto serwisowe Firebase nie ma uprawnień do listowania użytkowników. Upewnij się, że w konsoli GCP nadałeś mu rolę Firebase Admin lub przynajmniej Firebase Authentication Admin."
+      );
+    }
+    throw error;
+  }
 
   accounts.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login));
   return accounts;
