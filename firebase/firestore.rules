@@ -77,5 +77,14 @@ service cloud.firestore {
         allow read, write: if isDirector();
       }
     }
+
+    match /configs/{configId} {
+      allow read: if signedIn();
+      allow write: if isDirector();
+    }
+
+    match /{document=**} {
+      allow read, write: if isDirector();
+    }
   }
 }
