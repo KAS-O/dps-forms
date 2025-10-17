@@ -21,6 +21,7 @@ import {
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useProfile } from "@/hooks/useProfile";
 import { useDialog } from "@/components/DialogProvider";
+import { useSessionActivity } from "@/components/ActivityLogger";
 
 export default function DossierPage() {
   const router = useRouter();
@@ -35,6 +36,7 @@ export default function DossierPage() {
   const [err, setErr] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const { confirm, prompt, alert } = useDialog();
+  const { logActivity, session } = useSessionActivity();
 
   // uprawnienia do edycji wpisu: Director/Chief lub autor wpisu
  const canDeleteDossier = role === "director";
@@ -65,6 +67,11 @@ export default function DossierPage() {
       setRecords(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
     });
   }, [id]);
+  
+  useEffect(() => {
+    if (!id || !session) return;
+    void logActivity({ type: "dossier_view", dossierId: id });
+  }, [id, logActivity, session]);
 
   const addRecord = async () => {
     try {
@@ -230,7 +237,16 @@ export default function DossierPage() {
                 </div>
                 {r.text && <div className="whitespace-pre-wrap mb-2">{r.text}</div>}
                 {r.imageUrl && (
-                  <a className="text-blue-700 underline" href={r.imageUrl} target="_blank" rel="noreferrer">
+                 <a
+                    className="text-blue-700 underline"
+                    href={r.imageUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => {
+                      if (!session) return;
+                      void logActivity({ type: "dossier_evidence_open", dossierId: id, recordId: r.id });
+                    }}
+                  >
                     Zobacz zdjęcie
                   </a>
                 )}
