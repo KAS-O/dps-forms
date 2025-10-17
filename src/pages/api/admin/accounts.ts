@@ -1,9 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-import { FieldValue } from "firebase-admin/firestore";
+import { adminAuth, adminDb, adminFieldValue } from "@/lib/firebaseAdmin";
 import type { Role } from "@/hooks/useProfile";
 
-if (!adminAuth || !adminDb) {
+if (!adminAuth || !adminDb || !adminFieldValue) {
   console.warn("Firebase Admin SDK is not configured.");
 }
 
@@ -99,11 +98,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         displayName: fullName || normalizedLogin,
       });
 
+       const createdAt = adminFieldValue?.serverTimestamp?.();
       await adminDb.collection("profiles").doc(newUser.uid).set({
         login: normalizedLogin,
         fullName: fullName || normalizedLogin,
         role: (role || "rookie") as Role,
-        createdAt: FieldValue.serverTimestamp(),
+         ...(createdAt ? { createdAt } : {}),
       });
 
       return res.status(201).json({ uid: newUser.uid });
@@ -120,25 +120,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const normalizedLogin = String(login).trim().toLowerCase();
         updatePayload.email = `${normalizedLogin}@${LOGIN_DOMAIN}`;
         updatePayload.displayName = fullName || normalizedLogin;
-        await adminDb.collection("profiles").doc(uid).set(
-          {
-            login: normalizedLogin,
-            fullName: fullName || normalizedLogin,
-            role: (role || "rookie") as Role,
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+        const updatedAt = adminFieldValue?.serverTimestamp?.();
+        await adminDb
+          .collection("profiles")
+          .doc(uid)
+          .set(
+            {
+              login: normalizedLogin,
+              fullName: fullName || normalizedLogin,
+              role: (role || "rookie") as Role,
+              ...(updatedAt ? { updatedAt } : {}),
+            },
+            { merge: true }
+          );
         updates.push("login");
       } else if (fullName || role) {
-        await adminDb.collection("profiles").doc(uid).set(
-          {
-            ...(fullName ? { fullName } : {}),
-            ...(role ? { role: role as Role } : {}),
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+       const updatedAt = adminFieldValue?.serverTimestamp?.();
+        await adminDb
+          .collection("profiles")
+          .doc(uid)
+          .set(
+            {
+              ...(fullName ? { fullName } : {}),
+              ...(role ? { role: role as Role } : {}),
+              ...(updatedAt ? { updatedAt } : {}),
+            },
+            { merge: true }
+          );
         if (fullName) updates.push("fullName");
         if (role) updates.push("role");
         if (fullName) {
