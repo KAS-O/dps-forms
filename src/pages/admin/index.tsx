@@ -18,7 +18,6 @@ import {
   Timestamp,
   serverTimestamp,
   writeBatch,
-  deleteDoc,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
@@ -58,6 +57,31 @@ const ANNOUNCEMENT_WINDOWS: { value: string; label: string; ms: number | null }[
   { value: "7d", label: "Tydzień", ms: 7 * 24 * 60 * 60 * 1000 },
   { value: "forever", label: "Do czasu usunięcia", ms: null },
 ];
+
+async function readErrorResponse(res: Response, fallback: string) {
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      const data = await res.json();
+      const message = data?.error || data?.message;
+      if (message) return String(message);
+    } catch (err) {
+      console.warn("Nie udało się sparsować JSON z odpowiedzi:", err);
+    }
+  }
+  try {
+    const text = await res.text();
+    if (!text) return fallback;
+    if (/<!DOCTYPE/i.test(text)) {
+      return `${fallback} (kod ${res.status})`;
+    }
+    return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+  } catch (err) {
+    console.warn("Nie udało się odczytać treści odpowiedzi:", err);
+    return fallback;
+  }
+}
+
 
 export default function Admin() {
   const { role, login, fullName, ready } = useProfile();
@@ -255,8 +279,8 @@ export default function Admin() {
         },
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Nie udało się pobrać kont.");
+        const message = await readErrorResponse(res, "Nie udało się pobrać kont.");
+        throw new Error(message);
       }
       const data = await res.json();
       setAccounts(data.accounts || []);
@@ -299,8 +323,8 @@ export default function Admin() {
       setErr("Hasło jest wymagane przy tworzeniu nowego konta.");
       return;
     }
-    if (passwordValue && passwordValue.length < 6) {
-      setErr("Hasło musi mieć co najmniej 6 znaków.");
+    if (passwordValue && passwordValue.length < 1) {
+      setErr("Hasło musi mieć co najmniej 1 znak.");
       return;
     }
 
@@ -329,8 +353,8 @@ export default function Admin() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Nie udało się zapisać konta.");
+        const message = await readErrorResponse(res, "Nie udało się zapisać konta.");
+        throw new Error(message);
       }
       setEditorState(null);
       await loadAccounts();
@@ -364,8 +388,8 @@ export default function Admin() {
         },
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Nie udało się usunąć konta.");
+        const message = await readErrorResponse(res, "Nie udało się usunąć konta.");
+        throw new Error(message);
       }
       await loadAccounts();
       await recalcAll();
@@ -407,18 +431,27 @@ export default function Admin() {
     try {
       setAnnouncementSaving(true);
       setErr(null);
-      const windowConfig = ANNOUNCEMENT_WINDOWS.find((w) => w.value === announcementDuration);
-      const payload: Record<string, any> = {
-        message,
-        duration: announcementDuration,
-        createdAt: serverTimestamp(),
-        createdBy: login,
-        createdByName: fullName || login,
-      };
-      if (windowConfig) {
-        payload.expiresAt = windowConfig.ms ? Timestamp.fromDate(new Date(Date.now() + windowConfig.ms)) : null;
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error("Brak zalogowanego użytkownika.");
       }
-      await setDoc(doc(db, "configs", "announcement"), payload, { merge: false });
+      const token = await user.getIdToken();
+      const res = await fetch("/api/admin/announcement", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message,
+          duration: announcementDuration,
+        }),
+      });
+      if (!res.ok) {
+        const messageText = await readErrorResponse(res, "Nie udało się opublikować ogłoszenia.");
+        throw new Error(messageText);
+      }
+    
       await alert({
         title: "Opublikowano",
         message: "Ogłoszenie zostało opublikowane.",
@@ -447,7 +480,21 @@ export default function Admin() {
     try {
       setAnnouncementSaving(true);
       setErr(null);
-      await deleteDoc(doc(db, "configs", "announcement"));
+     const user = auth.currentUser;
+      if (!user) {
+        throw new Error("Brak zalogowanego użytkownika.");
+      }
+      const token = await user.getIdToken();
+      const res = await fetch("/api/admin/announcement", {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        const message = await readErrorResponse(res, "Nie udało się usunąć ogłoszenia.");
+        throw new Error(message);
+      }
       setAnnouncementMessage("");
     } catch (e: any) {
       console.error(e);
@@ -789,7 +836,7 @@ export default function Admin() {
                   </div>
                   <div className="mt-4 flex flex-wrap items-center gap-3">
                     <input
-                      className="input w-full md:w-72 bg-white/15 border-white/30 text-white placeholder:text-white/60"
+                      className="input w-full md:w-72 text-black placeholder:text-slate-500"
                       placeholder="Szukaj po loginie lub imieniu..."
                       value={accountSearch}
                       onChange={(e) => setAccountSearch(e.target.value)}
