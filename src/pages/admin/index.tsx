@@ -18,6 +18,9 @@ import {
   Timestamp,
   serverTimestamp,
   writeBatch,
+  onSnapshot,
+  orderBy,
+  limit,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
@@ -25,7 +28,7 @@ import { useAnnouncement } from "@/hooks/useAnnouncement";
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
-type AdminSection = "overview" | "hr" | "announcements";
+type AdminSection = "overview" | "hr" | "announcements" | "logs";
 
 type Account = {
   uid: string;
@@ -92,6 +95,8 @@ export default function Admin() {
   const [range, setRange] = useState<Range>("all");
   const [err, setErr] = useState<string | null>(null);
   const [section, setSection] = useState<AdminSection>("overview");
+  const [activityLogs, setActivityLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
 
   // ogólne
   const [mandaty, setMandaty] = useState(0);
@@ -146,6 +151,24 @@ export default function Admin() {
       setAnnouncementMessage("");
     }
   }, [announcement, announcementSaving]);
+
+  useEffect(() => {
+    if (role !== "director") return;
+    setLogsLoading(true);
+    const q = query(collection(db, "logs"), orderBy("ts", "desc"), limit(250));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setActivityLogs(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+        setLogsLoading(false);
+      },
+      (error) => {
+        console.error("Nie udało się pobrać logów aktywności:", error);
+        setLogsLoading(false);
+      }
+    );
+    return () => unsub();
+  }, [role]);
 
 
   // okres
@@ -511,6 +534,88 @@ export default function Admin() {
         : "bg-white/5 border-white/10 hover:bg-white/15"
     }`;
 
+  const formatLogTimestamp = (log: any) => {
+    const raw = log?.ts || log?.createdAt;
+    if (raw?.toDate && typeof raw.toDate === "function") {
+      try {
+        return raw.toDate().toLocaleString("pl-PL");
+      } catch (error) {
+        return raw.toDate().toISOString();
+      }
+    }
+    if (raw instanceof Date) {
+      return raw.toLocaleString("pl-PL");
+    }
+    if (typeof raw === "string") {
+      try {
+        return new Date(raw).toLocaleString("pl-PL");
+      } catch (error) {
+        return raw;
+      }
+    }
+    return "—";
+  };
+
+  const formatDuration = (ms?: number) => {
+    if (typeof ms !== "number" || Number.isNaN(ms) || ms <= 0) return "—";
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const pad = (value: number) => value.toString().padStart(2, "0");
+    return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  };
+
+  const formatReason = (reason?: string) => {
+    switch (reason) {
+      case "logout":
+        return "Wylogowanie";
+      case "window_closed":
+        return "Zamknięcie karty";
+      case "timeout":
+        return "Brak aktywności";
+      default:
+        return reason || "—";
+    }
+  };
+
+  const describeLog = (log: any) => {
+    switch (log?.type) {
+      case "session_start":
+        return `Start sesji • ID: ${log.sessionId || "—"}`;
+      case "session_end":
+        return `Koniec sesji • ID: ${log.sessionId || "—"} • Powód: ${formatReason(log.reason)}`;
+      case "logout":
+        return `Wylogowanie • Powód: ${formatReason(log.reason)}`;
+      case "page_view":
+        return `Strona: ${log.path || "—"}${log.title ? ` • ${log.title}` : ""}`;
+      case "template_view":
+        return `Szablon: ${log.template || log.slug || "—"}`;
+      case "archive_view":
+        return "Przegląd zasobów archiwum";
+      case "archive_image_open":
+        return `Otwarcie obrazu archiwum • ID: ${log.archiveId || "—"}`;
+      case "dossier_view":
+        return `Podgląd teczki • CID: ${log.dossierId || "—"}`;
+      case "dossier_link_open":
+        return `Przejście do teczki • CID: ${log.dossierId || "—"}`;
+      case "dossier_evidence_open":
+        return `Załącznik w teczce • CID: ${log.dossierId || "—"} • Wpis: ${log.recordId || "—"}`;
+      default: {
+        const entries = Object.entries(log || {})
+          .filter(([key]) => !["type", "ts", "createdAt", "login", "uid", "sessionId"].includes(key))
+          .map(([key, value]) => {
+            if (value == null) return `${key}: —`;
+            if (Array.isArray(value)) return `${key}: ${value.join(", ")}`;
+            if (typeof value === "object") return `${key}: ${JSON.stringify(value)}`;
+            return `${key}: ${value}`;
+          })
+          .join(" • ");
+        return entries || "—";
+      }
+    }
+  };
+
 
   // lifecycle
   useEffect(() => {
@@ -692,6 +797,10 @@ export default function Admin() {
               <button type="button" className={sectionButtonClass("announcements")} onClick={() => setSection("announcements")}>
                 <span className="text-base font-semibold">Ogłoszenia</span>
                 <span className="block text-xs text-white/70">Komunikaty dla funkcjonariuszy</span>
+              </button>
+              <button type="button" className={sectionButtonClass("logs")} onClick={() => setSection("logs")}>
+                <span className="text-base font-semibold">Logi</span>
+                <span className="block text-xs text-white/70">Aktywność kont</span>
               </button>
             </div>
           </aside>
@@ -944,6 +1053,65 @@ export default function Admin() {
                       </div>
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+            
+            {section === "logs" && (
+              <div className="grid gap-5">
+                <div className="card bg-gradient-to-br from-amber-900/85 via-amber-800/85 to-stone-900/80 text-white p-6 shadow-xl">
+                  <h2 className="text-xl font-semibold">Monitor aktywności</h2>
+                  <p className="text-sm text-white/70">
+                    Historia logowań, wylogowań oraz odwiedzanych sekcji panelu. Dostępna wyłącznie dla Director.
+                  </p>
+                  <p className="mt-2 text-xs text-white/60">Rejestrowanych jest maksymalnie 250 ostatnich zdarzeń.</p>
+                </div>
+
+                <div className="card p-0 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-beige-200 text-sm">
+                      <thead className="bg-beige-100">
+                        <tr className="text-left">
+                          <th className="px-4 py-3 font-semibold">Data</th>
+                          <th className="px-4 py-3 font-semibold">Użytkownik</th>
+                          <th className="px-4 py-3 font-semibold">Typ</th>
+                          <th className="px-4 py-3 font-semibold">Szczegóły</th>
+                          <th className="px-4 py-3 font-semibold">Czas sesji</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-beige-100 bg-white/60">
+                        {logsLoading ? (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-6 text-center">Ładowanie logów…</td>
+                          </tr>
+                        ) : activityLogs.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-6 text-center">Brak zarejestrowanych zdarzeń.</td>
+                          </tr>
+                        ) : (
+                          activityLogs.map((log, idx) => (
+                            <tr key={log.id ?? idx} className="align-top">
+                              <td className="px-4 py-3 whitespace-nowrap">{formatLogTimestamp(log)}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <div className="font-semibold">{log.login || "—"}</div>
+                                <div className="text-xs text-beige-700">{log.uid || "—"}</div>
+                                {log.sessionId && (
+                                  <div className="text-[11px] text-beige-500">Sesja: {log.sessionId}</div>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className="inline-flex items-center rounded-full bg-beige-200 px-2 py-0.5 text-xs font-semibold text-beige-900">
+                                  {log.type || "—"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">{describeLog(log)}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">{formatDuration(log.durationMs)}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}
