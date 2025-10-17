@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { adminAuth, adminDb, adminFieldValue } from "@/lib/firebaseAdmin";
-import type { Role } from "@/hooks/useProfile";
+import { Role, normalizeRole } from "@/lib/roles";
 
 if (!adminAuth || !adminDb || !adminFieldValue) {
   console.warn("Firebase Admin SDK is not configured.");
@@ -26,7 +26,7 @@ async function verifyDirector(req: NextApiRequest) {
   const token = header.slice(7);
   const decoded = await adminAuth.verifyIdToken(token);
   const profileSnap = await adminDb.collection("profiles").doc(decoded.uid).get();
-  const role = (profileSnap.data()?.role || "") as Role;
+  const role = normalizeRole(profileSnap.data()?.role);
   if (role !== "director") {
     throw new Error("FORBIDDEN");
   }
@@ -51,7 +51,7 @@ async function listAccounts(): Promise<AccountResponse[]> {
         uid: user.uid,
         login: profile.login || user.email?.split("@")[0] || "",
         fullName: profile.fullName || user.displayName || "",
-        role: (profile.role || "rookie") as Role,
+        role: normalizeRole(profile.role),
         email: user.email || "",
         createdAt: user.metadata.creationTime || undefined,
       });
@@ -102,8 +102,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       await adminDb.collection("profiles").doc(newUser.uid).set({
         login: normalizedLogin,
         fullName: fullName || normalizedLogin,
-        role: (role || "rookie") as Role,
-         ...(createdAt ? { createdAt } : {}),
+       role: normalizeRole(role),
+        ...(createdAt ? { createdAt } : {}),
       });
 
       return res.status(201).json({ uid: newUser.uid });
@@ -128,7 +128,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             {
               login: normalizedLogin,
               fullName: fullName || normalizedLogin,
-              role: (role || "rookie") as Role,
+            ...(role ? { role: normalizeRole(role) } : {}),
               ...(updatedAt ? { updatedAt } : {}),
             },
             { merge: true }
@@ -142,7 +142,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .set(
             {
               ...(fullName ? { fullName } : {}),
-              ...(role ? { role: role as Role } : {}),
+            ...(role ? { role: normalizeRole(role) } : {}),
               ...(updatedAt ? { updatedAt } : {}),
             },
             { merge: true }
