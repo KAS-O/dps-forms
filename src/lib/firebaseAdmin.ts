@@ -2,10 +2,62 @@ import { App, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 
-const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-const rawPrivateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
-const privateKey = rawPrivateKey?.replace(/\\n/g, "\n");
+type ServiceAccount = {
+  project_id?: string;
+  client_email?: string;
+  private_key?: string;
+};
+
+function decodeServiceAccount(raw?: string | null): ServiceAccount | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const tryParse = (value: string) => {
+    try {
+      return JSON.parse(value) as ServiceAccount;
+    } catch (error) {
+      console.warn("Nie udało się sparsować konfiguracji Firebase Admin:", error);
+      return null;
+    }
+  };
+
+  if (trimmed.startsWith("{")) {
+    return tryParse(trimmed);
+  }
+
+  try {
+    const decoded = Buffer.from(trimmed, "base64").toString("utf8");
+    return tryParse(decoded);
+  } catch (error) {
+    console.warn("Nie udało się zdekodować konfiguracji Firebase Admin z Base64:", error);
+    return null;
+  }
+}
+
+const serviceAccount =
+  decodeServiceAccount(process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT) ||
+  decodeServiceAccount(process.env.FIREBASE_ADMIN_CREDENTIALS);
+
+let projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+let clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+let rawPrivateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
+
+if (serviceAccount) {
+  projectId = projectId || serviceAccount.project_id;
+  clientEmail = clientEmail || serviceAccount.client_email;
+  rawPrivateKey = rawPrivateKey || serviceAccount.private_key;
+}
+
+if (!rawPrivateKey && process.env.FIREBASE_ADMIN_PRIVATE_KEY_BASE64) {
+  try {
+    rawPrivateKey = Buffer.from(process.env.FIREBASE_ADMIN_PRIVATE_KEY_BASE64, "base64").toString("utf8");
+  } catch (error) {
+    console.warn("Nie udało się zdekodować klucza prywatnego Firebase Admin z Base64:", error);
+  }
+}
+
+const privateKey = rawPrivateKey?.replace(/\r?\n/g, "\n");
 
 const globalWithAdmin = globalThis as typeof globalThis & { __FIREBASE_ADMIN_APP__?: App };
 
