@@ -35,6 +35,9 @@ export function useAnnouncement() {
         createdBy: data.createdBy ?? null,
         createdByName: data.createdByName ?? null,
       });
+      }, (error) => {
+      console.error("Announcement subscription error:", error);
+      setAnnouncement(null);
     });
     return () => unsub();
   }, []);
