@@ -1,39 +1,50 @@
-let admin: any = null;
-
-if (typeof globalThis !== "undefined") {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const dynamicRequire = eval("require") as NodeJS.Require;
-    admin = dynamicRequire("firebase-admin");
-  } catch (err) {
-    console.warn("Firebase Admin SDK nie jest dostępny:", err);
-    admin = null;
-  }
-}
-
-let app: any = null;
+import { App, cert, getApps, initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
+import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 
 const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
 const rawPrivateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
 const privateKey = rawPrivateKey?.replace(/\\n/g, "\n");
 
-if (admin) {
-  if (admin.apps?.length) {
-    app = admin.apps[0];
-  } else if (projectId && clientEmail && privateKey) {
-    app = admin.initializeApp({
-      credential: admin.credential.cert({
+const globalWithAdmin = globalThis as typeof globalThis & { __FIREBASE_ADMIN_APP__?: App };
+
+function ensureFirebaseAdminApp(): App | null {
+  if (globalWithAdmin.__FIREBASE_ADMIN_APP__) {
+    return globalWithAdmin.__FIREBASE_ADMIN_APP__;
+  }
+
+  if (getApps().length) {
+    const existing = getApps()[0];
+    globalWithAdmin.__FIREBASE_ADMIN_APP__ = existing;
+    return existing;
+  }
+
+  if (!projectId || !clientEmail || !privateKey) {
+    console.warn("Firebase Admin SDK environment variables are missing.");
+    return null;
+  }
+
+  try {
+    const app = initializeApp({
+      credential: cert({
         projectId,
         clientEmail,
         privateKey,
       }),
     });
+    globalWithAdmin.__FIREBASE_ADMIN_APP__ = app;
+    return app;
+  } catch (error) {
+    console.error("Failed to initialize Firebase Admin SDK:", error);
+    return null;
   }
 }
 
+const app = ensureFirebaseAdminApp();
+
 export const adminApp = app;
-export const adminAuth = app && admin ? admin.auth(app) : null;
-export const adminDb = app && admin ? admin.firestore(app) : null;
-export const adminFieldValue = admin?.firestore?.FieldValue ?? null;
-export const adminTimestamp = admin?.firestore?.Timestamp ?? null;
+export const adminAuth = app ? getAuth(app) : null;
+export const adminDb = app ? getFirestore(app) : null;
+export const adminFieldValue: typeof FieldValue | null = app ? FieldValue : null;
+export const adminTimestamp: typeof Timestamp | null = app ? Timestamp : null;
