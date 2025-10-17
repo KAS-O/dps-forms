@@ -50,7 +50,7 @@ export function useProfile() {
 export const can = {
   seeArchive: (role: Role | null) => !!role && ["director", "chief", "senior", "agent"].includes(role),
   deleteArchive: (role: Role | null) => role === "director",
-  seeLogs: (role: Role | null) => !!role && ["director", "chief"].includes(role),
+  seeLogs: (role: Role | null) => role === "director",
   manageRoles: (role: Role | null) => !!role && ["director", "chief"].includes(role),
   manageFinance: (role: Role | null) => !!role && ["director"].includes(role),
   editRecords: (role: Role | null) => !!role && ["director", "chief"].includes(role), // edycja/usuwanie wpisów w teczkach
