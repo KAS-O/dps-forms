@@ -1,3 +1,6 @@
+import fs from "fs";
+import path from "path";
+
 import { App, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
@@ -35,9 +38,29 @@ function decodeServiceAccount(raw?: string | null): ServiceAccount | null {
   }
 }
 
+function readServiceAccountFile(filePath?: string | null): ServiceAccount | null {
+  if (!filePath) return null;
+
+  const resolved = path.resolve(filePath);
+  if (!fs.existsSync(resolved)) {
+    console.warn(`Firebase Admin service account file not found at: ${resolved}`);
+    return null;
+  }
+
+  try {
+    const content = fs.readFileSync(resolved, "utf8");
+    return decodeServiceAccount(content);
+  } catch (error) {
+    console.warn("Nie udało się odczytać pliku konfiguracji Firebase Admin:", error);
+    return null;
+  }
+}
+
 const serviceAccount =
   decodeServiceAccount(process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT) ||
-  decodeServiceAccount(process.env.FIREBASE_ADMIN_CREDENTIALS);
+  decodeServiceAccount(process.env.FIREBASE_ADMIN_CREDENTIALS) ||
+  readServiceAccountFile(process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_PATH) ||
+  readServiceAccountFile(process.env.GOOGLE_APPLICATION_CREDENTIALS);
 
 let projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 let clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
@@ -57,7 +80,9 @@ if (!rawPrivateKey && process.env.FIREBASE_ADMIN_PRIVATE_KEY_BASE64) {
   }
 }
 
-const privateKey = rawPrivateKey?.replace(/\r?\n/g, "\n");
+const privateKey = rawPrivateKey
+  ?.replace(/\\n/g, "\n")
+  .replace(/\r?\n/g, "\n");
 
 const globalWithAdmin = globalThis as typeof globalThis & { __FIREBASE_ADMIN_APP__?: App };
 
