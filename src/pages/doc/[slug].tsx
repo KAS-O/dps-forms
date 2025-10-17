@@ -15,6 +15,7 @@ import {
   getDoc,
 } from "firebase/firestore";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
+import { useSessionActivity } from "@/components/ActivityLogger";
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
 
@@ -33,6 +34,7 @@ export default function DocPage() {
   const [ok, setOk] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const { logActivity, session } = useSessionActivity();
 
   // teczki
   const [dossiers, setDossiers] = useState<any[]>([]);
@@ -74,6 +76,11 @@ export default function DocPage() {
       setSelectedUids(resolvedUid ? [resolvedUid] : []);
     })();
   }, []);
+
+  useEffect(() => {
+    if (!template || !session) return;
+    void logActivity({ type: "template_view", template: template.name, slug: template.slug });
+  }, [template, logActivity, session]);
 
   if (!template) {
     return (
