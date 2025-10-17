@@ -99,6 +99,17 @@ function ensureFirebaseAdminApp(): App | null {
   }
 
   if (!projectId || !clientEmail || !privateKey) {
+    if (projectId && (process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST)) {
+      try {
+        const app = initializeApp({ projectId });
+        globalWithAdmin.__FIREBASE_ADMIN_APP__ = app;
+        return app;
+      } catch (error) {
+        console.error("Failed to initialize Firebase Admin SDK in emulator mode:", error);
+        return null;
+      }
+    }
+
     console.warn("Firebase Admin SDK environment variables are missing.");
     return null;
   }
