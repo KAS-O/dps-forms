@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
-
-export type Role = "director" | "chief" | "senior" | "agent" | "rookie";
+import { Role, normalizeRole } from "@/lib/roles";
+export type { Role } from "@/lib/roles";
 
 export function useProfile() {
   const [role, setRole] = useState<Role | null>(null);
@@ -35,7 +35,7 @@ export function useProfile() {
 
     const unsub = onSnapshot(ref, (s) => {
       const d = s.data() || {};
-      setRole((d.role || "rookie") as Role);
+      setRole(normalizeRole(d.role));
       setFullName(d.fullName || userLogin);
       setReady(true);
     });
