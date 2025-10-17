@@ -899,10 +899,10 @@ export default function Admin() {
                     <div className="flex items-center gap-2 text-sm">
                       <span className="text-white/80">Czas wyświetlania:</span>
                       <select
-                        className="input bg-white/15 border-white/30 text-white"
-                        value={announcementDuration}
-                        onChange={(e) => setAnnouncementDuration(e.target.value)}
-                      >
+                         className="input bg-white text-black"
+                    value={announcementDuration}
+                    onChange={(e) => setAnnouncementDuration(e.target.value)}
+                  >
                         {ANNOUNCEMENT_WINDOWS.map((w) => (
                           <option key={w.value} value={w.value}>
                             {w.label}
@@ -976,7 +976,7 @@ export default function Admin() {
                 <label className="text-sm font-semibold text-white/80">Login</label>
                 <div className="mt-1 flex items-center gap-2">
                   <input
-                    className="input flex-1 bg-white/15 border-white/30 text-white placeholder:text-white/60"
+                    className="input flex-1 bg-white text-black placeholder:text-slate-500"
                     value={editorState.account.login || ""}
                     onChange={(e) =>
                       setEditorState((prev) =>
@@ -1004,7 +1004,7 @@ export default function Admin() {
               <div>
                 <label className="text-sm font-semibold text-white/80">Ranga</label>
                 <select
-                  className="input bg-white/15 border-white/30 text-white"
+                  className="input bg-white text-black"
                   value={editorState.account.role || "rookie"}
                   onChange={(e) =>
                     setEditorState((prev) =>
