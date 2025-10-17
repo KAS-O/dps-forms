@@ -18,6 +18,7 @@ import { auth, db } from "@/lib/firebase";
 import { useProfile } from "@/hooks/useProfile";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
+import { useSessionActivity } from "@/components/ActivityLogger";
 
 export default function Dossiers() {
   const [list, setList] = useState<any[]>([]);
@@ -30,6 +31,7 @@ export default function Dossiers() {
   const { role } = useProfile();
   const isDirector = role === "director";
   const { confirm, alert } = useDialog();
+  const { logActivity, session } = useSessionActivity();
 
   useEffect(() => {
     const q = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
@@ -82,12 +84,14 @@ export default function Dossiers() {
           createdByUid: user?.uid || "",
         });
       });
+      const timestamp = serverTimestamp();
       await addDoc(collection(db, "logs"), {
         type: "dossier_create",
         first,
         last,
         cid,
-        createdAt: serverTimestamp(),
+        createdAt: timestamp,
+        ts: timestamp,
         author: user?.email || "",
         authorUid: user?.uid || "",
       });
@@ -161,7 +165,14 @@ export default function Dossiers() {
               <div className="grid gap-2">
                 {filtered.map(d => (
                   <div key={d.id} className="card p-3 hover:shadow flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                    <a className="flex-1" href={`/dossiers/${d.id}`}>
+                   <a
+                      className="flex-1"
+                      href={`/dossiers/${d.id}`}
+                      onClick={() => {
+                        if (!session) return;
+                        void logActivity({ type: "dossier_link_open", dossierId: d.id });
+                      }}
+                    >
                       <div className="font-semibold">{d.title}</div>
                       <div className="text-sm text-beige-700">CID: {d.cid}</div>
                     </a>
