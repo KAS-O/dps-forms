@@ -1,9 +1,10 @@
 import fs from "fs";
 import path from "path";
 
+import admin from "firebase-admin";
 import { App, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
 type ServiceAccount = {
   project_id?: string;
@@ -122,6 +123,6 @@ const app = ensureFirebaseAdminApp();
 
 export const adminApp = app;
 export const adminAuth = app ? getAuth(app) : null;
-export const adminDb = app ? getFirestore(app) : null;
+export const adminDb = app ? admin.firestore(app) : null;
 export const adminFieldValue: typeof FieldValue | null = app ? FieldValue : null;
 export const adminTimestamp: typeof Timestamp | null = app ? Timestamp : null;
