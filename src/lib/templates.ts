@@ -18,6 +18,12 @@ export type Template = {
   name: string;
   description?: string;
   fields: Field[];
+  requiresDossier?: boolean;
+  requiresVehicleFolder?: boolean;
+  vehicleNoteConfig?: {
+    amountField: string;
+    amountLabel: string;
+  };
 };
 
 export const TEMPLATES: Template[] = [
@@ -113,6 +119,7 @@ export const TEMPLATES: Template[] = [
   {
     slug: "swiadczenie-spoleczne",
     name: "Wypłata świadczeń socjalnych",
+    requiresDossier: true,
     fields: [
       { key: "data", label: "Data", type: "date", required: true },
       { key: "godzina", label: "Godzina", type: "text", required: true },
@@ -134,6 +141,72 @@ export const TEMPLATES: Template[] = [
       },
       { key: "kwota", label: "Wysokość świadczenia (USD)", type: "number", required: true },
       { key: "dni", label: "Następna wypłata dostępna dnia", type: "number", required: true },
+    ],
+  },
+  
+  {
+    slug: "raport-zalozenia-blokady",
+    name: "Raport z założenia blokady",
+    requiresVehicleFolder: true,
+    vehicleNoteConfig: {
+      amountField: "kara",
+      amountLabel: "Kara do wydania przy zdjęciu blokady (USD)",
+    },
+    fields: [
+      { key: "data", label: "Data", type: "date", required: true },
+      { key: "registration", label: "Numer rejestracyjny", type: "text", required: true },
+      { key: "brand", label: "Marka", type: "text", required: true },
+      { key: "color", label: "Kolor", type: "text", required: true },
+      { key: "owner", label: "Imię i nazwisko właściciela", type: "text", required: true },
+      { key: "miejsce", label: "Miejsce", type: "text", required: true },
+      {
+        key: "powod",
+        label: "Powód nałożenia blokady",
+        type: "textarea",
+        required: true,
+      },
+      {
+        key: "kara",
+        label: "Kara do wydania przy zdjęciu blokady (USD)",
+        type: "number",
+        required: true,
+      },
+    ],
+  },
+
+  {
+    slug: "protokol-zajecia-pojazdu",
+    name: "Protokół zajęcia pojazdu",
+    requiresVehicleFolder: true,
+    vehicleNoteConfig: {
+      amountField: "grzywna",
+      amountLabel: "Grzywna do wydania przy odbiorze pojazdu (USD)",
+    },
+    fields: [
+      { key: "data", label: "Data", type: "date", required: true },
+      { key: "registration", label: "Numer rejestracyjny", type: "text", required: true },
+      { key: "brand", label: "Marka", type: "text", required: true },
+      { key: "color", label: "Kolor", type: "text", required: true },
+      { key: "owner", label: "Imię i nazwisko właściciela", type: "text", required: true },
+      { key: "miejsce", label: "Miejsce", type: "text", required: true },
+      {
+        key: "powod",
+        label: "Powód zajęcia pojazdu na parking policyjny",
+        type: "textarea",
+        required: true,
+      },
+      {
+        key: "dlugosc",
+        label: "Długość zajęcia pojazdu",
+        type: "text",
+        required: true,
+      },
+      {
+        key: "grzywna",
+        label: "Grzywna do wydania przy odbiorze pojazdu (USD)",
+        type: "number",
+        required: true,
+      },
     ],
   },
 ];
