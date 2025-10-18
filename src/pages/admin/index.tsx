@@ -185,6 +185,8 @@ export default function Admin() {
     { name: "Bloczek mandatowy", field: "kwota" },
     { name: "Kontrola LSEB", field: "grzywna" },
     { name: "Protokół aresztowania", field: "grzywna" },
+    { name: "Raport z założenia blokady", field: "kara" },
+    { name: "Protokół zajęcia pojazdu", field: "grzywna" },
   ];
 
   // ===== ogólne + saldo + personel
@@ -277,6 +279,14 @@ export default function Admin() {
           if (!Number.isNaN(n)) income += n;
         } else if (template === "Protokół aresztowania") {
           a += 1;
+          const val = (data?.values || {}) as any;
+          const n = Number(val.grzywna || 0);
+          if (!Number.isNaN(n)) income += n;
+        } else if (template === "Raport z założenia blokady") {
+          const val = (data?.values || {}) as any;
+          const n = Number(val.kara || 0);
+          if (!Number.isNaN(n)) income += n;
+        } else if (template === "Protokół zajęcia pojazdu") {
           const val = (data?.values || {}) as any;
           const n = Number(val.grzywna || 0);
           if (!Number.isNaN(n)) income += n;
