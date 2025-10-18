@@ -16,12 +16,14 @@ import {
   query,
   serverTimestamp,
   updateDoc,
+  where,
   writeBatch,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useProfile } from "@/hooks/useProfile";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
+import { getActiveVehicleFlags, getVehicleHighlightStyle } from "@/lib/vehicleFlags";
 
 export default function DossierPage() {
   const router = useRouter();
@@ -31,6 +33,7 @@ export default function DossierPage() {
   const [title, setTitle] = useState<string>("");
   const [info, setInfo] = useState<{ first?: string; last?: string; cid?: string }>({});
   const [records, setRecords] = useState<any[]>([]);
+  const [vehicles, setVehicles] = useState<any[]>([]);
   const [txt, setTxt] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -65,6 +68,14 @@ export default function DossierPage() {
     const q = query(collection(db, "dossiers", id, "records"), orderBy("createdAt", "desc"));
     return onSnapshot(q, (snap) => {
       setRecords(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+    });
+  }, [id]);
+  
+  useEffect(() => {
+    if (!id) return;
+    const q = query(collection(db, "vehicleFolders"), where("ownerCidNormalized", "==", id));
+    return onSnapshot(q, (snap) => {
+      setVehicles(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
     });
   }, [id]);
   
@@ -209,6 +220,48 @@ export default function DossierPage() {
               >
                 {deleting ? "Usuwanie..." : "Usuń teczkę"}
               </button>
+            )}
+          </div>
+
+          <div className="card p-4 grid gap-3">
+            <h2 className="font-semibold">Powiązane pojazdy</h2>
+            {vehicles.length > 0 ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                {vehicles.map((vehicle) => {
+                  const highlight = getVehicleHighlightStyle(vehicle?.statuses);
+                  const activeFlags = highlight?.active || getActiveVehicleFlags(vehicle?.statuses);
+                  return (
+                    <a
+                      key={vehicle.id}
+                      href={`/vehicle-archive/${vehicle.id}`}
+                      className={`card p-3 transition hover:shadow-xl ${highlight ? "text-white" : ""}`}
+                      style={highlight?.style || undefined}
+                      onClick={() => {
+                        if (!session) return;
+                        void logActivity({ type: "vehicle_from_dossier_open", dossierId: id, vehicleId: vehicle.id });
+                      }}
+                    >
+                      <div className="font-semibold text-lg">{vehicle.registration}</div>
+                      <div className="text-sm opacity-80">{vehicle.brand} • Kolor: {vehicle.color}</div>
+                      <div className="text-sm opacity-80">Właściciel: {vehicle.ownerName}</div>
+                      {activeFlags.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {activeFlags.map((flag) => (
+                            <span
+                              key={flag.key}
+                              className="px-2 py-1 text-xs font-semibold rounded-full bg-black/30 border border-white/40"
+                            >
+                              {flag.icon} {flag.label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </a>
+                  );
+                })}
+              </div>
+            ) : (
+              <p>Brak powiązanych pojazdów.</p>
             )}
           </div>
 
