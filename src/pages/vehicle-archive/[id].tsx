@@ -14,6 +14,8 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  increment,
+  setDoc,
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
@@ -43,6 +45,18 @@ interface VehicleNote {
   createdAt?: any;
   author?: string;
   authorUid?: string;
+  templateSlug?: string;
+  templateName?: string;
+  archiveId?: string;
+  archiveUrl?: string;
+  vehicleFolderId?: string;
+  paymentAmount?: number;
+  paymentLabel?: string;
+  paymentStatus?: "pending" | "paid" | "unpaid";
+  paymentStatusMessage?: string;
+  paymentResolvedAt?: any;
+  paymentResolvedBy?: string;
+  paymentResolvedByUid?: string;
 }
 
 const emptyForm = {
@@ -69,6 +83,7 @@ export default function VehicleFolderPage() {
   const [noteSaving, setNoteSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [ownerDossierId, setOwnerDossierId] = useState<string | null>(null);
+  const [paymentProcessingId, setPaymentProcessingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -310,6 +325,57 @@ export default function VehicleFolderPage() {
     }
   };
 
+  const handlePaymentStatus = async (note: VehicleNote, status: "paid" | "unpaid") => {
+    if (!id) return;
+    try {
+      setErr(null);
+      setOk(null);
+      setPaymentProcessingId(note.id);
+
+      const amount = Number(note.paymentAmount || 0);
+      if (status === "paid" && amount > 0) {
+        const accRef = doc(db, "accounts", "dps");
+        await setDoc(accRef, { manualDelta: 0, createdAt: serverTimestamp() }, { merge: true });
+        await updateDoc(accRef, { manualDelta: increment(amount) });
+      }
+
+      const updates: Record<string, any> = {
+        paymentStatus: status,
+        paymentResolvedAt: serverTimestamp(),
+        paymentResolvedBy: auth.currentUser?.email || "",
+        paymentResolvedByUid: auth.currentUser?.uid || "",
+      };
+      updates.paymentStatusMessage =
+        status === "paid"
+          ? "Status płatności: mandat/grzywna opłacona."
+          : "Status płatności: nie uregulowano spłaty grzywny.";
+      updates.paymentCredited = status === "paid" && amount > 0;
+
+      await updateDoc(doc(db, "vehicleFolders", id, "notes", note.id), updates);
+      await addDoc(collection(db, "logs"), {
+        type: "vehicle_note_payment",
+        vehicleId: id,
+        noteId: note.id,
+        status,
+        amount: Number.isFinite(amount) ? amount : 0,
+        author: auth.currentUser?.email || "",
+        authorUid: auth.currentUser?.uid || "",
+        ts: serverTimestamp(),
+      });
+
+      setOk(
+        status === "paid"
+          ? "Zaksięgowano spłatę grzywny na koncie DPS."
+          : "Zapisano informację o braku spłaty grzywny."
+      );
+    } catch (e: any) {
+      console.error(e);
+      setErr(e?.message || "Nie udało się zaktualizować statusu płatności.");
+    } finally {
+      setPaymentProcessingId(null);
+    }
+  };
+
   const title = vehicle ? `Pojazd ${vehicle.registration}` : "Teczka pojazdu";
 
   return (
@@ -416,18 +482,65 @@ export default function VehicleFolderPage() {
           </div>
 
           <div className="grid gap-2">
-            {notes.map((note) => (
-              <div key={note.id} className="card p-3">
-                <div className="text-sm text-beige-700 mb-1">
-                  {note.createdAt?.toDate?.()?.toLocaleString?.() || "—"} • {note.author || note.authorUid || ""}
+           {notes.map((note) => {
+              const createdLabel = note.createdAt?.toDate?.()?.toLocaleString?.() || "—";
+              const resolvedLabel = note.paymentResolvedAt?.toDate?.()?.toLocaleString?.();
+              const hasAmount = typeof note.paymentAmount === "number" && !Number.isNaN(note.paymentAmount);
+              const amountLabel = hasAmount ? `$${note.paymentAmount.toFixed(2)}` : null;
+              const paymentMessage =
+                note.paymentStatusMessage ||
+                (note.paymentStatus === "pending"
+                  ? "Status płatności: oczekuje na rozliczenie."
+                  : note.paymentStatus === "paid"
+                  ? "Status płatności: mandat/grzywna opłacona."
+                  : note.paymentStatus === "unpaid"
+                  ? "Status płatności: nie uregulowano spłaty grzywny."
+                  : null);
+
+              return (
+                <div key={note.id} className="card p-3">
+                  <div className="text-sm text-beige-700 mb-1">
+                    {createdLabel} • {note.author || note.authorUid || ""}
+                  </div>
+                  <div className="whitespace-pre-wrap mb-2">{note.text}</div>
+                  {note.paymentStatus && paymentMessage && (
+                    <div className="mb-2 text-sm font-semibold">
+                      {paymentMessage}
+                      {amountLabel && (
+                        <span className="font-normal"> {" "}• {note.paymentLabel || "Kwota"}: {amountLabel}</span>
+                      )}
+                    </div>
+                  )}
+                  {note.paymentStatus && note.paymentStatus !== "pending" && resolvedLabel && (
+                    <div className="mb-2 text-xs text-beige-700">
+                      Zaktualizowano {resolvedLabel} przez {note.paymentResolvedBy || note.paymentResolvedByUid || "—"}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    {note.paymentStatus === "pending" && (
+                      <>
+                        <button
+                          className="btn bg-green-700 text-white"
+                          onClick={() => handlePaymentStatus(note, "paid")}
+                          disabled={paymentProcessingId === note.id}
+                        >
+                          {paymentProcessingId === note.id ? "Przetwarzanie..." : "Mandat/Grzywnę opłacono"}
+                        </button>
+                        <button
+                          className="btn bg-red-700 text-white"
+                          onClick={() => handlePaymentStatus(note, "unpaid")}
+                          disabled={paymentProcessingId === note.id}
+                        >
+                          {paymentProcessingId === note.id ? "Przetwarzanie..." : "Nie uregulowano zapłaty"}
+                        </button>
+                      </>
+                    )}
+                    <button className="btn" onClick={() => editNote(note.id, note.text)}>Edytuj</button>
+                    <button className="btn bg-red-700 text-white" onClick={() => removeNote(note.id)}>Usuń</button>
+                  </div>
                 </div>
-                <div className="whitespace-pre-wrap mb-2">{note.text}</div>
-                <div className="flex gap-2">
-                  <button className="btn" onClick={() => editNote(note.id, note.text)}>Edytuj</button>
-                  <button className="btn bg-red-700 text-white" onClick={() => removeNote(note.id)}>Usuń</button>
-                </div>
-              </div>
-            ))}
+               );
+            })}
             {notes.length === 0 && <div className="card p-3">Brak notatek.</div>}
           </div>
         </div>
