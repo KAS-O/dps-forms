@@ -44,6 +44,7 @@ export default function Nav() {
         <div className="flex items-center gap-4 text-sm">
           <Link href="/dashboard" className="hover:underline">Dokumenty</Link>
           <Link href="/dossiers" className="hover:underline">Teczki</Link>
+          <Link href="/vehicle-archive" className="hover:underline">Archiwum pojazdów</Link>
           {can.seeArchive(role) && (
             <Link href="/archive" className="hover:underline">Archiwum</Link>
           )}
