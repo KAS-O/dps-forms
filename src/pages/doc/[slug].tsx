@@ -39,6 +39,9 @@ export default function DocPage() {
   // teczki
   const [dossiers, setDossiers] = useState<any[]>([]);
   const [dossierId, setDossierId] = useState("");
+  const [vehicleFolders, setVehicleFolders] = useState<any[]>([]);
+  const [vehicleFolderId, setVehicleFolderId] = useState("");
+  const [vehicleSearch, setVehicleSearch] = useState("");
 
   // funkcjonariusze (UID-y!)
   const [profiles, setProfiles] = useState<Person[]>([]);
@@ -50,7 +53,28 @@ export default function DocPage() {
     return p?.fullName || p?.login || uid;
   };
   const selectedNames = selectedUids.map(uidToName);
-  const requiresDossier = template?.slug === "swiadczenie-spoleczne";
+  const requiresDossier = !!template?.requiresDossier;
+  const requiresVehicleFolder = !!template?.requiresVehicleFolder;
+  const vehicleNoteConfig = template?.vehicleNoteConfig;
+  const selectedVehicle = useMemo(
+    () => vehicleFolders.find((v) => v.id === vehicleFolderId),
+    [vehicleFolders, vehicleFolderId]
+  );
+  const filteredVehicleFolders = useMemo(() => {
+    if (!requiresVehicleFolder) return vehicleFolders;
+    const needle = vehicleSearch.trim().toLowerCase();
+    if (!needle) return vehicleFolders;
+    return vehicleFolders.filter((vehicle) => {
+      const registration = (vehicle.registration || "").toLowerCase();
+      const brand = (vehicle.brand || "").toLowerCase();
+      const color = (vehicle.color || "").toLowerCase();
+      const ownerName = (vehicle.ownerName || "").toLowerCase();
+      const ownerCid = (vehicle.ownerCid || "").toLowerCase();
+      return [registration, brand, color, ownerName, ownerCid].some((field) =>
+        field.includes(needle)
+      );
+    });
+  }, [requiresVehicleFolder, vehicleFolders, vehicleSearch]);
   
   useEffect(() => {
     (async () => {
@@ -76,6 +100,22 @@ export default function DocPage() {
       setSelectedUids(resolvedUid ? [resolvedUid] : []);
     })();
   }, []);
+
+  useEffect(() => {
+    if (!template?.requiresVehicleFolder) {
+      setVehicleFolders([]);
+      setVehicleFolderId("");
+      setVehicleSearch("");
+      return;
+    }
+    (async () => {
+      setVehicleFolderId("");
+      setVehicleSearch("");
+      const qv = query(collection(db, "vehicleFolders"), orderBy("createdAt", "desc"));
+      const sv = await getDocs(qv);
+      setVehicleFolders(sv.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+    })();
+  }, [template?.requiresVehicleFolder]);
 
   useEffect(() => {
     if (!template || !session) return;
@@ -118,6 +158,18 @@ export default function DocPage() {
     } catch (e) {
       console.warn("prefillFromDossier error:", e);
     }
+  };
+
+  const prefillFromVehicle = (id: string) => {
+    const vehicle = vehicleFolders.find((v) => v.id === id);
+    if (!vehicle) return;
+    setValues((prev) => ({
+      ...prev,
+      ...(vehicle.registration ? { registration: vehicle.registration } : {}),
+      ...(vehicle.brand ? { brand: vehicle.brand } : {}),
+      ...(vehicle.color ? { color: vehicle.color } : {}),
+      ...(vehicle.ownerName ? { owner: vehicle.ownerName } : {}),
+    }));
   };
 
   // wybór funkcjonariuszy (checkboxy po UID)
@@ -164,6 +216,10 @@ export default function DocPage() {
       setErr("Ten dokument wymaga powiązania z teczką.");
       return;
     }
+     if (requiresVehicleFolder && !vehicleFolderId) {
+      setErr("Ten dokument wymaga wskazania teczki pojazdu.");
+      return;
+    }
     setSending(true);
     try {
       const el = previewRef.current;
@@ -187,9 +243,22 @@ export default function DocPage() {
       const downloadURL = await getDownloadURL(sref);
 
       // 2) Firestore – zapis archiwum
-      const valuesOut = { ...values, funkcjonariusze: selectedNames.join(", ") };
+     const valuesOut: Record<string, any> = {
+        ...values,
+        funkcjonariusze: selectedNames.join(", "),
+      };
       if (requiresDossier && nextPayoutDate) {
         valuesOut["dni"] = nextPayoutDate;
+      }
+      if (requiresVehicleFolder && selectedVehicle) {
+        const vehicleLabel = [
+          selectedVehicle.registration || null,
+          selectedVehicle.brand || null,
+          selectedVehicle.color ? `Kolor: ${selectedVehicle.color}` : null,
+        ]
+          .filter(Boolean)
+          .join(" • ");
+        valuesOut["teczkaPojazdu"] = vehicleLabel || selectedVehicle.registration || selectedVehicle.id;
       }
       const archiveRef = await addDoc(collection(db, "archives"), {
         templateName: template.name,
@@ -200,6 +269,8 @@ export default function DocPage() {
         officers: selectedNames,        // dla podglądu
         officersUid: selectedUids,      // <— KLUCZ DO STATYSTYK
         dossierId: dossierId || null,
+        vehicleFolderId: vehicleFolderId || null,
+        vehicleFolderRegistration: selectedVehicle?.registration || "",
         imagePath: storagePath,
         imageUrl: downloadURL,
       });
@@ -214,6 +285,74 @@ export default function DocPage() {
           type: "archive_link",
           archiveId: archiveRef.id,
           imageUrl: downloadURL,
+        });
+      }
+
+      if (requiresVehicleFolder && vehicleFolderId) {
+        const noteLines: string[] = [
+          `Dokument: ${template.name}`,
+          `Autor: ${userLogin}`,
+          `Link do archiwum: ${downloadURL}`,
+        ];
+        if (selectedVehicle) {
+          const parts = [
+            selectedVehicle.registration || null,
+            selectedVehicle.brand || null,
+            selectedVehicle.color ? `Kolor: ${selectedVehicle.color}` : null,
+          ]
+            .filter(Boolean)
+            .join(" • ");
+          if (parts) noteLines.push(`Pojazd: ${parts}`);
+        }
+
+        const fieldLines = template.fields.map((f) => {
+          const raw = values[f.key];
+          if (!raw) return `${f.label}: —`;
+          if (typeof raw === "string" && raw.includes("|")) {
+            const formatted = raw
+              .split("|")
+              .map((x) => x.trim())
+              .filter(Boolean)
+              .join(", ");
+            return `${f.label}: ${formatted || "—"}`;
+          }
+          return `${f.label}: ${raw}`;
+        });
+        if (fieldLines.length) {
+          noteLines.push("", ...fieldLines);
+        }
+
+        const rawAmount = vehicleNoteConfig ? values[vehicleNoteConfig.amountField] : undefined;
+        const parsedAmount = rawAmount != null && rawAmount !== "" ? Number(rawAmount) : NaN;
+        const hasAmount = Number.isFinite(parsedAmount);
+        const notePayload: Record<string, any> = {
+          text: noteLines.join("\n"),
+          createdAt: serverTimestamp(),
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
+          templateSlug: template.slug,
+          templateName: template.name,
+          archiveId: archiveRef.id,
+          archiveUrl: downloadURL,
+          vehicleFolderId,
+        };
+        if (hasAmount && vehicleNoteConfig) {
+          notePayload.paymentAmount = parsedAmount;
+          notePayload.paymentLabel = vehicleNoteConfig.amountLabel;
+          notePayload.paymentStatus = "pending";
+          notePayload.paymentStatusMessage = "Status płatności: oczekuje na rozliczenie.";
+        }
+
+        const noteRef = await addDoc(collection(db, "vehicleFolders", vehicleFolderId, "notes"), notePayload);
+        await addDoc(collection(db, "logs"), {
+          type: "vehicle_note_from_doc",
+          vehicleId: vehicleFolderId,
+          noteId: noteRef.id,
+          archiveId: archiveRef.id,
+          template: template.slug,
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
+          ts: serverTimestamp(),
         });
       }
 
@@ -315,6 +454,48 @@ export default function DocPage() {
                 )}
               </div>
 
+              {requiresVehicleFolder && (
+                <div className="grid gap-1">
+                  <label className="label">Powiąż z teczką pojazdu *</label>
+                  <input
+                    className="input mb-1"
+                    placeholder="Szukaj po numerze rejestracyjnym, marce, kolorze lub właścicielu..."
+                    value={vehicleSearch}
+                    onChange={(e) => setVehicleSearch(e.target.value)}
+                  />
+                  <select
+                    className="input"
+                    value={vehicleFolderId}
+                    required
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setVehicleFolderId(id);
+                      if (id) prefillFromVehicle(id);
+                    }}
+                  >
+                    <option value="">— wybierz teczkę pojazdu —</option>
+                    {filteredVehicleFolders.map((vehicle) => {
+                      const labelParts = [
+                        vehicle.registration || null,
+                        vehicle.brand || null,
+                        vehicle.color ? `Kolor: ${vehicle.color}` : null,
+                        vehicle.ownerName ? `Właściciel: ${vehicle.ownerName}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" • ");
+                      return (
+                        <option key={vehicle.id} value={vehicle.id}>
+                          {labelParts || vehicle.registration || vehicle.id}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <p className="text-xs text-beige-700">
+                    Dokument zostanie dodany do notatek w wybranej teczce pojazdu.
+                  </p>
+                </div>
+              )}
+
               {/* pola */}
               {template.fields.map((f) => (
                 <div key={f.key} className="grid gap-1">
@@ -405,6 +586,22 @@ export default function DocPage() {
               <div className="mb-4 text-[12px]">
                 <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ")}
               </div>
+
+              {requiresVehicleFolder && (
+                <div className="mb-4 text-[12px]">
+                  <span className="font-semibold">Teczka pojazdu:</span>{" "}
+                  {selectedVehicle ? (
+                    <>
+                      {selectedVehicle.registration || "—"}
+                      {selectedVehicle.brand ? ` • ${selectedVehicle.brand}` : ""}
+                      {selectedVehicle.color ? ` • Kolor: ${selectedVehicle.color}` : ""}
+                      {selectedVehicle.ownerName ? ` • Właściciel: ${selectedVehicle.ownerName}` : ""}
+                    </>
+                  ) : (
+                    "—"
+                  )}
+                </div>
+              )}
 
               <div className="space-y-3 text-[12px] leading-6">
                 {template.fields.map((f) => {
