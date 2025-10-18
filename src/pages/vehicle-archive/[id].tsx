@@ -33,6 +33,8 @@ interface VehicleFolder {
   ownerCid: string;
   ownerCidNormalized: string;
   statuses?: VehicleFlagsState;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 interface VehicleNote {
