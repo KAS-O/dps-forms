@@ -11,11 +11,11 @@ export default function App({ Component, pageProps }: AppProps) {
           <div className="flex-1 flex flex-col">
             <Component {...pageProps} />
           </div>
-          <footer className="w-full border-t border-beige-300 bg-[var(--card)] text-center text-xs text-beige-700 py-3">
-            <p>© 2025 Department of Public Safety. Wszelkie prawa zastrzeżone.</p>
+           <footer className="w-full border-t border-white/10 bg-[var(--card)]/80 backdrop-blur text-center text-xs text-beige-900/80 py-4">
+            <p>© 2025 Los Santos Police Department. Wszelkie prawa zastrzeżone.</p>
             <p>
               Niniejsza strona oraz cała jej zawartość stanowią własność KASO i są przeznaczone wyłącznie dla funkcjonariuszy
-              Department of Public Safety na serwerze 77RP.
+              Los Santos Police Department na serwerze 77RP.
             </p>
             <p>
               Kopiowanie, rozpowszechnianie, modyfikowanie lub wykorzystywanie materiałów ze strony bez uprzedniej, wyraźnej zgody
@@ -25,7 +25,6 @@ export default function App({ Component, pageProps }: AppProps) {
           </footer>
         </div>
      </ActivityLoggerProvider>
-     
-    </DialogProvider>  
+    </DialogProvider>
   );
 }
