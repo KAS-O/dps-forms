@@ -1,6 +1,8 @@
+// Firestore security rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function signedIn() {
       return request.auth != null;
     }
@@ -22,6 +24,7 @@ service cloud.firestore {
       return signedIn() && (r == "director" || r == "chief" || r == "senior" || r == "agent");
     }
 
+    // profile
     match /profiles/{uid} {
       allow read: if signedIn();
       allow create: if signedIn() && uid == request.auth.uid;
@@ -33,23 +36,27 @@ service cloud.firestore {
       }
     }
 
+    // presence (heartbeat)
     match /presence/{uid} {
       allow read: if signedIn() && (uid == request.auth.uid || isStaff());
       allow create, update: if signedIn() && uid == request.auth.uid;
       allow delete: if isDirector() || isChief();
     }
 
+    // konto główne (dla kompatybilności z panelem)
     match /accounts/{docId} {
       allow read, write: if isDirector();
     }
 
+    // archiwum dokumentów
     match /archives/{id} {
       allow create: if signedIn();
-      allow read: if isStaff();
+      allow read:   if isStaff();
       allow update: if isDirector() || isChief();
       allow delete: if isDirector();
     }
 
+    // teczki + wpisy
     match /dossiers/{dossierId} {
       allow read: if signedIn();
       allow create: if signedIn();
@@ -65,11 +72,30 @@ service cloud.firestore {
       }
     }
 
+    // *** NOWE: zarządzanie teczkami pojazdów ***
+    match /vehicleFolders/{vehicleId} {
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update: if (isDirector() || isChief()) ||
+        (signedIn() && request.auth.uid == resource.data.createdByUid);
+      allow delete: if (isDirector() || isChief()) ||
+        (signedIn() && request.auth.uid == resource.data.createdByUid);
+
+      match /notes/{noteId} {
+        allow read, create: if isStaff();
+        allow update, delete: if (isDirector() || isChief()) ||
+          (signedIn() && request.auth.uid == resource.data.authorUid);
+      }
+    }
+    // *** KONIEC BLOKU vehicleFolders ***
+
+    // logi
     match /logs/{logId} {
       allow create: if signedIn();
-      allow read: if isDirector() || isChief();
+      allow read:   if isDirector() || isChief();
     }
 
+    // finanse (starszy namespace) + podkolekcja accounts
     match /finance/{docId} {
       allow read, write: if isDirector();
 
@@ -78,11 +104,13 @@ service cloud.firestore {
       }
     }
 
+    // konfiguracje
     match /configs/{configId} {
       allow read: if signedIn();
       allow write: if isDirector();
     }
 
+    // domyślnie: pełen dostęp tylko dla Director
     match /{document=**} {
       allow read, write: if isDirector();
     }
