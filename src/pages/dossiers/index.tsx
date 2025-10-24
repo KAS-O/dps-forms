@@ -19,6 +19,7 @@ import { useProfile } from "@/hooks/useProfile";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
+import { UnderlightGlow } from "@/components/UnderlightGlow";
 
 export default function Dossiers() {
   const [list, setList] = useState<any[]>([]);
@@ -153,6 +154,7 @@ export default function Dossiers() {
       <>
         <Head><title>LSPD 77RP — Teczki</title></Head>
         <Nav />
+        <UnderlightGlow />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="grid gap-6">
             <div className="card p-4">
