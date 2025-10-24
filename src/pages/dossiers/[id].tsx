@@ -205,7 +205,7 @@ export default function DossierPage() {
   return (
     <AuthGate>
       <>
-        <Head><title>DPS 77RP — {personTitle}</title></Head>
+        <Head><title>LSPD 77RP — {personTitle}</title></Head>
         <Nav />
         <div className="max-w-5xl mx-auto px-4 py-6 grid gap-4">
           {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
