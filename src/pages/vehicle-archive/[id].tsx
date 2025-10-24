@@ -365,7 +365,7 @@ export default function VehicleFolderPage() {
 
       setOk(
         status === "paid"
-          ? "Zaksięgowano spłatę grzywny na koncie DPS."
+          ? "Zaksięgowano spłatę grzywny na koncie LSPD."
           : "Zapisano informację o braku spłaty grzywny."
       );
     } catch (e: any) {
@@ -381,7 +381,7 @@ export default function VehicleFolderPage() {
   return (
     <AuthGate>
       <>
-        <Head><title>DPS 77RP — {title}</title></Head>
+        <Head><title>LSPD 77RP — {title}</title></Head>
         <Nav />
         <div className="max-w-5xl mx-auto px-4 py-6 grid gap-4">
           {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
