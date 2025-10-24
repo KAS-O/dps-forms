@@ -34,29 +34,31 @@ export default function Nav() {
 
 
   return (
-    <nav className="w-full border-b border-beige-300 bg-[var(--card)]">
-      <div className="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
+    <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
+      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="DPS" width={28} height={28} />
-          <span className="font-semibold">Department of Public Safety</span>
+          <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />
+          <span className="font-semibold tracking-wide text-beige-900/90">
+            Los Santos Police Department
+          </span>
         </div>
 
         <div className="flex items-center gap-4 text-sm">
-          <Link href="/dashboard" className="hover:underline">Dokumenty</Link>
-          <Link href="/dossiers" className="hover:underline">Teczki</Link>
-          <Link href="/vehicle-archive" className="hover:underline">Archiwum pojazdów</Link>
+          <Link href="/dashboard" className="hover:text-beige-800 transition-colors">Dokumenty</Link>
+          <Link href="/dossiers" className="hover:text-beige-800 transition-colors">Teczki</Link>
+          <Link href="/vehicle-archive" className="hover:text-beige-800 transition-colors">Archiwum pojazdów</Link>
           {can.seeArchive(role) && (
-            <Link href="/archive" className="hover:underline">Archiwum</Link>
+            <Link href="/archive" className="hover:text-beige-800 transition-colors">Archiwum</Link>
           )}
           {role === "director" && (
-              <Link href="/admin" className="hover:underline">Panel zarządu</Link>
+               <Link href="/admin" className="hover:text-beige-800 transition-colors">Panel zarządu</Link>
           )}
-          <span className="ml-2 px-2 py-1 rounded bg-beige-200 text-beige-900">
+          <span className="ml-2 px-2 py-1 rounded bg-white/10 text-beige-900">
             {fullName || "—"}{role ? ` • ${roleLabel}` : ""}
           </span>
           <button
             onClick={logout}
-            className="btn h-9 border-transparent bg-gradient-to-r from-purple-600 via-fuchsia-500 to-indigo-500 text-white text-xs font-semibold shadow-[0_0_12px_rgba(168,85,247,0.3)] hover:brightness-110"
+           className="btn h-9 px-5 text-xs font-semibold"
           >
             Wyloguj
           </button>
