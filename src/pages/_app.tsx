@@ -7,11 +7,11 @@ export default function App({ Component, pageProps }: AppProps) {
  return (
     <DialogProvider>
      <ActivityLoggerProvider>
-        <div className="min-h-screen flex flex-col">
-          <div className="flex-1 flex flex-col">
+        <div className="min-h-screen flex flex-col relative">
+          <div className="flex-1 flex flex-col relative z-10">
             <Component {...pageProps} />
           </div>
-           <footer className="w-full border-t border-white/10 bg-[var(--card)]/80 backdrop-blur text-center text-xs text-beige-900/80 py-4">
+          <footer className="w-full border-t border-white/10 bg-[var(--card)]/80 backdrop-blur text-center text-xs text-beige-900/80 py-4 relative z-10">
             <p>© 2025 Los Santos Police Department. Wszelkie prawa zastrzeżone.</p>
             <p>
               Niniejsza strona oraz cała jej zawartość stanowią własność KASO i są przeznaczone wyłącznie dla funkcjonariuszy
