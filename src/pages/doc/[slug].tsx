@@ -2,7 +2,17 @@ import { useRouter } from "next/router";
 import Head from "next/head";
 import AuthGate from "@/components/AuthGate";
 import { TEMPLATES, Template } from "@/lib/templates";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  ReactNode,
+  forwardRef,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { auth, db, storage } from "@/lib/firebase";
 import {
   addDoc,
@@ -21,6 +31,28 @@ const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
 
 type Person = { id: string; fullName?: string; login?: string };
 
+type FieldRender = {
+  id: string;
+  label: string;
+  required: boolean;
+  content: ReactNode;
+  signature: string;
+};
+
+const FieldBlock = forwardRef<HTMLDivElement, { field: FieldRender }>(({ field }, ref) => {
+  return (
+    <div ref={ref} className="grid grid-cols-[220px_1fr] gap-3">
+      <div className="font-semibold">
+        {field.label}
+        {field.required ? " *" : ""}
+      </div>
+      <div className="whitespace-pre-wrap break-words">{field.content}</div>
+    </div>
+  );
+});
+
+FieldBlock.displayName = "FieldBlock";
+
 function findTemplate(slug: string | string[] | undefined): Template | undefined {
   if (!slug || typeof slug !== "string") return undefined;
   return TEMPLATES.find((t) => t.slug === slug);
@@ -33,8 +65,12 @@ export default function DocPage() {
   const [sending, setSending] = useState(false);
   const [ok, setOk] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const previewRef = useRef<HTMLDivElement>(null);
   const { logActivity, session } = useSessionActivity();
+  const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const measurementRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const fieldsContainerRef = useRef<HTMLDivElement | null>(null);
+  const [contentHeight, setContentHeight] = useState(0);
+  const [contentWidth, setContentWidth] = useState(0);
 
   // teczki
   const [dossiers, setDossiers] = useState<any[]>([]);
@@ -75,6 +111,130 @@ export default function DocPage() {
       );
     });
   }, [requiresVehicleFolder, vehicleFolders, vehicleSearch]);
+  
+  const nextPayoutDate = useMemo(() => {
+    if (!requiresDossier) return "";
+    const dniRaw = values["dni"];
+    if (!dniRaw) return "";
+    const dni = Number(dniRaw);
+    if (Number.isNaN(dni)) return "";
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+    base.setDate(base.getDate() + dni);
+    return base.toLocaleDateString();
+  }, [requiresDossier, values]);
+
+  const previewFields = useMemo<FieldRender[]>(() => {
+    return template.fields.map((f) => {
+      const rawValue = values[f.key];
+      let displayText = "";
+      if (typeof rawValue === "string" && rawValue.includes("|")) {
+        displayText = rawValue
+          .split("|")
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .join(", ");
+      } else if (rawValue != null && rawValue !== "") {
+        displayText = String(rawValue);
+      }
+
+      let note = "";
+      if (template.slug === "swiadczenie-spoleczne" && f.key === "dni") {
+        displayText = nextPayoutDate || "—";
+        if (nextPayoutDate) {
+          note = "Wyliczono z dnia dzisiejszego.";
+        }
+      }
+
+      if (!displayText) {
+        displayText = "—";
+      }
+
+      return {
+        id: f.key,
+        label: f.label,
+        required: !!f.required,
+        content: (
+          <>
+            {displayText}
+            {note && <div className="text-[11px] text-gray-600">{note}</div>}
+          </>
+        ),
+        signature: `${displayText}|${note}`,
+      };
+    });
+  }, [nextPayoutDate, template.fields, template.slug, values]);
+
+  const fieldsSignature = useMemo(() => previewFields.map((f) => `${f.id}:${f.signature}`).join("|"), [previewFields]);
+
+  const [pages, setPages] = useState<FieldRender[][]>(() => [previewFields]);
+
+  useEffect(() => {
+    setPages([previewFields]);
+  }, [fieldsSignature]);
+
+  pageRefs.current = pageRefs.current.slice(0, pages.length);
+  measurementRefs.current = measurementRefs.current.slice(0, previewFields.length);
+
+  const setFirstPageFieldsRef = useCallback((el: HTMLDivElement | null) => {
+    fieldsContainerRef.current = el;
+  }, []);
+
+  useLayoutEffect(() => {
+    const container = fieldsContainerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const height = Math.round(rect.height);
+    const width = Math.round(rect.width);
+    if (height && height !== contentHeight) {
+      setContentHeight(height);
+    }
+    if (width && width !== contentWidth) {
+      setContentWidth(width);
+    }
+  }, [pages.length, fieldsSignature]);
+
+  useLayoutEffect(() => {
+    if (!contentHeight) return;
+    const heights = previewFields.map((_, idx) => measurementRefs.current[idx]?.offsetHeight ?? 0);
+    if (!heights.some((height) => height > 0)) return;
+
+    const newPages: FieldRender[][] = [];
+    let current: FieldRender[] = [];
+    let currentHeight = 0;
+
+    heights.forEach((height, idx) => {
+      const field = previewFields[idx];
+      if (currentHeight + height > contentHeight && current.length > 0) {
+        newPages.push(current);
+        current = [];
+        currentHeight = 0;
+      }
+      current.push(field);
+      currentHeight += height;
+    });
+
+    if (current.length) {
+      newPages.push(current);
+    }
+    if (newPages.length === 0) {
+      newPages.push([]);
+    }
+
+    const isSame =
+      newPages.length === pages.length &&
+      newPages.every((page, pageIdx) => {
+        const existing = pages[pageIdx];
+        if (!existing || existing.length !== page.length) return false;
+        return page.every((field, fieldIdx) => existing[fieldIdx]?.id === field.id);
+      });
+
+    if (!isSame) {
+      setPages(newPages);
+    }
+  }, [contentHeight, previewFields, pages, fieldsSignature]);
+
+  const measurementWidth = contentWidth || 760;
   
   useEffect(() => {
     (async () => {
@@ -222,34 +382,53 @@ export default function DocPage() {
     }
     setSending(true);
     try {
-      const el = previewRef.current;
-      if (!el) throw new Error("Brak podglądu do zrzutu.");
+      const nodes = pageRefs.current.filter((node): node is HTMLDivElement => !!node);
+      if (!nodes.length) throw new Error("Brak podglądu do zrzutu.");
 
       const html2canvas = (await import("html2canvas")).default;
-      const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
-      const dataUrl = canvas.toDataURL("image/png");
-      const base64 = dataUrl.split(",")[1];
+      const canvases = await Promise.all(
+        nodes.map((node) => html2canvas(node, { scale: 2, useCORS: true, backgroundColor: "#ffffff" }))
+      );
+      const dataUrls = canvases.map((canvas) => canvas.toDataURL("image/png"));
+      if (!dataUrls.length) throw new Error("Nie udało się wygenerować obrazu dokumentu.");
 
-      const filename = `${template.slug}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
+      const baseFilename = `${template.slug}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}`;
+      const uploadResults: { path: string; url: string }[] = [];
+
+      for (let index = 0; index < dataUrls.length; index += 1) {
+        const dataUrl = dataUrls[index];
+        const pageFilename = `${baseFilename}-strona-${index + 1}.png`;
+        const storagePath = `archives/${pageFilename}`;
+        const sref = ref(storage, storagePath);
+        await uploadString(sref, dataUrl, "data_url");
+        const downloadURL = await getDownloadURL(sref);
+        uploadResults.push({ path: storagePath, url: downloadURL });
+      }
+
+      if (!uploadResults.length) {
+        throw new Error("Nie udało się zapisać obrazów dokumentu.");
+      }
+
+      const primaryImage = uploadResults[0];
+      const firstBase64 = dataUrls[0]?.split(",")[1];
+      if (!firstBase64) throw new Error("Nie udało się przygotować obrazu dokumentu.");
 
       const email = auth.currentUser?.email || "";
       const suffix = `@${LOGIN_DOMAIN}`;
       const userLogin = email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
 
-      // 1) Storage
-      const storagePath = `archives/${filename}`;
-      const sref = ref(storage, storagePath);
-      await uploadString(sref, dataUrl, "data_url");
-      const downloadURL = await getDownloadURL(sref);
+      const imagePathsAll = uploadResults.map((item) => item.path);
+      const imageUrlsAll = uploadResults.map((item) => item.url);
 
       // 2) Firestore – zapis archiwum
-     const valuesOut: Record<string, any> = {
+      const valuesOut: Record<string, any> = {
         ...values,
         funkcjonariusze: selectedNames.join(", "),
       };
       if (requiresDossier && nextPayoutDate) {
         valuesOut["dni"] = nextPayoutDate;
       }
+      valuesOut["liczbaStron"] = imageUrlsAll.length;
       if (requiresVehicleFolder && selectedVehicle) {
         const vehicleLabel = [
           selectedVehicle.registration || null,
@@ -271,20 +450,22 @@ export default function DocPage() {
         dossierId: dossierId || null,
         vehicleFolderId: vehicleFolderId || null,
         vehicleFolderRegistration: selectedVehicle?.registration || "",
-        imagePath: storagePath,
-        imageUrl: downloadURL,
+        imagePath: primaryImage.path,
+        imageUrl: primaryImage.url,
+        imagePaths: imagePathsAll,
+        imageUrls: imageUrlsAll,
       });
 
       // 2a) wpis w teczce (opcjonalnie)
       if (dossierId) {
         await addDoc(collection(db, "dossiers", dossierId, "records"), {
-          text: `Dokument: ${template.name}\nAutor: ${userLogin}\nURL: ${downloadURL}`,
+          text: `Dokument: ${template.name}\nAutor: ${userLogin}\nURL: ${primaryImage.url}`,
           createdAt: serverTimestamp(),
           author: auth.currentUser?.email || "",
           authorUid: auth.currentUser?.uid || "",
           type: "archive_link",
           archiveId: archiveRef.id,
-          imageUrl: downloadURL,
+          imageUrl: primaryImage.url,
         });
       }
 
@@ -292,8 +473,9 @@ export default function DocPage() {
         const noteLines: string[] = [
           `Dokument: ${template.name}`,
           `Autor: ${userLogin}`,
-          `Link do archiwum: ${downloadURL}`,
+          `Link do archiwum: ${primaryImage.url}`,
         ];
+        noteLines.push(`Łącznie stron: ${imageUrlsAll.length}`);
         if (selectedVehicle) {
           const parts = [
             selectedVehicle.registration || null,
@@ -333,7 +515,7 @@ export default function DocPage() {
           templateSlug: template.slug,
           templateName: template.name,
           archiveId: archiveRef.id,
-          archiveUrl: downloadURL,
+          archiveUrl: primaryImage.url,
           vehicleFolderId,
         };
         if (hasAmount && vehicleNoteConfig) {
@@ -367,10 +549,11 @@ export default function DocPage() {
       });
 
       // 4) Discord
+      const discordFilename = `${baseFilename}-strona-1.png`;
       const res = await fetch("/api/send-to-discord", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename, imageBase64: base64, templateName: template.name, userLogin }),
+        body: JSON.stringify({ filename: discordFilename, imageBase64: firstBase64, templateName: template.name, userLogin }),
       });
       if (!res.ok) throw new Error(`Błąd wysyłki: ${res.status}`);
 
@@ -382,27 +565,33 @@ export default function DocPage() {
     }
   };
 
-  // pomocnicze: następna data świadczenia (liczona od dziś)
-  const nextPayoutDate = useMemo(() => {
-    if (!requiresDossier) return "";
-    const dniRaw = values["dni"];
-    if (!dniRaw) return "";
-    const dni = Number(dniRaw);
-    if (Number.isNaN(dni)) return "";
-    const base = new Date();
-    base.setHours(0, 0, 0, 0);
-    base.setDate(base.getDate() + dni);
-    return base.toLocaleDateString();
-  }, [requiresDossier, values]);
-
   return (
     <AuthGate>
-      <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-8">
-        <Head><title>LSPD 77RP — {template.name}</title></Head>
+      <>
+        <div
+          className="fixed pointer-events-none opacity-0 -z-50"
+          style={{ width: `${measurementWidth}px`, left: "-10000px", top: "-10000px" }}
+          aria-hidden="true"
+        >
+          <div className="doc-fields space-y-3 text-[12px] leading-6">
+            {previewFields.map((field, idx) => (
+              <FieldBlock
+                key={`measure-${field.id}-${idx}`}
+                field={field}
+                ref={(el) => {
+                  measurementRefs.current[idx] = el;
+                }}
+              />
+            ))}
+          </div>
+        </div>
 
-        <button className="btn w-max" onClick={()=>history.back()}>← Wróć</button>
+        <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-8">
+          <Head><title>LSPD 77RP — {template.name}</title></Head>
 
-        <div className="grid md:grid-cols-2 gap-6">
+         <button className="btn w-max" onClick={()=>history.back()}>← Wróć</button>
+
+         <div className="grid md:grid-cols-2 gap-6">
           {/* FORM */}
           <div className="card p-6">
             <h1 className="text-2xl font-bold mb-3">{template.name}</h1>
@@ -566,74 +755,68 @@ export default function DocPage() {
           <div className="card p-6">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Podgląd dokumentu (to idzie jako obraz)</h2>
-              <span className="text-xs text-beige-700">A4 • wysoka jakość</span>
+              <span className="text-xs text-beige-700">
+                A4 • wysoka jakość • {pages.length} {pages.length === 1 ? "strona" : "strony"}
+              </span>
             </div>
 
-            <div
-              ref={previewRef}
-              className="bg-white text-black mx-auto w-[900px] max-w-full aspect-[210/297] p-8 border border-beige-300 shadow-sm"
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <img src="/logo.png" alt="LSPD" width={140} className="floating" />
-                  <div>
-                    <div className="text-xl font-bold">Los Santos Police Department</div>
-                  <div className="text-sm text-gray-600">{template.name}</div>
-                </div>
-              </div>
-              <hr className="border-beige-300 mb-4" />
-
-              {/* Funkcjonariusze */}
-              <div className="mb-4 text-[12px]">
-                <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ")}
-              </div>
-
-              {requiresVehicleFolder && (
-                <div className="mb-4 text-[12px]">
-                  <span className="font-semibold">Teczka pojazdu:</span>{" "}
-                  {selectedVehicle ? (
-                    <>
-                      {selectedVehicle.registration || "—"}
-                      {selectedVehicle.brand ? ` • ${selectedVehicle.brand}` : ""}
-                      {selectedVehicle.color ? ` • Kolor: ${selectedVehicle.color}` : ""}
-                      {selectedVehicle.ownerName ? ` • Właściciel: ${selectedVehicle.ownerName}` : ""}
-                    </>
-                  ) : (
-                    "—"
-                  )}
-                </div>
-              )}
-
-              <div className="space-y-3 text-[12px] leading-6">
-                {template.fields.map((f) => {
-                  const raw = values[f.key];
-                   let display = typeof raw === "string" && raw.includes("|")
-                    ? raw.split("|").join(", ")
-                    : (raw || "—");
-                  if (template.slug === "swiadczenie-spoleczne" && f.key === "dni") {
-                    display = nextPayoutDate || "—";
-                  }
-
-                  return (
-                    <div key={f.key} className="grid grid-cols-[220px_1fr] gap-3">
-                      <div className="font-semibold">{f.label}{f.required ? " *" : ""}</div>
-                      <div className="whitespace-pre-wrap break-words">
-                        {display}
-                        {template.slug === "swiadczenie-spoleczne" && f.key === "dni" && nextPayoutDate && (
-                          <div className="text-[11px] text-gray-600">Wyliczono z dnia dzisiejszego.</div>
-                        )}
-                      </div>
+            <div className="flex flex-col gap-6">
+              {pages.map((pageFields, pageIndex) => (
+                <div
+                  key={`doc-page-${pageIndex}`}
+                  ref={(el) => {
+                    pageRefs.current[pageIndex] = el;
+                  }}
+                  className="bg-white text-black mx-auto w-[900px] max-w-full aspect-[210/297] p-8 border border-beige-300 shadow-sm doc-page"
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <img src="/logo.png" alt="LSPD" width={140} className="floating" />
+                    <div>
+                      <div className="text-xl font-bold">Los Santos Police Department</div>
+                      <div className="text-sm text-gray-600">{template.name}</div>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                  <hr className="border-beige-300 mb-4" />
 
-              <div className="mt-8 text-sm text-gray-600">
-                Wygenerowano w panelu LSPD • {new Date().toLocaleString()}
-              </div>
+                  <div className="mb-4 text-[12px]">
+                    <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ")}
+                  </div>
+
+                  {requiresVehicleFolder && (
+                    <div className="mb-4 text-[12px]">
+                      <span className="font-semibold">Teczka pojazdu:</span>{" "}
+                      {selectedVehicle ? (
+                        <>
+                          {selectedVehicle.registration || "—"}
+                          {selectedVehicle.brand ? ` • ${selectedVehicle.brand}` : ""}
+                          {selectedVehicle.color ? ` • Kolor: ${selectedVehicle.color}` : ""}
+                          {selectedVehicle.ownerName ? ` • Właściciel: ${selectedVehicle.ownerName}` : ""}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </div>
+                  )}
+                  
+              <div
+                    className="space-y-3 text-[12px] leading-6 doc-fields"
+                    ref={pageIndex === 0 ? setFirstPageFieldsRef : undefined}
+                  >
+                    {pageFields.map((field, fieldIndex) => (
+                      <FieldBlock key={`${pageIndex}-${field.id}-${fieldIndex}`} field={field} />
+                    ))}
+                  </div>
+
+                  <div className="mt-8 text-sm text-gray-600">
+                    Wygenerowano w panelu LSPD • {new Date().toLocaleString()} • Strona {pageIndex + 1}/{pages.length}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       </div>
+      </>
     </AuthGate>
   );
 }
