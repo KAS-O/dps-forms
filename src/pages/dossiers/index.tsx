@@ -151,7 +151,7 @@ export default function Dossiers() {
   return (
     <AuthGate>
       <>
-        <Head><title>DPS 77RP — Teczki</title></Head>
+        <Head><title>LSPD 77RP — Teczki</title></Head>
         <Nav />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="grid gap-6">
