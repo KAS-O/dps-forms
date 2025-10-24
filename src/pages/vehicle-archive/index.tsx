@@ -20,6 +20,7 @@ import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { getActiveVehicleFlags, getVehicleHighlightStyle } from "@/lib/vehicleFlags";
 import type { VehicleFlagsState } from "@/lib/vehicleFlags";
+import { UnderlightGlow } from "@/components/UnderlightGlow";
 
 interface VehicleFolder {
   id: string;
@@ -173,6 +174,7 @@ export default function VehicleArchivePage() {
       <>
         <Head><title>LSPD 77RP — Archiwum pojazdów</title></Head>
         <Nav />
+        <UnderlightGlow />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_320px]">
           <div className="grid gap-6">
             <div className="card p-4">
