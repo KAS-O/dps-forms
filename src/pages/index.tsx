@@ -50,16 +50,16 @@ export default function LoginPage() {
     <AuthGate>
       <>
         <Head>
-          <title>DPS 77RP — Logowanie</title>
+          <title>LSPD 77RP — Logowanie</title>
         </Head>
 
         <div className="min-h-screen flex items-center justify-center px-4">
-          <div className="card w-full max-w-md p-8 bg-[var(--card)]">
+          <div className="card w-full max-w-md p-8 bg-[var(--card)] border border-white/10">
             <div className="flex flex-col items-center gap-4 mb-6">
               {/* Jeśli masz PNG: zmień logo.svg na logo.png */}
-              <Image src="/logo.png" alt="DPS" width={320} height={80} priority />
+              <Image src="/logo.png" alt="LSPD" width={320} height={80} priority className="floating" />
               <h1 className="text-xl font-semibold text-center">
-                Department of Public Safety — Panel dokumentów
+                Los Santos Police Department — Panel dokumentów
               </h1>
             </div>
 
@@ -85,18 +85,18 @@ export default function LoginPage() {
                 />
               </div>
 
-              {error && <p className="text-red-700 text-sm">{error}</p>}
+              {error && <p className="text-red-300 text-sm">{error}</p>}
 
               <button className="btn w-full" disabled={loading}>
                 {loading ? "Logowanie..." : "Zaloguj"}
               </button>
 
-              <p className="text-xs text-beige-700">
+              <p className="text-xs text-beige-900/80">
                 Dostępy nadaje administrator. Brak rejestracji i opcji resetu hasła.
               </p>
             </form>
 
-            <p className="text-[11px] text-center mt-3 text-beige-700">
+            <p className="text-[11px] text-center mt-3 text-beige-900/80">
               Loginy mają format wewnętrzny <code>LOGIN@{LOGIN_DOMAIN}</code>.
             </p>
           </div>
