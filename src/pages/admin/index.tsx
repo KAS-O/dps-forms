@@ -761,7 +761,7 @@ export default function Admin() {
   if (!ready) {
     return (
       <AuthGate>
-        <Head><title>DPS 77RP — Panel zarządu</title></Head>
+         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
         <Nav />
         <div className="max-w-6xl mx-auto px-4 py-8"><div className="card p-6">Ładowanie…</div></div>
       </AuthGate>
@@ -770,7 +770,7 @@ export default function Admin() {
   if (role !== "director") {
     return (
       <AuthGate>
-        <Head><title>DPS 77RP — Panel zarządu</title></Head>
+        <Head><title>LSPD 77RP — Panel zarządu</title></Head>
         <Nav />
         <div className="max-w-4xl mx-auto px-4 py-8">
           <div className="card p-6 text-center">Brak dostępu. Tylko <b>Director</b> może otworzyć Panel zarządu.</div>
@@ -781,7 +781,7 @@ export default function Admin() {
 
   return (
     <AuthGate>
-      <Head><title>DPS 77RP — Panel zarządu</title></Head>
+      <Head><title>LSPD 77RP — Panel zarządu</title></Head>
       <Nav />
 
       <div className="max-w-7xl mx-auto px-4 py-6 grid gap-5">
