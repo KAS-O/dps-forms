@@ -171,7 +171,7 @@ export default function VehicleArchivePage() {
   return (
     <AuthGate>
       <>
-        <Head><title>DPS 77RP — Archiwum pojazdów</title></Head>
+        <Head><title>LSPD 77RP — Archiwum pojazdów</title></Head>
         <Nav />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_320px]">
           <div className="grid gap-6">
