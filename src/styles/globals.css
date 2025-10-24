@@ -3,41 +3,112 @@
 @tailwind utilities;
 
 :root {
-  --bg: #f3ebdd; /* beige-100 */
-  --card: #faf7f2; /* beige-50 */
-  --ink: #4b381d; /* beige-900 */
-  --accent: #b68f4a; /* beige-500 */
+  --bg: radial-gradient(circle at 10% 20%, rgba(61, 130, 226, 0.25), transparent 45%),
+    radial-gradient(circle at 80% 0%, rgba(27, 58, 111, 0.6), transparent 55%),
+    #050b18;
+  --card: rgba(9, 18, 35, 0.75);
+  --ink: #e5f0ff;
+  --ink-muted: rgba(229, 240, 255, 0.75);
+  --accent: linear-gradient(135deg, #2564bf 0%, #3d82e2 45%, #6ba8ff 100%);
+  --accent-solid: #3d82e2;
+  --border: rgba(107, 168, 255, 0.35);
 }
 
-html, body, #__next {
+html,
+body,
+#__next {
   height: 100%;
 }
 
 body {
+  min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  position: relative;
+  overflow-x: hidden;
 }
 
 .card {
-  @apply bg-white/60 backdrop-blur-sm rounded-2xl shadow-md border border-beige-200;
+  background: linear-gradient(145deg, rgba(17, 34, 63, 0.8), rgba(17, 34, 63, 0.6));
+  border-radius: 1.25rem;
+  border: 1px solid var(--border);
+  box-shadow: 0 25px 50px -12px rgba(8, 20, 42, 0.65);
+  backdrop-filter: blur(16px);
+  transition: transform 0.35s ease, box-shadow 0.35s ease, border-color 0.35s ease;
+}
+
+.card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(107, 168, 255, 0.65);
+  box-shadow: 0 35px 60px -20px rgba(32, 69, 133, 0.9);
 }
 
 .btn {
-  @apply inline-flex items-center justify-center px-4 py-2 rounded-xl border border-beige-400 hover:bg-beige-100 active:scale-[0.99] transition;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 1.5rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  background-image: var(--accent);
+  color: #050b18;
+  border: 1px solid rgba(203, 228, 255, 0.2);
+  box-shadow: 0 15px 35px -12px rgba(63, 130, 226, 0.55);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, filter 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.4) 45%, transparent 90%);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.btn:hover::after {
+  opacity: 1;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 20px 40px -20px rgba(107, 168, 255, 0.65);
+  filter: brightness(1.05);
+}
+
+.btn:active {
+  transform: translateY(1px) scale(0.99);
 }
 
 .input {
-  @apply w-full px-3 py-2 rounded-xl border border-beige-300 bg-white focus:outline-none focus:ring-2 focus:ring-beige-400;
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(107, 168, 255, 0.4);
+  background: rgba(9, 18, 35, 0.85);
+  color: var(--ink);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.input:focus {
+  outline: none;
+  border-color: rgba(107, 168, 255, 0.7);
+  box-shadow: 0 0 0 3px rgba(61, 130, 226, 0.3);
 }
 
 .label {
-  @apply text-sm font-medium text-beige-800;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-muted);
 }
 
 select option {
-  color: #000;
-  background-color: #fff;
+  color: var(--ink);
+  background-color: #0c1a2f;
 }
 
 @keyframes fadeIn {
@@ -49,4 +120,18 @@ select option {
     opacity: 1;
     transform: scale(1);
   }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.floating {
+  animation: float 6s ease-in-out infinite;
 }
