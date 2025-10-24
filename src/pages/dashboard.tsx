@@ -20,7 +20,7 @@ export default function Dashboard() {
     <AuthGate>
       <>
         <Head>
-          <title>DPS 77RP — Dashboard</title>
+          <title>LSPD 77RP — Dashboard</title>
         </Head>
 
         <Nav />
