@@ -14,7 +14,7 @@ export default function LogsPage() {
 
   return (
     <AuthGate>
-      <Head><title>DPS 77RP — Logi</title></Head>
+      <Head><title>LSPD 77RP — Logi</title></Head>
       <Nav />
      <div className="max-w-4xl mx-auto px-4 py-10">
         <div className="card p-6">
