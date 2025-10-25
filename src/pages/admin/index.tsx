@@ -99,6 +99,7 @@ export default function Admin() {
   const [section, setSection] = useState<AdminSection>("overview");
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   // ogólne
   const [mandaty, setMandaty] = useState(0);
@@ -171,6 +172,12 @@ export default function Admin() {
     );
     return () => unsub();
   }, [role]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
 
   // okres
@@ -550,30 +557,42 @@ export default function Admin() {
         : "bg-white/5 border-white/10 hover:bg-white/15"
     }`;
 
-  const formatLogTimestamp = (log: any) => {
+  const getLogDate = (log: any): Date | null => {
     const raw = log?.ts || log?.createdAt;
     if (raw?.toDate && typeof raw.toDate === "function") {
       try {
-        return raw.toDate().toLocaleString("pl-PL");
+        const date = raw.toDate();
+        if (date instanceof Date && !Number.isNaN(date.getTime())) {
+          return date;
+        }
       } catch (error) {
-        return raw.toDate().toISOString();
+        return null;
       }
     }
     if (raw instanceof Date) {
-      return raw.toLocaleString("pl-PL");
+      return Number.isNaN(raw.getTime()) ? null : raw;
     }
     if (typeof raw === "string") {
-      try {
-        return new Date(raw).toLocaleString("pl-PL");
-      } catch (error) {
-        return raw;
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
       }
     }
-    return "—";
+    return null;
+  };
+
+  const formatLogTimestamp = (log: any) => {
+    const date = getLogDate(log);
+    if (!date) return "—";
+    try {
+      return date.toLocaleString("pl-PL");
+    } catch (error) {
+      return date.toISOString();
+    }
   };
 
   const formatDuration = (ms?: number) => {
-    if (typeof ms !== "number" || Number.isNaN(ms) || ms <= 0) return "—";
+    if (typeof ms !== "number" || Number.isNaN(ms) || ms < 0) return "—";
     const totalSeconds = Math.floor(ms / 1000);
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -630,6 +649,56 @@ export default function Admin() {
         return entries || "—";
       }
     }
+  };
+
+  const sessionTimeline = useMemo(() => {
+    const map = new Map<string, { start?: number; end?: number }>();
+    const logsAsc = [...activityLogs].reverse();
+    logsAsc.forEach((log) => {
+      if (!log?.sessionId) return;
+      const date = getLogDate(log);
+      if (!date) return;
+      const entry = map.get(log.sessionId) ?? {};
+      const time = date.getTime();
+      if (log.type === "session_start") {
+        if (entry.start == null || time < entry.start) {
+          entry.start = time;
+        }
+      } else if (log.type === "session_end") {
+        if (entry.end == null || time > entry.end) {
+          entry.end = time;
+        }
+      }
+      map.set(log.sessionId, entry);
+    });
+    return map;
+  }, [activityLogs]);
+
+  const getLogDurationDisplay = (log: any) => {
+    if (!log) return "—";
+    if (typeof log.durationMs === "number" && !Number.isNaN(log.durationMs) && log.durationMs >= 0) {
+      const formatted = formatDuration(log.durationMs);
+      if (formatted !== "—") {
+        return formatted;
+      }
+    }
+    const sessionId = log.sessionId;
+    if (!sessionId) return "—";
+    const info = sessionTimeline.get(sessionId);
+    if (!info || info.start == null) return "—";
+    const eventDate = getLogDate(log);
+    let reference = info.end ?? null;
+    if (reference == null) {
+      if (log.type === "session_start") {
+        reference = nowMs;
+      } else if (eventDate) {
+        reference = eventDate.getTime();
+      } else {
+        reference = nowMs;
+      }
+    }
+    const duration = Math.max(0, reference - info.start);
+    return formatDuration(duration);
   };
 
 
@@ -1121,7 +1190,7 @@ export default function Admin() {
                                 </span>
                               </td>
                               <td className="px-4 py-3">{describeLog(log)}</td>
-                              <td className="px-4 py-3 whitespace-nowrap">{formatDuration(log.durationMs)}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">{getLogDurationDisplay(log)}</td>
                             </tr>
                           ))
                         )}
