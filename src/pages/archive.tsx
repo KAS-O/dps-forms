@@ -6,8 +6,8 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { auth, db, storage } from "@/lib/firebase";
-import { TEMPLATES } from "@/lib/templates";
+import { db } from "@/lib/firebase";
+import { TEMPLATES, Template } from "@/lib/templates";
 import {
   addDoc,
   collection,
@@ -36,14 +36,21 @@ type Archive = {
   createdAtDate?: Date | null;
   officers?: string[];
   vehicleFolderRegistration?: string;
+  textContent?: string | null;
+  textPages?: string[];
+  values?: Record<string, unknown> | null;
 };
 
-type ArchiveAssetSource = {
-  path?: string | null;
-  url?: string | null;
+type ArchiveTextSection = {
+  title?: string;
+  lines: string[];
 };
 
-const HTTP_PROTOCOL_REGEX = /^http:\/\//i;
+const VALUE_SKIP_KEYS = new Set(["funkcjonariusze", "liczbaStron"]);
+
+const EXTRA_VALUE_LABELS: Record<string, string> = {
+  teczkaPojazdu: "Teczka pojazdu",
+};
 
 function ensureArray(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -61,268 +68,191 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
   const chunkSize = 0x8000;
   for (let i = 0; i < bytes.length; i += chunkSize) {
     const chunk = bytes.subarray(i, i + chunkSize);
-    for (let j = 0; j < chunk.length; j++) {
+    for (let j = 0; j < chunk.length; j += 1) {
       binary += String.fromCharCode(chunk[j]);
     }
   }
   return btoa(binary);
 }
 
-async function loadImageElement(src: string) {
-  if (typeof window === "undefined") {
-    throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
-  }
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = (event) => reject(event instanceof ErrorEvent ? event.error : new Error("Nie udało się wczytać obrazu."));
-    image.src = src;
-  });
+function splitLines(text: string): string[] {
+  return text.split(/\r?\n/).map((line) => line.trimEnd());
 }
 
-async function prepareImageForPdf(arrayBuffer: ArrayBuffer, extension: string) {
-  if (typeof window === "undefined") {
-    throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
+function extractFromTextContent(content?: string | null) {
+  if (!content) {
+    return { metaLines: [] as string[], contentLines: [] as string[] };
   }
-  const normalizedExtension = extension.toLowerCase();
-  const mediaType = normalizedExtension === "jpg" ? "jpeg" : normalizedExtension;
-  let dataUrl = `data:image/${mediaType};base64,${arrayBufferToBase64(arrayBuffer)}`;
-  let format: "PNG" | "JPEG" = normalizedExtension === "png" ? "PNG" : "JPEG";
-  let imageElement = await loadImageElement(dataUrl);
+  const lines = splitLines(content);
+  const metaLines: string[] = [];
+  const contentLines: string[] = [];
+  let readingMeta = true;
 
-  if (normalizedExtension === "webp") {
-    const { document } = window;
-    const canvas = document.createElement("canvas");
-    canvas.width = imageElement.width;
-    canvas.height = imageElement.height;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("Brak wsparcia dla rysowania obrazów w przeglądarce.");
+  lines.forEach((line) => {
+    if (readingMeta) {
+      if (line.trim() === "") {
+        readingMeta = false;
+        return;
+      }
+      metaLines.push(line);
+    } else {
+      contentLines.push(line);
     }
-    context.drawImage(imageElement, 0, 0);
-    dataUrl = canvas.toDataURL("image/png");
-    imageElement = await loadImageElement(dataUrl);
-    format = "PNG";
-  }
-
-  return {
-    dataUrl,
-    format,
-    width: imageElement.width,
-    height: imageElement.height,
-  };
-}
-
-function normalizeUrl(url: string) {
-  return url.replace(HTTP_PROTOCOL_REGEX, "https://");
-}
-
-function getExtension(contentType: string | null, url: string) {
-  if (contentType?.includes("png")) return "png";
-  if (contentType?.includes("jpeg") || contentType?.includes("jpg")) return "jpg";
-  if (contentType?.includes("webp")) return "webp";
-  const match = url.match(/\.([a-zA-Z0-9]{2,4})(?:\?|$)/);
-  return match ? match[1].toLowerCase() : "png";
-}
-
-function getExtensionFromPath(path?: string | null) {
-  if (!path) return null;
-  const match = path.match(/\.([a-zA-Z0-9]{2,4})$/);
-  return match ? match[1].toLowerCase() : null;
-}
-
-class ArchiveProxyError extends Error {
-  status?: number;
-
-  constructor(message: string, status?: number) {
-    super(message);
-    this.name = "ArchiveProxyError";
-    this.status = status;
-  }
-}
-
-async function fetchArchiveProxy(source: ArchiveAssetSource) {
-  if (typeof window === "undefined") {
-    throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
-  }
-
-  const params = new URLSearchParams();
-  if (source.path) {
-    params.set("path", source.path);
-  }
-  if (source.url) {
-    params.set("url", source.url);
-  }
-
-  if (!params.toString()) {
-    throw new ArchiveProxyError("Brak informacji o pliku archiwum do pobrania.");
-  }
-
-  const headers: HeadersInit = {};
-  const user = auth?.currentUser;
-  if (user) {
-    try {
-      const token = await user.getIdToken();
-      headers["Authorization"] = `Bearer ${token}`;
-    } catch (tokenError) {
-      console.warn("Nie udało się pobrać tokenu użytkownika do pobrania pliku archiwum", tokenError);
-    }
-  }
-
-  const response = await fetch(`/api/archive/file?${params.toString()}`, {
-    headers,
-    cache: "no-store",
   });
 
-  if (!response.ok) {
-    let message = `Nie udało się pobrać pliku archiwum (status ${response.status}).`;
-    const contentType = response.headers.get("content-type") || "";
-    try {
-      if (contentType.includes("application/json")) {
-        const data = await response.json();
-        if (data?.error && typeof data.error === "string") {
-          message = data.error;
-        }
-      } else {
-        const text = await response.text();
-        if (text) {
-          message = text.slice(0, 400);
-        }
-      }
-    } catch (readError) {
-      console.warn("Nie udało się odczytać odpowiedzi proxy archiwum", readError);
-    }
-    throw new ArchiveProxyError(message, response.status);
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  const contentType = response.headers.get("content-type");
-  const fallbackPath = source.path || source.url || "";
-  return { arrayBuffer, extension: getExtension(contentType, fallbackPath) };
+  return { metaLines, contentLines };
 }
 
-async function fetchAsArrayBuffer(url: string) {
-  const normalized = normalizeUrl(url);
-  const response = await fetch(normalized, { mode: "cors", referrerPolicy: "no-referrer" });
-  if (!response.ok) {
-    throw new Error(`Nie udało się pobrać obrazu (${response.status}).`);
+function resolveTemplate(item: { templateSlug?: string; templateName?: string }): Template | undefined {
+  if (item.templateSlug) {
+    const bySlug = TEMPLATES.find((template) => template.slug === item.templateSlug);
+    if (bySlug) return bySlug;
   }
-  const blob = await response.blob();
-  const arrayBuffer = await blob.arrayBuffer();
-  return { arrayBuffer, contentType: response.headers.get("content-type"), resolvedUrl: response.url || normalized };
+  if (item.templateName) {
+    const normalized = item.templateName.toLowerCase();
+    const byName = TEMPLATES.find((template) => template.name.toLowerCase() === normalized);
+    if (byName) return byName;
+  }
+  return undefined;
 }
 
-async function fetchStoragePath(path: string) {
-  const bucket =
-    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
-    storage?.app?.options?.storageBucket ||
-    null;
-
-  if (!bucket) {
-    throw new Error("Brak konfiguracji usługi plików.");
-  }
-
-  const encodedPath = encodeURIComponent(path);
-  const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media`;
-  const user = auth?.currentUser;
-  const attempt = async (forceRefresh: boolean) => {
-    const headers: HeadersInit = {};
-    if (user) {
-      try {
-        const token = await user.getIdToken(forceRefresh);
-        headers["Authorization"] = `Bearer ${token}`;
-      } catch (tokenError) {
-        console.warn("Nie udało się pobrać tokenu użytkownika do pobrania pliku archiwum", tokenError);
+function formatFieldValue(raw: unknown): string {
+  if (raw == null) return "—";
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return "—";
+    if (trimmed.includes("|")) {
+      const parts = trimmed
+        .split("|")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      if (parts.length) {
+        return parts.join(", ");
       }
     }
-
-    const response = await fetch(downloadUrl, { headers, cache: "no-store" });
-    if (response.ok) {
-      const arrayBuffer = await response.arrayBuffer();
-      const contentType = response.headers.get("content-type");
-      return { arrayBuffer, extension: getExtension(contentType, downloadUrl) };
+    return trimmed;
+  }
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) ? raw.toString() : "—";
+  }
+  if (raw instanceof Date) {
+    return raw.toLocaleString("pl-PL");
+  }
+  if (typeof raw === "object" && raw) {
+    const maybeTimestamp = raw as { toDate?: () => Date };
+    if (typeof maybeTimestamp.toDate === "function") {
+      const date = maybeTimestamp.toDate();
+      if (date instanceof Date && !Number.isNaN(date.getTime())) {
+        return date.toLocaleString("pl-PL");
+      }
     }
-
-    if ((response.status === 401 || response.status === 403) && user && !forceRefresh) {
-      return attempt(true);
-    }
-
-    throw new Error(`Nie udało się pobrać pliku (status ${response.status}).`);
-  };
-
-  return attempt(false);
+  }
+  return String(raw);
 }
 
-async function downloadArchiveAsset(source: { url?: string; path?: string | null }) {
-  let lastError: unknown = null;
-
-  if (source.url || source.path) {
-    try {
-      return await fetchArchiveProxy({ path: source.path ?? null, url: source.url ?? null });
-    } catch (error) {
-      lastError = error;
-    }
+function buildFieldLinesFromValues(
+  values: Record<string, unknown> | null | undefined,
+  template?: Template
+): string[] {
+  if (!values) return [];
+  const lines: string[] = [];
+  const usedKeys = new Set<string>();
+  if (template) {
+    template.fields.forEach((field) => {
+      const value = values[field.key];
+      lines.push(`${field.label}: ${formatFieldValue(value)}`);
+      usedKeys.add(field.key);
+    });
   }
 
-  if (source.url) {
-    try {
-      const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(source.url);
-      return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
-    } catch (error) {
-      lastError = error;
-    }
+  Object.entries(values).forEach(([key, value]) => {
+    if (usedKeys.has(key)) return;
+    if (VALUE_SKIP_KEYS.has(key)) return;
+    const label = EXTRA_VALUE_LABELS[key] || key;
+    lines.push(`${label}: ${formatFieldValue(value)}`);
+  });
+
+  return lines;
+}
+
+function buildFallbackMetaLines(item: Archive): string[] {
+  const lines: string[] = [];
+  lines.push(`Dokument: ${item.templateName || "—"}`);
+  lines.push(`Autor (login): ${item.userLogin || "—"}`);
+  const officersText = (item.officers || []).join(", ");
+  lines.push(`Funkcjonariusze: ${officersText || "—"}`);
+  if (item.vehicleFolderRegistration) {
+    lines.push(`Teczka pojazdu: ${item.vehicleFolderRegistration}`);
+  }
+  if (item.dossierId) {
+    lines.push(`Powiązana teczka: ${item.dossierId}`);
+  }
+  return lines;
+}
+
+function buildArchiveTextSections(item: Archive): ArchiveTextSection[] {
+  const sections: ArchiveTextSection[] = [];
+  const template = resolveTemplate(item);
+  const { metaLines: rawMetaLines, contentLines: rawContentLines } = extractFromTextContent(item.textContent);
+
+  let metaLines = rawMetaLines.filter((line) => line.trim().length > 0);
+  if (!metaLines.length) {
+    metaLines = buildFallbackMetaLines(item).filter((line) => line.trim().length > 0);
+  }
+  if (metaLines.length) {
+    sections.push({ title: "Metryka", lines: metaLines });
   }
 
-  if (source.path) {
-    try {
-      return await fetchStoragePath(source.path);
-    } catch (restError) {
-      lastError = restError;
-    }
-
-    try {
-      const { ref, getDownloadURL, getBytes, getMetadata } = await import("firebase/storage");
-      if (!storage) {
-        throw new Error("Usługa plików nie jest dostępna.");
+  if (item.textPages && item.textPages.length) {
+    item.textPages.forEach((pageText, index) => {
+      const pageLines = splitLines(pageText);
+      if (pageLines.some((line) => line.trim().length > 0)) {
+        sections.push({
+          title: item.textPages && item.textPages.length > 1 ? `Strona ${index + 1}` : "Treść",
+          lines: pageLines,
+        });
       }
-      const storageRef = ref(storage, source.path);
-
-      try {
-        const downloadUrl = await getDownloadURL(storageRef);
-        const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(downloadUrl);
-        return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
-      } catch (downloadUrlError) {
-        lastError = downloadUrlError;
-      }
-
-      const bytes = await getBytes(storageRef);
-      let contentType: string | null = null;
-      try {
-        const metadata = await getMetadata(storageRef);
-        contentType = metadata.contentType || null;
-      } catch (metadataError) {
-        console.warn("Nie udało się pobrać metadanych pliku archiwum", metadataError);
-      }
-
-      const extensionFromPath = getExtensionFromPath(source.path);
-      const fallbackUrl = source.url || source.path || "";
-      const extension = extensionFromPath || getExtension(contentType, fallbackUrl);
-      const uint8Array = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-      const arrayBuffer = uint8Array.buffer.slice(
-        uint8Array.byteOffset,
-        uint8Array.byteOffset + uint8Array.byteLength
-      );
-      return { arrayBuffer, extension };
-    } catch (storageError) {
-      lastError = storageError;
-    }
+    });
+    return sections;
   }
 
-  if (lastError instanceof Error) {
-    throw lastError;
+  const contentLines = rawContentLines.filter((line) => line.trim().length > 0);
+  if (contentLines.length) {
+    sections.push({ title: "Treść", lines: contentLines });
+    return sections;
   }
 
-  throw new Error("Nie udało się pobrać pliku archiwum.");
+  const fallbackFieldLines = buildFieldLinesFromValues(item.values ?? null, template).filter(
+    (line) => line.trim().length > 0
+  );
+  if (fallbackFieldLines.length) {
+    sections.push({ title: "Treść", lines: fallbackFieldLines });
+  }
+
+  return sections;
+}
+
+function buildArchiveSearchText(item: Archive): string {
+  const parts: string[] = [
+    item.templateName || "",
+    item.templateSlug || "",
+    item.userLogin || "",
+    (item.officers || []).join(" "),
+    item.vehicleFolderRegistration || "",
+    item.dossierId || "",
+    item.textContent || "",
+  ];
+  if (item.textPages?.length) {
+    parts.push(item.textPages.join(" \n"));
+  }
+  if (item.values) {
+    parts.push(
+      Object.entries(item.values)
+        .map(([key, value]) => `${key}: ${formatFieldValue(value)}`)
+        .join(" ")
+    );
+  }
+  return parts.join(" ").toLowerCase();
 }
 
 function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
@@ -332,6 +262,12 @@ function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
   const imageUrls = urlsRaw.length ? urlsRaw : ensureArray(data.imageUrl);
   const imagePaths = pathsRaw.length ? pathsRaw : ensureArray(data.imagePath);
   const createdAtDate = (data.createdAt as any)?.toDate?.() || null;
+  const textPages = ensureArray(data.textPages);
+  const textContent = typeof data.textContent === "string" ? data.textContent : null;
+  const values =
+    data.values && typeof data.values === "object" && !Array.isArray(data.values)
+      ? (data.values as Record<string, unknown>)
+      : null;
 
   return {
     id: snapshot.id,
@@ -349,6 +285,9 @@ function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
     imagePaths,
     createdAt: data.createdAt,
     createdAtDate,
+    textContent,
+    textPages,
+    values,
   };
 }
 
@@ -437,15 +376,7 @@ export default function ArchivePage() {
         if (!typeSet.has(key)) return false;
       }
       if (!needle) return true;
-      const haystack = [
-        item.templateName || "",
-        item.templateSlug || "",
-        item.userLogin || "",
-        (item.officers || []).join(", "),
-        item.vehicleFolderRegistration || "",
-      ]
-        .join(" ")
-        .toLowerCase();
+      const haystack = buildArchiveSearchText(item);
       return haystack.includes(needle);
     });
   }, [fromDate, items, search, selectedTypes, toDate]);
@@ -652,47 +583,41 @@ export default function ArchivePage() {
           cursorY += 14;
         });
 
-        const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
-        const paths = item.imagePaths?.length
-          ? item.imagePaths
-          : item.imagePath
-          ? [item.imagePath]
-          : [];
-
-        if (images.length === 0) {
-          ensureSpace(20);
-          doc.text("(Brak załączonych obrazów)", margin, cursorY);
-          cursorY += 20;
+        const sections = buildArchiveTextSections(item);
+        if (!sections.length) {
+          ensureSpace(16);
+          doc.text("(Brak danych tekstowych w archiwum)", margin, cursorY);
+          cursorY += 18;
           continue;
         }
 
-        for (let index = 0; index < images.length; index += 1) {
-          const url = images[index];
-          const path = paths[index] ?? (paths.length === 1 ? paths[0] : undefined);
-          const { arrayBuffer, extension } = await downloadArchiveAsset({ url, path });
-          const image = await prepareImageForPdf(arrayBuffer, extension);
-          const maxWidth = pageWidth - margin * 2;
-          const maxHeight = pageHeight - margin - cursorY;
-          const aspectRatio = image.width / (image.height || 1);
-          let renderWidth = maxWidth;
-          let renderHeight = renderWidth / (aspectRatio || 1);
-          if (renderHeight > maxHeight) {
-            renderHeight = maxHeight;
-            renderWidth = renderHeight * aspectRatio;
+        sections.forEach((section) => {
+          if (section.title) {
+            ensureSpace(18);
+            doc.setFontSize(12);
+            doc.text(section.title, margin, cursorY);
+            cursorY += 16;
+            doc.setFontSize(11);
           }
 
-          if (renderHeight <= 0 || !Number.isFinite(renderHeight) || renderWidth <= 0) {
-            continue;
-          }
+          section.lines.forEach((line) => {
+            const content = line ?? "";
+            const trimmed = content.trim();
+            if (!trimmed) {
+              ensureSpace(12);
+              cursorY += 12;
+              return;
+            }
+            const wrapped = doc.splitTextToSize(content, pageWidth - margin * 2 - 12);
+            wrapped.forEach((wrappedLine) => {
+              ensureSpace(14);
+              doc.text(wrappedLine, margin + 12, cursorY);
+              cursorY += 14;
+            });
+          });
 
-          if (cursorY + renderHeight > pageHeight - margin) {
-            doc.addPage();
-            cursorY = margin;
-          }
-
-          doc.addImage(image.dataUrl, image.format, margin, cursorY, renderWidth, renderHeight);
-          cursorY += renderHeight + 16;
-        }
+          cursorY += 10;
+        });
 
         cursorY += 10;
       }
@@ -850,7 +775,7 @@ export default function ArchivePage() {
 
               {selectionMode && (
                 <p className="text-xs text-beige-700">
-                  Zaznacz dokumenty do raportu. Wszystkie informacje i obrazy trafią do jednego pliku PDF.
+                  Zaznacz dokumenty do raportu. Wszystkie informacje tekstowe trafią do jednego pliku PDF.
                 </p>
               )}
               {reportError && <p className="text-sm text-red-300">{reportError}</p>}
@@ -861,6 +786,7 @@ export default function ArchivePage() {
                 const isSelected = selectedIds.includes(item.id);
                 const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
                 const imageLinks = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+                const textSections = buildArchiveTextSections(item);
 
                 return (
                   <div
@@ -898,6 +824,23 @@ export default function ArchivePage() {
                           </>
                         )}
                       </div>
+                      {textSections.length > 0 && (
+                        <div className="mt-3 space-y-3 text-sm">
+                          {textSections.map((section, sectionIndex) => (
+                            <div
+                              key={`${item.id}-section-${sectionIndex}`}
+                              className="rounded-xl border border-white/10 bg-black/20 p-3 whitespace-pre-wrap leading-5"
+                            >
+                              {section.title && (
+                                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-beige-500">
+                                  {section.title}
+                                </div>
+                              )}
+                              {section.lines.join("\n")}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {imageLinks.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-2 text-sm">
                           {imageLinks.map((url, index) => (
