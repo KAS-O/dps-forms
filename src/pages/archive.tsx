@@ -6,7 +6,7 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { db, storage } from "@/lib/firebase";
+import { auth, db, storage } from "@/lib/firebase";
 import { TEMPLATES } from "@/lib/templates";
 import {
   addDoc,
@@ -102,6 +102,35 @@ async function downloadArchiveAsset(source: { url?: string; path?: string | null
   }
 
   if (source.path) {
+    const storageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+    if (storageBucket) {
+      try {
+        const encodedPath = encodeURIComponent(source.path);
+        const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o/${encodedPath}?alt=media`;
+        const headers: HeadersInit = {};
+        const user = auth?.currentUser;
+        if (user) {
+          try {
+            const token = await user.getIdToken();
+            headers["Authorization"] = `Bearer ${token}`;
+          } catch (tokenError) {
+            console.warn("Nie udało się pobrać tokenu użytkownika do pobrania pliku archiwum", tokenError);
+          }
+        }
+
+        const response = await fetch(downloadUrl, { headers });
+        if (!response.ok) {
+          throw new Error(`Nie udało się pobrać pliku (status ${response.status}).`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const contentType = response.headers.get("content-type");
+        return { arrayBuffer, extension: getExtension(contentType, downloadUrl) };
+      } catch (restError) {
+        lastError = restError;
+      }
+    }
+
     try {
       const { ref, getDownloadURL, getBytes, getMetadata } = await import("firebase/storage");
       if (!storage) {
