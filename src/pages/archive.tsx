@@ -6,7 +6,7 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { auth, db, storage } from "@/lib/firebase";
+import { auth, db, storage, storageBucket as firebaseStorageBucket, normalizeStorageBucket } from "@/lib/firebase";
 import { TEMPLATES } from "@/lib/templates";
 import {
   addDoc,
@@ -37,6 +37,19 @@ type Archive = {
   officers?: string[];
   vehicleFolderRegistration?: string;
 };
+
+function resolveStorageBucket() {
+  const direct = normalizeStorageBucket(firebaseStorageBucket);
+  if (direct) return direct;
+
+  const envBucket = normalizeStorageBucket(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET);
+  if (envBucket) return envBucket;
+
+  const appBucket = normalizeStorageBucket(storage?.app?.options?.storageBucket ?? undefined);
+  if (appBucket) return appBucket;
+
+  return null;
+}
 
 const HTTP_PROTOCOL_REGEX = /^http:\/\//i;
 
@@ -138,10 +151,7 @@ async function fetchAsArrayBuffer(url: string) {
 }
 
 async function fetchStoragePath(path: string) {
-  const bucket =
-    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
-    storage?.app?.options?.storageBucket ||
-    null;
+  const bucket = resolveStorageBucket();
 
   if (!bucket) {
     throw new Error("Brak konfiguracji usługi plików.");
@@ -191,7 +201,7 @@ async function downloadArchiveAsset(source: { url?: string; path?: string | null
   }
 
   if (source.path) {
-    const storageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+    const storageBucket = resolveStorageBucket();
     if (storageBucket) {
       try {
         const encodedPath = encodeURIComponent(source.path);
