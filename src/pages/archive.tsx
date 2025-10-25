@@ -7,6 +7,7 @@ import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
 import { db, storage } from "@/lib/firebase";
+import { TEMPLATES } from "@/lib/templates";
 import {
   addDoc,
   collection,
@@ -225,13 +226,20 @@ export default function ArchivePage() {
 
   const availableTypes = useMemo(() => {
     const entries = new Map<string, string>();
+
+    TEMPLATES.forEach((template) => {
+      entries.set(template.slug, template.name);
+    });
+
     items.forEach((item) => {
       const key = item.templateSlug || item.templateName || item.id;
-      const label = item.templateName || key;
-      if (!entries.has(key)) {
+      const currentLabel = entries.get(key);
+      const label = item.templateName || currentLabel || key;
+      if (!entries.has(key) || (currentLabel === key && label !== key)) {
         entries.set(key, label);
       }
     });
+
     return Array.from(entries.entries())
       .map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label, "pl"));
