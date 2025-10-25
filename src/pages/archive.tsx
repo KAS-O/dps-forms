@@ -6,7 +6,7 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { db } from "@/lib/firebase";
+import { db, storage } from "@/lib/firebase";
 import {
   addDoc,
   collection,
@@ -18,6 +18,7 @@ import {
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
+import { getDownloadURL, ref } from "firebase/storage";
 
 import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
 
@@ -90,6 +91,79 @@ function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
     createdAt: data.createdAt,
     createdAtDate,
   };
+}
+
+type ArchiveImageSource = {
+  primary: string;
+  fallback?: string;
+};
+
+function getArchiveImageSources(item: Archive): ArchiveImageSource[] {
+  if (item.imagePaths?.length) {
+    return item.imagePaths.map((path, index) => {
+      const fallback = item.imageUrls?.[index] || item.imageUrls?.[0] || item.imageUrl;
+      return fallback && fallback !== path ? { primary: path, fallback } : { primary: path };
+    });
+  }
+
+  if (item.imageUrls?.length) {
+    return item.imageUrls.map((url) => ({ primary: url }));
+  }
+
+  if (item.imageUrl) {
+    return [{ primary: item.imageUrl }];
+  }
+
+  return [];
+}
+
+async function resolveArchiveImageUrl(source: string) {
+  if (!source) {
+    throw new Error("Nieprawidłowy adres obrazu archiwum.");
+  }
+
+  if (/^https?:\/\//i.test(source)) {
+    return source;
+  }
+
+  if (!storage) {
+    throw new Error("Magazyn plików jest niedostępny.");
+  }
+
+  const storageRef = ref(storage, source);
+  return getDownloadURL(storageRef);
+}
+
+function normalizeDownloadError(...errors: unknown[]): Error {
+  for (const error of errors) {
+    if (error instanceof Error && error.message === "Failed to fetch") {
+      return new Error("Nie udało się połączyć z magazynem plików.");
+    }
+  }
+
+  for (const error of errors) {
+    if (error instanceof Error && error.message) {
+      return error;
+    }
+  }
+
+  return new Error("Nie udało się pobrać obrazów archiwum.");
+}
+
+async function resolveImageUrlWithFallback(source: ArchiveImageSource) {
+  try {
+    return await resolveArchiveImageUrl(source.primary);
+  } catch (primaryError) {
+    if (source.fallback && source.fallback !== source.primary) {
+      try {
+        return await resolveArchiveImageUrl(source.fallback);
+      } catch (fallbackError) {
+        throw normalizeDownloadError(fallbackError, primaryError);
+      }
+    }
+
+    throw normalizeDownloadError(primaryError);
+  }
 }
 
 export default function ArchivePage() {
@@ -304,8 +378,8 @@ export default function ArchivePage() {
 
       for (const item of items) {
         if (!selectedIds.includes(item.id)) continue;
-        const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
-        if (images.length === 0) continue;
+        const sources = getArchiveImageSources(item);
+        if (sources.length === 0) continue;
 
         const baseNameParts = [item.templateSlug || item.templateName || item.id, item.userLogin || "anon"];
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
@@ -314,22 +388,23 @@ export default function ArchivePage() {
         }
         const baseName = sanitizeFileFragment(baseNameParts.filter(Boolean).join("-"));
 
-        for (let index = 0; index < images.length; index += 1) {
-          const url = images[index];
+        for (let index = 0; index < sources.length; index += 1) {
+          const source = sources[index];
           try {
-            const response = await fetch(url);
+            const resolvedUrl = await resolveImageUrlWithFallback(source);
+            const response = await fetch(resolvedUrl);
             if (!response.ok) {
               throw new Error(`Nie udało się pobrać obrazu (${response.status}).`);
             }
             const blob = await response.blob();
             const arrayBuffer = await blob.arrayBuffer();
-            const extension = getExtension(response.headers.get("content-type"), url);
-            const fileName = `${baseName}${images.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`;
+            const extension = getExtension(response.headers.get("content-type"), resolvedUrl || source.primary);
+            const fileName = `${baseName}${sources.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`;
             zip.file(fileName, arrayBuffer);
             addedFiles += 1;
           } catch (error) {
             console.error("Błąd pobierania obrazu archiwum", error);
-            throw error;
+            throw normalizeDownloadError(error);
           }
         }
       }
@@ -350,8 +425,9 @@ export default function ArchivePage() {
       
       setSelectedIds([]);
       setSelectionMode(false);
-    } catch (error: any) {
-      setDownloadError(error?.message || "Nie udało się pobrać dokumentów.");
+    } catch (error) {
+      const normalizedError = normalizeDownloadError(error);
+      setDownloadError(normalizedError.message || "Nie udało się pobrać dokumentów.");
     } finally {
       setDownloading(false);
     }
