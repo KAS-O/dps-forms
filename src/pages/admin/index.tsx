@@ -352,12 +352,16 @@ export default function Admin() {
       setErr("Login jest wymagany.");
       return;
     }
+    if (!/^[a-z0-9._-]+$/.test(loginValue)) {
+      setErr("Login może zawierać tylko litery, cyfry oraz znaki . _ -");
+      return;
+    }
     if (editorState.mode === "create" && !passwordValue) {
       setErr("Hasło jest wymagane przy tworzeniu nowego konta.");
       return;
     }
-    if (passwordValue && passwordValue.length < 1) {
-      setErr("Hasło musi mieć co najmniej 1 znak.");
+    if (passwordValue && passwordValue.length < 6) {
+      setErr("Hasło musi mieć co najmniej 6 znaków.");
       return;
     }
 

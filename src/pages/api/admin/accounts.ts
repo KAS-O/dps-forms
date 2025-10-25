@@ -15,6 +15,16 @@ type AccountResponse = {
   createdAt?: string;
 };
 
+const LOGIN_REGEX = /^[a-z0-9._-]+$/;
+
+function normalizeLogin(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (!LOGIN_REGEX.test(normalized)) return null;
+  return normalized;
+}
+
 async function verifyDirector(req: NextApiRequest) {
   if (!adminAuth || !adminDb) {
     throw new Error("Brak konfiguracji Firebase Admin");
@@ -142,14 +152,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === "POST") {
       const { login, fullName, role, password } = req.body || {};
-      if (!login || !password) {
+      const normalizedLogin = normalizeLogin(login);
+      const passwordValue = typeof password === "string" ? password.trim() : "";
+      if (!normalizedLogin || !passwordValue) {
         return res.status(400).json({ error: "Login i hasło są wymagane" });
       }
-      const normalizedLogin = String(login).trim().toLowerCase();
+      if (passwordValue.length < 6) {
+        return res.status(400).json({ error: "Hasło musi mieć co najmniej 6 znaków." });
+      }
       const email = `${normalizedLogin}@${LOGIN_DOMAIN}`;
       const newUser = await adminAuth.createUser({
         email,
-        password,
+        password: passwordValue,
         displayName: fullName || normalizedLogin,
       });
 
@@ -172,7 +186,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const updates: string[] = [];
       const updatePayload: any = {};
       if (login) {
-        const normalizedLogin = String(login).trim().toLowerCase();
+        const normalizedLogin = normalizeLogin(login);
+        if (!normalizedLogin) {
+          return res.status(400).json({ error: "Nieprawidłowy login" });
+        }
         updatePayload.email = `${normalizedLogin}@${LOGIN_DOMAIN}`;
         updatePayload.displayName = fullName || normalizedLogin;
         const updatedAt = adminFieldValue?.serverTimestamp?.();
@@ -209,7 +226,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
       if (password) {
-        updatePayload.password = password;
+        const passwordValue = typeof password === "string" ? password.trim() : "";
+        if (!passwordValue) {
+          return res.status(400).json({ error: "Hasło nie może być puste" });
+        }
+        if (passwordValue.length < 6) {
+          return res.status(400).json({ error: "Hasło musi mieć co najmniej 6 znaków." });
+        }
+        updatePayload.password = passwordValue;
         updates.push("password");
       }
       if (Object.keys(updatePayload).length) {
