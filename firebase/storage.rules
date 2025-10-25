@@ -5,7 +5,7 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    match /archives/{file} {
+    match /archives/{allPaths=**} {
       allow read, write: if signedIn();
     }
 
