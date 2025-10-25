@@ -6,7 +6,7 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { db } from "@/lib/firebase";
+import { db, storage } from "@/lib/firebase";
 import {
   addDoc,
   collection,
@@ -18,6 +18,7 @@ import {
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
+import { getBlob, ref } from "firebase/storage";
 
 import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
 
@@ -63,6 +64,49 @@ function getExtension(contentType: string | null, url: string) {
   if (contentType?.includes("webp")) return "webp";
   const match = url.match(/\.([a-zA-Z0-9]{2,4})(?:\?|$)/);
   return match ? match[1].toLowerCase() : "png";
+}
+
+async function downloadArchiveImage(url?: string, path?: string) {
+  const errors: unknown[] = [];
+
+  if (path && storage) {
+    try {
+      const storageRef = ref(storage, path);
+      const blob = await getBlob(storageRef);
+      const arrayBuffer = await blob.arrayBuffer();
+      const extension = getExtension(blob.type || null, url || path || "image");
+      return { arrayBuffer, extension };
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  if (url) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Nie udało się pobrać obrazu (${response.status}).`);
+      }
+      const blob = await response.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+      const extension = getExtension(response.headers.get("content-type") || blob.type || null, url);
+      return { arrayBuffer, extension };
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  if (errors.length > 0) {
+    const detailed = errors.find((entry) => entry instanceof Error && entry.message);
+    if (detailed instanceof Error && detailed.message) {
+      const message = /failed to fetch/i.test(detailed.message)
+        ? "Nie udało się pobrać obrazu archiwum."
+        : detailed.message;
+      throw new Error(message);
+    }
+  }
+
+  throw new Error("Nie udało się pobrać obrazu archiwum.");
 }
 
 function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
@@ -304,8 +348,10 @@ export default function ArchivePage() {
 
       for (const item of items) {
         if (!selectedIds.includes(item.id)) continue;
-        const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
-        if (images.length === 0) continue;
+        const imageUrls = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+        const imagePaths = item.imagePaths?.length ? item.imagePaths : item.imagePath ? [item.imagePath] : [];
+        const assetCount = Math.max(imageUrls.length, imagePaths.length);
+        if (assetCount === 0) continue;
 
         const baseNameParts = [item.templateSlug || item.templateName || item.id, item.userLogin || "anon"];
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
@@ -314,22 +360,20 @@ export default function ArchivePage() {
         }
         const baseName = sanitizeFileFragment(baseNameParts.filter(Boolean).join("-"));
 
-        for (let index = 0; index < images.length; index += 1) {
-          const url = images[index];
+        for (let index = 0; index < assetCount; index += 1) {
+          const url = imageUrls[index];
+          const path = imagePaths[index];
           try {
-            const response = await fetch(url);
-            if (!response.ok) {
-              throw new Error(`Nie udało się pobrać obrazu (${response.status}).`);
-            }
-            const blob = await response.blob();
-            const arrayBuffer = await blob.arrayBuffer();
-            const extension = getExtension(response.headers.get("content-type"), url);
-            const fileName = `${baseName}${images.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`;
+            const { arrayBuffer, extension } = await downloadArchiveImage(url, path);
+            const fileName = `${baseName}${assetCount > 1 ? `-strona-${index + 1}` : ""}.${extension}`;
             zip.file(fileName, arrayBuffer);
             addedFiles += 1;
           } catch (error) {
             console.error("Błąd pobierania obrazu archiwum", error);
-            throw error;
+            if (error instanceof Error) {
+              throw error;
+            }
+            throw new Error("Nie udało się pobrać obrazu archiwum.");
           }
         }
       }
