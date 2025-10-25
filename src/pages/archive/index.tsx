@@ -1,14 +1,25 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Head from "next/head";
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
-import Head from "next/head";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { db } from "@/lib/firebase";
-import { addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, serverTimestamp, writeBatch } from "firebase/firestore";
-import { useProfile, can } from "@/hooks/useProfile";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
-import { UnderlightGlow } from "@/components/UnderlightGlow";
+import { useProfile, can } from "@/hooks/useProfile";
+import { db } from "@/lib/firebase";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  orderBy,
+  query,
+  serverTimestamp,
+  writeBatch,
+} from "firebase/firestore";
+
+import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
 
 type Archive = {
   id: string;
@@ -27,11 +38,13 @@ type Archive = {
 };
 
 function sanitizeFileFragment(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gi, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60) || "dokument";
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "dokument"
+  );
 }
 
 function ensureArray(value: unknown): string[] {
@@ -44,7 +57,7 @@ function ensureArray(value: unknown): string[] {
   return [];
 }
 
-function getExtension(contentType: string | null, url: string): string {
+function getExtension(contentType: string | null, url: string) {
   if (contentType?.includes("png")) return "png";
   if (contentType?.includes("jpeg") || contentType?.includes("jpg")) return "jpg";
   if (contentType?.includes("webp")) return "webp";
@@ -52,10 +65,39 @@ function getExtension(contentType: string | null, url: string): string {
   return match ? match[1].toLowerCase() : "png";
 }
 
+function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
+  const data = snapshot.data() as Record<string, unknown>;
+  const urlsRaw = ensureArray(data.imageUrls);
+  const pathsRaw = ensureArray(data.imagePaths);
+  const imageUrls = urlsRaw.length ? urlsRaw : ensureArray(data.imageUrl);
+  const imagePaths = pathsRaw.length ? pathsRaw : ensureArray(data.imagePath);
+  const createdAtDate = (data.createdAt as any)?.toDate?.() || null;
+
+  return {
+    id: snapshot.id,
+    templateName: (data.templateName as string) || "Bez nazwy",
+    templateSlug: (data.templateSlug as string) || undefined,
+    userLogin: (data.userLogin as string) || undefined,
+    officers: Array.isArray(data.officers)
+      ? (data.officers as unknown[]).filter((value): value is string => typeof value === "string")
+      : undefined,
+    dossierId: (data.dossierId as string) || null,
+    vehicleFolderRegistration: (data.vehicleFolderRegistration as string) || undefined,
+    imageUrl: imageUrls[0],
+    imageUrls,
+    imagePath: imagePaths[0],
+    imagePaths,
+    createdAt: data.createdAt,
+    createdAtDate,
+  };
+}
+
 export default function ArchivePage() {
   const { role, login } = useProfile();
+  const { alert, confirm } = useDialog();
+  const { logActivity, session } = useSessionActivity();
   const [items, setItems] = useState<Archive[]>([]);
-  const [qtxt, setQ] = useState("");
+  const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
@@ -64,35 +106,20 @@ export default function ArchivePage() {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
-  const { alert, confirm } = useDialog();
-  const { logActivity, session } = useSessionActivity();
+
 
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
       try {
-        const qa = query(collection(db, "archives"), orderBy("createdAt", "desc"));
-        const sa = await getDocs(qa);
-        setItems(
-          sa.docs.map((d) => {
-            const data = d.data() as any;
-            const urlsRaw = ensureArray(data.imageUrls);
-            const pathsRaw = ensureArray(data.imagePaths);
-            const imageUrls = urlsRaw.length ? urlsRaw : ensureArray(data.imageUrl);
-            const imagePaths = pathsRaw.length ? pathsRaw : ensureArray(data.imagePath);
-            const createdAtDate = data.createdAt?.toDate?.() || null;
-            return {
-              id: d.id,
-              ...data,
-              imageUrl: imageUrls[0],
-              imageUrls,
-              imagePath: imagePaths[0],
-              imagePaths,
-              createdAtDate,
-            } as Archive;
-          })
-        );
-      } catch (e) {
-        console.error(e);
+        const archiveQuery = query(collection(db, "archives"), orderBy("createdAt", "desc"));
+        const snapshot = await getDocs(archiveQuery);
+        if (!mounted) return;
+        setItems(snapshot.docs.map(buildArchive));
+      } catch (error) {
+        console.error("Nie udało się pobrać archiwum", error);
+        if (!mounted) return;
         await alert({
           title: "Błąd archiwum",
           message: "Brak uprawnień lub błąd wczytania archiwum.",
@@ -100,30 +127,37 @@ export default function ArchivePage() {
         });
       }
     })();
+    
+    return () => {
+      mounted = false;
+    };
+  }, [alert]);
+
+  useEffect(() => {
     if (!session) return;
     void logActivity({ type: "archive_view" });
-  }, [alert, logActivity, session]);
+  }, [logActivity, session]);
 
   useEffect(() => {
     setSelectedIds((prev) => prev.filter((id) => items.some((item) => item.id === id)));
   }, [items]);
 
   const availableTypes = useMemo(() => {
-    const map = new Map<string, string>();
+    const entries = new Map<string, string>();
     items.forEach((item) => {
       const key = item.templateSlug || item.templateName || item.id;
       const label = item.templateName || key;
-      if (!map.has(key)) {
-        map.set(key, label);
+      if (!entries.has(key)) {
+        entries.set(key, label);
       }
     });
-    return Array.from(map.entries())
+    return Array.from(entries.entries())
       .map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label, "pl"));
   }, [items]);
 
-  const filtered = useMemo(() => {
-    const needle = qtxt.trim().toLowerCase();
+  const filteredItems = useMemo(() => {
+    const needle = search.trim().toLowerCase();
     const fromValue = fromDate ? new Date(fromDate) : null;
     const toValue = toDate ? new Date(toDate) : null;
     const typeSet = new Set(selectedTypes);
@@ -148,101 +182,10 @@ export default function ArchivePage() {
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [fromDate, items, qtxt, selectedTypes, toDate]);
-
-  const remove = async (id: string) => {
-    if (!can.deleteArchive(role)) {
-      await alert({
-        title: "Brak uprawnień",
-        message: "Tylko Director może usuwać wpisy z archiwum.",
-        tone: "info",
-      });
-      return;
-    }
-    const ok = await confirm({
-      title: "Usuń wpis",
-      message: "Czy na pewno chcesz usunąć wybrany wpis z archiwum?",
-      confirmLabel: "Usuń",
-      tone: "danger",
-    });
-    if (!ok) return;
-    await deleteDoc(doc(db, "archives", id));
-    await addDoc(collection(db, "logs"), { type: "archive_delete", id, by: login, ts: serverTimestamp() });
-    setItems((prev) => prev.filter((x) => x.id !== id));
-    setSelectedIds((prev) => prev.filter((selectedId) => selectedId !== id));
-  };
-
-  const clearAll = async () => {
-    if (!can.deleteArchive(role)) {
-      await alert({
-        title: "Brak uprawnień",
-        message: "Tylko Director może czyścić archiwum.",
-        tone: "info",
-      });
-      return;
-    }
-    const ok = await confirm({
-      title: "Wyczyść archiwum",
-      message: "Czy na pewno chcesz trwale usunąć całe archiwum?",
-      confirmLabel: "Wyczyść",
-      tone: "danger",
-    });
-    if (!ok) return;
-    try {
-      setClearing(true);
-      const snap = await getDocs(collection(db, "archives"));
-      let batch = writeBatch(db);
-      const commits: Promise<void>[] = [];
-      let counter = 0;
-      snap.docs.forEach((docSnap, idx) => {
-        batch.delete(docSnap.ref);
-        counter += 1;
-        if (counter === 400 || idx === snap.docs.length - 1) {
-          commits.push(batch.commit());
-          batch = writeBatch(db);
-          counter = 0;
-        }
-      });
-      await Promise.all(commits);
-      await addDoc(collection(db, "logs"), {
-        type: "archive_clear",
-        by: login,
-        removed: snap.size,
-        ts: serverTimestamp(),
-      });
-      setItems([]);
-      setSelectedIds([]);
-      setSelectionMode(false);
-    } catch (e) {
-      console.error(e);
-      await alert({
-        title: "Błąd",
-        message: "Nie udało się wyczyścić archiwum.",
-        tone: "danger",
-      });
-    } finally {
-      setClearing(false);
-    }
-  };
-
-  if (!can.seeArchive(role)) {
-    return (
-      <AuthGate>
-        <>
-          <Head>
-            <title>LSPD 77RP — Archiwum</title>
-          </Head>
-          <Nav />
-          <div className="max-w-4xl mx-auto px-4 py-10">
-            <div className="card p-6 text-center">Brak dostępu do archiwum.</div>
-          </div>
-        </>
-      </AuthGate>
-    );
-  }
+  }, [fromDate, items, search, selectedTypes, toDate]);
 
   const resetFilters = () => {
-    setQ("");
+    setSearch("");
     setFromDate("");
     setToDate("");
     setSelectedTypes([]);
@@ -259,40 +202,113 @@ export default function ArchivePage() {
   };
 
   const toggleType = (value: string) => {
-    setSelectedTypes((prev) =>
-      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]
-    );
+    setSelectedTypes((prev) => (prev.includes(value) ? prev.filter((entry) => entry !== value) : [...prev, value]));
   };
 
   const toggleSelected = (id: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((entry) => entry !== id) : [...prev, id]));
   };
+
+  const remove = async (id: string) => {
+    if (!can.deleteArchive(role)) {
+      await alert({
+        title: "Brak uprawnień",
+        message: "Tylko Director może usuwać wpisy z archiwum.",
+        tone: "info",
+      });
+      return;
+    }
+
+    const confirmed = await confirm({
+      title: "Usuń wpis",
+      message: "Czy na pewno chcesz usunąć wybrany wpis z archiwum?",
+      confirmLabel: "Usuń",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    
+    await deleteDoc(doc(db, "archives", id));
+    await addDoc(collection(db, "logs"), { type: "archive_delete", id, by: login, ts: serverTimestamp() });
+    setItems((prev) => prev.filter((entry) => entry.id !== id));
+    setSelectedIds((prev) => prev.filter((entry) => entry !== id));
+  };
+
+  const clearAll = async () => {
+    if (!can.deleteArchive(role)) {
+      await alert({
+        title: "Brak uprawnień",
+        message: "Tylko Director może czyścić archiwum.",
+        tone: "info",
+      });
+      return;
+    }
+
+    const confirmed = await confirm({
+      title: "Wyczyść archiwum",
+      message: "Czy na pewno chcesz trwale usunąć całe archiwum?",
+      confirmLabel: "Wyczyść",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    
+    try {
+      setClearing(true);
+      const snapshot = await getDocs(collection(db, "archives"));
+      let batch = writeBatch(db);
+      let counter = 0;
+      const commits: Promise<void>[] = [];
+
+      snapshot.docs.forEach((docSnap, index) => {
+        batch.delete(docSnap.ref);
+        counter += 1;
+        if (counter === 400 || index === snapshot.docs.length - 1) {
+          commits.push(batch.commit());
+          batch = writeBatch(db);
+          counter = 0;
+        }
+      });
+      
+      await Promise.all(commits);
+      await addDoc(collection(db, "logs"), {
+        type: "archive_clear",
+        by: login,
+        removed: snapshot.size,
+        ts: serverTimestamp(),
+      });
+      
+      setItems([]);
+      setSelectedIds([]);
+      setSelectionMode(false);
+    } catch (error) {
+      console.error("Nie udało się wyczyścić archiwum", error);
+      await alert({
+        title: "Błąd",
+        message: "Nie udało się wyczyścić archiwum.",
+        tone: "danger",
+      });
+    } finally {
+      setClearing(false);
+    }
+  };
+
 
   const downloadSelected = useCallback(async () => {
     if (!selectionMode || selectedIds.length === 0) return;
     try {
       setDownloading(true);
       setDownloadError(null);
+      
       const { default: JSZip } = await import("jszip");
       const zip = new JSZip();
       let addedFiles = 0;
 
-      for (const docEntry of items) {
-        if (!selectedIds.includes(docEntry.id)) continue;
-        const images = docEntry.imageUrls?.length
-          ? docEntry.imageUrls
-          : docEntry.imageUrl
-          ? [docEntry.imageUrl]
-          : [];
-        if (!images.length) continue;
+      for (const item of items) {
+        if (!selectedIds.includes(item.id)) continue;
+        const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+        if (images.length === 0) continue;
 
-        const baseNameParts = [
-          docEntry.templateSlug || docEntry.templateName || docEntry.id,
-          docEntry.userLogin || "anon",
-        ];
-        const createdAt = docEntry.createdAt?.toDate?.() || docEntry.createdAtDate;
+        const baseNameParts = [item.templateSlug || item.templateName || item.id, item.userLogin || "anon"];
+        const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
         if (createdAt) {
           baseNameParts.push(createdAt.toISOString().replace(/[:.]/g, "-"));
         }
@@ -308,8 +324,8 @@ export default function ArchivePage() {
             const blob = await response.blob();
             const arrayBuffer = await blob.arrayBuffer();
             const extension = getExtension(response.headers.get("content-type"), url);
-            const filename = `${baseName}${images.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`;
-            zip.file(filename, arrayBuffer);
+            const fileName = `${baseName}${images.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`;
+            zip.file(fileName, arrayBuffer);
             addedFiles += 1;
           } catch (error) {
             console.error("Błąd pobierania obrazu archiwum", error);
@@ -331,6 +347,7 @@ export default function ArchivePage() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(blobUrl);
+      
       setSelectedIds([]);
       setSelectionMode(false);
     } catch (error: any) {
@@ -342,6 +359,22 @@ export default function ArchivePage() {
 
   const selectedCount = selectedIds.length;
 
+  if (!can.seeArchive(role)) {
+    return (
+      <AuthGate>
+        <>
+          <Head>
+            <title>LSPD 77RP — Archiwum</title>
+          </Head>
+          <Nav />
+          <div className="max-w-4xl mx-auto px-4 py-10">
+            <div className="card p-6 text-center">Brak dostępu do archiwum.</div>
+          </div>
+        </>
+      </AuthGate>
+    );
+  }
+
   return (
     <AuthGate>
       <>
@@ -349,7 +382,6 @@ export default function ArchivePage() {
           <title>LSPD 77RP — Archiwum</title>
         </Head>
         <Nav />
-        <UnderlightGlow />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="grid gap-4">
             <div className="card p-4 space-y-4">
@@ -359,8 +391,8 @@ export default function ArchivePage() {
                   <input
                     className="input w-[200px] sm:w-[240px]"
                     placeholder="Szukaj..."
-                    value={qtxt}
-                    onChange={(e) => setQ(e.target.value)}
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
                   />
                   <button className="btn" onClick={resetFilters} type="button">
                     Resetuj filtry
@@ -383,17 +415,13 @@ export default function ArchivePage() {
                     </button>
                   )}
                   {can.deleteArchive(role) && (
-                    <button
-                      className="btn bg-red-700 text-white"
-                      onClick={clearAll}
-                      disabled={clearing}
-                      type="button"
-                    >
+                    <button className="btn bg-red-700 text-white" onClick={clearAll} disabled={clearing} type="button">
                       {clearing ? "Czyszczenie..." : "Wyczyść archiwum"}
                     </button>
                   )}
                 </div>
               </div>
+              
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="flex flex-col gap-1">
                   <label className="label">Data od</label>
@@ -421,11 +449,7 @@ export default function ArchivePage() {
                       const checked = selectedTypes.includes(type.value);
                       return (
                         <label key={type.value} className="flex items-center gap-2 text-sm py-1">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleType(type.value)}
-                          />
+                          <input type="checkbox" checked={checked} onChange={() => toggleType(type.value)} />
                           <span>{type.label}</span>
                         </label>
                       );
@@ -443,13 +467,14 @@ export default function ArchivePage() {
             </div>
   
             <div className="grid gap-2">
-              {filtered.map((it) => {
-                const isSelected = selectedIds.includes(it.id);
-                const createdAt = it.createdAt?.toDate?.() || it.createdAtDate;
-                const imageLinks = it.imageUrls?.length ? it.imageUrls : it.imageUrl ? [it.imageUrl] : [];
+              {filteredItems.map((item) => {
+                const isSelected = selectedIds.includes(item.id);
+                const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
+                const imageLinks = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+
                 return (
                   <div
-                    key={it.id}
+                    key={item.id}
                     className={`card relative p-4 grid md:grid-cols-[1fr_auto] gap-3 transition-all ${
                       isSelected ? "ring-2 ring-blue-400/80" : ""
                     }`}
@@ -457,8 +482,8 @@ export default function ArchivePage() {
                     {selectionMode && (
                       <button
                         type="button"
-                        onClick={() => toggleSelected(it.id)}
-                        className={`absolute top-3 right-3 w-6 h-6 rounded-full border border-white/40 flex items-center justify-center transition ${
+                        onClick={() => toggleSelected(item.id)}
+                        className={`absolute top-3 right-3 flex h-6 w-6 items-center justify-center rounded-full border border-white/40 transition ${
                           isSelected ? "bg-blue-500/80 border-blue-200" : "bg-black/30"
                         }`}
                         aria-pressed={isSelected}
@@ -466,17 +491,18 @@ export default function ArchivePage() {
                         {isSelected && <span className="text-xs font-bold text-white">✓</span>}
                       </button>
                     )}
+                    
                     <div className="pr-6">
-                      <div className="font-semibold">{it.templateName}</div>
+                      <div className="font-semibold">{item.templateName}</div>
                       <div className="text-sm text-beige-700">
-                        Autor (login): {it.userLogin || "—"} • Funkcjonariusze: {(it.officers || []).join(", ") || "—"}
+                        Autor (login): {item.userLogin || "—"} • Funkcjonariusze: {(item.officers || []).join(", ") || "—"}
                       </div>
                       <div className="text-sm text-beige-700">
                         {createdAt ? createdAt.toLocaleString() : "—"}
-                        {it.dossierId && (
+                        {item.dossierId && (
                           <>
                             {" "}•{" "}
-                            <a className="underline" href={`/dossiers/${it.dossierId}`}>
+                            <a className="underline" href={`/dossiers/${item.dossierId}`}>
                               Zobacz teczkę
                             </a>
                           </>
@@ -484,36 +510,36 @@ export default function ArchivePage() {
                       </div>
                       {imageLinks.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-2 text-sm">
-                          {imageLinks.map((url, idx) => (
+                          {imageLinks.map((url, index) => (
                             <a
-                              key={`${it.id}-image-${idx}`}
+                              key={`${item.id}-image-${index}`}
                               className="text-blue-700 underline"
                               href={url}
                               target="_blank"
                               rel="noreferrer"
                               onClick={() => {
                                 if (!session) return;
-                                void logActivity({ type: "archive_image_open", archiveId: it.id });
+                                void logActivity({ type: "archive_image_open", archiveId: item.id });
                               }}
                             >
-                              Strona {idx + 1}
+                              Strona {index + 1}
                             </a>
                           ))}
                         </div>
                       )}
                     </div>
+                    
                     <div className="flex items-center justify-end gap-2">
                       {can.deleteArchive(role) && !selectionMode && (
-                        <button className="btn bg-red-700 text-white" onClick={() => remove(it.id)}>
+                        <button className="btn bg-red-700 text-white" onClick={() => remove(item.id)}>
                           Usuń
                         </button>
                       )}
-                      
                     </div>
                   </div>
-                   );
+                );
               })}
-              {filtered.length === 0 && <p>Brak wpisów spełniających kryteria.</p>}
+              {filteredItems.length === 0 && <p>Brak wpisów spełniających kryteria.</p>}
             </div>
           </div>
           <AnnouncementSpotlight />
