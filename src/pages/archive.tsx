@@ -6,8 +6,8 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { auth, db, storage } from "@/lib/firebase";
-import { TEMPLATES } from "@/lib/templates";
+import { db } from "@/lib/firebase";
+import { TEMPLATES, Template } from "@/lib/templates";
 import {
   addDoc,
   collection,
@@ -21,6 +21,12 @@ import {
 } from "firebase/firestore";
 
 import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
+
+type ArchiveFieldEntry = {
+  key: string;
+  label: string;
+  value: string;
+};
 
 type Archive = {
   id: string;
@@ -36,14 +42,14 @@ type Archive = {
   createdAtDate?: Date | null;
   officers?: string[];
   vehicleFolderRegistration?: string;
+  values?: Record<string, unknown> | null;
+  textPages?: string[];
+  textContent?: string;
+  formattedFields: ArchiveFieldEntry[];
+  searchableText: string;
 };
 
-type ArchiveAssetSource = {
-  path?: string | null;
-  url?: string | null;
-};
-
-const HTTP_PROTOCOL_REGEX = /^http:\/\//i;
+const TEMPLATE_LOOKUP = new Map(TEMPLATES.map((template) => [template.slug, template] as const));
 
 function ensureArray(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -68,261 +74,96 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
   return btoa(binary);
 }
 
-async function loadImageElement(src: string) {
-  if (typeof window === "undefined") {
-    throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
-  }
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = (event) => reject(event instanceof ErrorEvent ? event.error : new Error("Nie udało się wczytać obrazu."));
-    image.src = src;
-  });
+function humanizeValueKey(key: string) {
+  return key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^./, (char) => char.toUpperCase());
 }
 
-async function prepareImageForPdf(arrayBuffer: ArrayBuffer, extension: string) {
-  if (typeof window === "undefined") {
-    throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
-  }
-  const normalizedExtension = extension.toLowerCase();
-  const mediaType = normalizedExtension === "jpg" ? "jpeg" : normalizedExtension;
-  let dataUrl = `data:image/${mediaType};base64,${arrayBufferToBase64(arrayBuffer)}`;
-  let format: "PNG" | "JPEG" = normalizedExtension === "png" ? "PNG" : "JPEG";
-  let imageElement = await loadImageElement(dataUrl);
-
-  if (normalizedExtension === "webp") {
-    const { document } = window;
-    const canvas = document.createElement("canvas");
-    canvas.width = imageElement.width;
-    canvas.height = imageElement.height;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("Brak wsparcia dla rysowania obrazów w przeglądarce.");
+function formatArchiveFieldValue(value: unknown): string {
+  if (value == null) return "—";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "—";
+    if (trimmed.includes("|")) {
+      const parts = trimmed
+        .split("|")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      if (parts.length) {
+        return parts.join(", ");
+      }
     }
-    context.drawImage(imageElement, 0, 0);
-    dataUrl = canvas.toDataURL("image/png");
-    imageElement = await loadImageElement(dataUrl);
-    format = "PNG";
+    return trimmed;
   }
-
-  return {
-    dataUrl,
-    format,
-    width: imageElement.width,
-    height: imageElement.height,
-  };
-}
-
-function normalizeUrl(url: string) {
-  return url.replace(HTTP_PROTOCOL_REGEX, "https://");
-}
-
-function getExtension(contentType: string | null, url: string) {
-  if (contentType?.includes("png")) return "png";
-  if (contentType?.includes("jpeg") || contentType?.includes("jpg")) return "jpg";
-  if (contentType?.includes("webp")) return "webp";
-  const match = url.match(/\.([a-zA-Z0-9]{2,4})(?:\?|$)/);
-  return match ? match[1].toLowerCase() : "png";
-}
-
-function getExtensionFromPath(path?: string | null) {
-  if (!path) return null;
-  const match = path.match(/\.([a-zA-Z0-9]{2,4})$/);
-  return match ? match[1].toLowerCase() : null;
-}
-
-class ArchiveProxyError extends Error {
-  status?: number;
-
-  constructor(message: string, status?: number) {
-    super(message);
-    this.name = "ArchiveProxyError";
-    this.status = status;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return "—";
+    return new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 2 }).format(value);
   }
-}
-
-async function fetchArchiveProxy(source: ArchiveAssetSource) {
-  if (typeof window === "undefined") {
-    throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
+  if (typeof value === "boolean") {
+    return value ? "Tak" : "Nie";
   }
-
-  const params = new URLSearchParams();
-  if (source.path) {
-    params.set("path", source.path);
+  if (value instanceof Date) {
+    return value.toLocaleString("pl-PL");
   }
-  if (source.url) {
-    params.set("url", source.url);
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((entry) => formatArchiveFieldValue(entry))
+      .filter((entry) => entry !== "—");
+    return parts.length ? parts.join(", ") : "—";
   }
-
-  if (!params.toString()) {
-    throw new ArchiveProxyError("Brak informacji o pliku archiwum do pobrania.");
-  }
-
-  const headers: HeadersInit = {};
-  const user = auth?.currentUser;
-  if (user) {
+  if (typeof value === "object") {
+    const maybeTimestamp = (value as { toDate?: () => Date })?.toDate;
+    if (typeof maybeTimestamp === "function") {
+      try {
+        const dateValue = maybeTimestamp.call(value);
+        return formatArchiveFieldValue(dateValue);
+      } catch (error) {
+        console.warn("Nie udało się zinterpretować wartości pola archiwum jako daty", error);
+      }
+    }
     try {
-      const token = await user.getIdToken();
-      headers["Authorization"] = `Bearer ${token}`;
-    } catch (tokenError) {
-      console.warn("Nie udało się pobrać tokenu użytkownika do pobrania pliku archiwum", tokenError);
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
     }
   }
+  return String(value);
+}
 
-  const response = await fetch(`/api/archive/file?${params.toString()}`, {
-    headers,
-    cache: "no-store",
+function buildFormattedFields(
+  values: Record<string, unknown> | null | undefined,
+  template: Template | undefined,
+  includeFunkcjonariusze: boolean
+): ArchiveFieldEntry[] {
+  if (!values || typeof values !== "object") {
+    return [];
+  }
+
+  const entries: ArchiveFieldEntry[] = [];
+  const seen = new Set<string>();
+
+  if (template) {
+    template.fields.forEach((field) => {
+      const formatted = formatArchiveFieldValue(values[field.key]);
+      entries.push({ key: field.key, label: field.label, value: formatted });
+      seen.add(field.key);
+    });
+  }
+
+  Object.keys(values).forEach((key) => {
+    if (seen.has(key)) return;
+    if (!includeFunkcjonariusze && key === "funkcjonariusze") return;
+
+    const formatted = formatArchiveFieldValue(values[key]);
+    const label = humanizeValueKey(key);
+    entries.push({ key, label, value: formatted });
   });
 
-  if (!response.ok) {
-    let message = `Nie udało się pobrać pliku archiwum (status ${response.status}).`;
-    const contentType = response.headers.get("content-type") || "";
-    try {
-      if (contentType.includes("application/json")) {
-        const data = await response.json();
-        if (data?.error && typeof data.error === "string") {
-          message = data.error;
-        }
-      } else {
-        const text = await response.text();
-        if (text) {
-          message = text.slice(0, 400);
-        }
-      }
-    } catch (readError) {
-      console.warn("Nie udało się odczytać odpowiedzi proxy archiwum", readError);
-    }
-    throw new ArchiveProxyError(message, response.status);
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  const contentType = response.headers.get("content-type");
-  const fallbackPath = source.path || source.url || "";
-  return { arrayBuffer, extension: getExtension(contentType, fallbackPath) };
-}
-
-async function fetchAsArrayBuffer(url: string) {
-  const normalized = normalizeUrl(url);
-  const response = await fetch(normalized, { mode: "cors", referrerPolicy: "no-referrer" });
-  if (!response.ok) {
-    throw new Error(`Nie udało się pobrać obrazu (${response.status}).`);
-  }
-  const blob = await response.blob();
-  const arrayBuffer = await blob.arrayBuffer();
-  return { arrayBuffer, contentType: response.headers.get("content-type"), resolvedUrl: response.url || normalized };
-}
-
-async function fetchStoragePath(path: string) {
-  const bucket =
-    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
-    storage?.app?.options?.storageBucket ||
-    null;
-
-  if (!bucket) {
-    throw new Error("Brak konfiguracji usługi plików.");
-  }
-
-  const encodedPath = encodeURIComponent(path);
-  const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media`;
-  const user = auth?.currentUser;
-  const attempt = async (forceRefresh: boolean) => {
-    const headers: HeadersInit = {};
-    if (user) {
-      try {
-        const token = await user.getIdToken(forceRefresh);
-        headers["Authorization"] = `Bearer ${token}`;
-      } catch (tokenError) {
-        console.warn("Nie udało się pobrać tokenu użytkownika do pobrania pliku archiwum", tokenError);
-      }
-    }
-
-    const response = await fetch(downloadUrl, { headers, cache: "no-store" });
-    if (response.ok) {
-      const arrayBuffer = await response.arrayBuffer();
-      const contentType = response.headers.get("content-type");
-      return { arrayBuffer, extension: getExtension(contentType, downloadUrl) };
-    }
-
-    if ((response.status === 401 || response.status === 403) && user && !forceRefresh) {
-      return attempt(true);
-    }
-
-    throw new Error(`Nie udało się pobrać pliku (status ${response.status}).`);
-  };
-
-  return attempt(false);
-}
-
-async function downloadArchiveAsset(source: { url?: string; path?: string | null }) {
-  let lastError: unknown = null;
-
-  if (source.url || source.path) {
-    try {
-      return await fetchArchiveProxy({ path: source.path ?? null, url: source.url ?? null });
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  if (source.url) {
-    try {
-      const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(source.url);
-      return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  if (source.path) {
-    try {
-      return await fetchStoragePath(source.path);
-    } catch (restError) {
-      lastError = restError;
-    }
-
-    try {
-      const { ref, getDownloadURL, getBytes, getMetadata } = await import("firebase/storage");
-      if (!storage) {
-        throw new Error("Usługa plików nie jest dostępna.");
-      }
-      const storageRef = ref(storage, source.path);
-
-      try {
-        const downloadUrl = await getDownloadURL(storageRef);
-        const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(downloadUrl);
-        return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
-      } catch (downloadUrlError) {
-        lastError = downloadUrlError;
-      }
-
-      const bytes = await getBytes(storageRef);
-      let contentType: string | null = null;
-      try {
-        const metadata = await getMetadata(storageRef);
-        contentType = metadata.contentType || null;
-      } catch (metadataError) {
-        console.warn("Nie udało się pobrać metadanych pliku archiwum", metadataError);
-      }
-
-      const extensionFromPath = getExtensionFromPath(source.path);
-      const fallbackUrl = source.url || source.path || "";
-      const extension = extensionFromPath || getExtension(contentType, fallbackUrl);
-      const uint8Array = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-      const arrayBuffer = uint8Array.buffer.slice(
-        uint8Array.byteOffset,
-        uint8Array.byteOffset + uint8Array.byteLength
-      );
-      return { arrayBuffer, extension };
-    } catch (storageError) {
-      lastError = storageError;
-    }
-  }
-
-  if (lastError instanceof Error) {
-    throw lastError;
-  }
-
-  throw new Error("Nie udało się pobrać pliku archiwum.");
+  return entries;
 }
 
 function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
@@ -333,14 +174,56 @@ function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
   const imagePaths = pathsRaw.length ? pathsRaw : ensureArray(data.imagePath);
   const createdAtDate = (data.createdAt as any)?.toDate?.() || null;
 
+  const templateSlug = (data.templateSlug as string) || undefined;
+  const template = templateSlug ? TEMPLATE_LOOKUP.get(templateSlug) : undefined;
+
+  const officers = Array.isArray(data.officers)
+    ? (data.officers as unknown[]).filter((value): value is string => typeof value === "string")
+    : undefined;
+
+  const values =
+    data.values && typeof data.values === "object" && !Array.isArray(data.values)
+      ? (data.values as Record<string, unknown>)
+      : null;
+
+  const textPagesRaw = Array.isArray(data.textPages)
+    ? (data.textPages as unknown[]).filter((value): value is string => typeof value === "string")
+    : [];
+  const textPages = textPagesRaw.map((page) => page.trim()).filter((page) => page.length > 0);
+
+  let textContent = typeof data.textContent === "string" ? data.textContent : null;
+  if (!textContent && textPages.length) {
+    textContent = textPages.join("\n\n");
+  }
+
+  const formattedFields = buildFormattedFields(values, template, !(officers && officers.length > 0));
+  const aggregatedFieldsText = formattedFields
+    .map((entry) => `${entry.label}: ${entry.value}`)
+    .join(" ");
+
+  const searchParts = [
+    data.templateName,
+    templateSlug,
+    data.userLogin,
+    officers?.join(" "),
+    data.vehicleFolderRegistration,
+    data.dossierId,
+    aggregatedFieldsText,
+    textContent,
+  ];
+
+  const searchableText = searchParts
+    .map((part) => (typeof part === "string" ? part : ""))
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
   return {
     id: snapshot.id,
     templateName: (data.templateName as string) || "Bez nazwy",
-    templateSlug: (data.templateSlug as string) || undefined,
+    templateSlug,
     userLogin: (data.userLogin as string) || undefined,
-    officers: Array.isArray(data.officers)
-      ? (data.officers as unknown[]).filter((value): value is string => typeof value === "string")
-      : undefined,
+    officers,
     dossierId: (data.dossierId as string) || null,
     vehicleFolderRegistration: (data.vehicleFolderRegistration as string) || undefined,
     imageUrl: imageUrls[0],
@@ -349,6 +232,11 @@ function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
     imagePaths,
     createdAt: data.createdAt,
     createdAtDate,
+    values,
+    textPages: textPages.length ? textPages : undefined,
+    textContent: textContent || undefined,
+    formattedFields,
+    searchableText,
   };
 }
 
@@ -437,16 +325,7 @@ export default function ArchivePage() {
         if (!typeSet.has(key)) return false;
       }
       if (!needle) return true;
-      const haystack = [
-        item.templateName || "",
-        item.templateSlug || "",
-        item.userLogin || "",
-        (item.officers || []).join(", "),
-        item.vehicleFolderRegistration || "",
-      ]
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(needle);
+      return item.searchableText.includes(needle);
     });
   }, [fromDate, items, search, selectedTypes, toDate]);
 
@@ -652,49 +531,72 @@ export default function ArchivePage() {
           cursorY += 14;
         });
 
-        const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
-        const paths = item.imagePaths?.length
-          ? item.imagePaths
-          : item.imagePath
-          ? [item.imagePath]
-          : [];
+        const documentFields = item.formattedFields || [];
+        const fallbackText = (item.textContent || "").trim();
+        const lineHeight = 14;
+        const indent = 12;
 
-        if (images.length === 0) {
-          ensureSpace(20);
-          doc.text("(Brak załączonych obrazów)", margin, cursorY);
-          cursorY += 20;
-          continue;
+        if (documentFields.length > 0) {
+          doc.setFontSize(11);
+          ensureSpace(lineHeight);
+          doc.setFont("helvetica", "bold");
+          doc.text("Zawartość dokumentu:", margin, cursorY);
+          cursorY += lineHeight + 2;
+
+          documentFields.forEach((field) => {
+            const value = field.value || "—";
+            const lines = doc.splitTextToSize(value, pageWidth - margin * 2 - indent);
+            const blockHeight = lineHeight + lines.length * lineHeight + 4;
+            ensureSpace(blockHeight);
+            doc.setFont("helvetica", "bold");
+            doc.text(`${field.label}:`, margin, cursorY);
+            cursorY += lineHeight;
+            doc.setFont("helvetica", "normal");
+            lines.forEach((line) => {
+              doc.text(line, margin + indent, cursorY);
+              cursorY += lineHeight;
+            });
+            cursorY += 4;
+          });
+
+          cursorY += 6;
+        } else if (fallbackText) {
+          const lines = doc.splitTextToSize(fallbackText, pageWidth - margin * 2);
+          const blockHeight = lines.length * lineHeight;
+          ensureSpace(blockHeight);
+          doc.setFont("helvetica", "normal");
+          lines.forEach((line) => {
+            doc.text(line, margin, cursorY);
+            cursorY += lineHeight;
+          });
+          cursorY += 10;
+        } else {
+          const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+          if (images.length > 0) {
+            ensureSpace(lineHeight);
+            doc.setFont("helvetica", "italic");
+            doc.text("Brak danych tekstowych. Dostępne obrazy:", margin, cursorY);
+            cursorY += lineHeight;
+            doc.setFont("helvetica", "normal");
+            images.forEach((url, index) => {
+              const label = `Strona ${index + 1}: ${url}`;
+              const linkLines = doc.splitTextToSize(label, pageWidth - margin * 2 - indent);
+              const blockHeight = linkLines.length * lineHeight;
+              ensureSpace(blockHeight);
+              linkLines.forEach((line) => {
+                doc.text(line, margin + indent, cursorY);
+                cursorY += lineHeight;
+              });
+            });
+            cursorY += 8;
+          } else {
+            ensureSpace(lineHeight);
+            doc.setFont("helvetica", "italic");
+            doc.text("(Brak danych tekstowych)", margin, cursorY);
+            cursorY += lineHeight + 4;
+            doc.setFont("helvetica", "normal");
+          }
         }
-
-        for (let index = 0; index < images.length; index += 1) {
-          const url = images[index];
-          const path = paths[index] ?? (paths.length === 1 ? paths[0] : undefined);
-          const { arrayBuffer, extension } = await downloadArchiveAsset({ url, path });
-          const image = await prepareImageForPdf(arrayBuffer, extension);
-          const maxWidth = pageWidth - margin * 2;
-          const maxHeight = pageHeight - margin - cursorY;
-          const aspectRatio = image.width / (image.height || 1);
-          let renderWidth = maxWidth;
-          let renderHeight = renderWidth / (aspectRatio || 1);
-          if (renderHeight > maxHeight) {
-            renderHeight = maxHeight;
-            renderWidth = renderHeight * aspectRatio;
-          }
-
-          if (renderHeight <= 0 || !Number.isFinite(renderHeight) || renderWidth <= 0) {
-            continue;
-          }
-
-          if (cursorY + renderHeight > pageHeight - margin) {
-            doc.addPage();
-            cursorY = margin;
-          }
-
-          doc.addImage(image.dataUrl, image.format, margin, cursorY, renderWidth, renderHeight);
-          cursorY += renderHeight + 16;
-        }
-
-        cursorY += 10;
       }
 
       const arrayBuffer = doc.output("arraybuffer");
@@ -850,7 +752,7 @@ export default function ArchivePage() {
 
               {selectionMode && (
                 <p className="text-xs text-beige-700">
-                  Zaznacz dokumenty do raportu. Wszystkie informacje i obrazy trafią do jednego pliku PDF.
+                  Zaznacz dokumenty do raportu. Wszystkie informacje tekstowe trafią do jednego pliku PDF.
                 </p>
               )}
               {reportError && <p className="text-sm text-red-300">{reportError}</p>}
@@ -861,6 +763,8 @@ export default function ArchivePage() {
                 const isSelected = selectedIds.includes(item.id);
                 const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
                 const imageLinks = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+                const fieldEntries = item.formattedFields || [];
+                const fallbackText = (item.textContent || "").trim();
 
                 return (
                   <div
@@ -898,6 +802,18 @@ export default function ArchivePage() {
                           </>
                         )}
                       </div>
+                      {fieldEntries.length > 0 ? (
+                        <div className="mt-3 space-y-3 text-sm">
+                          {fieldEntries.map((field) => (
+                            <div key={`${item.id}-field-${field.key}`} className="grid gap-1">
+                              <div className="font-semibold text-beige-200">{field.label}</div>
+                              <div className="whitespace-pre-wrap text-beige-100">{field.value || "—"}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : fallbackText ? (
+                        <div className="mt-3 whitespace-pre-wrap text-sm text-beige-100">{fallbackText}</div>
+                      ) : null}
                       {imageLinks.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-2 text-sm">
                           {imageLinks.map((url, index) => (
