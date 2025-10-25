@@ -609,19 +609,15 @@ export default function ArchivePage() {
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = 56;
       const contentWidth = pageWidth - margin * 2;
-      const headerHeight = 96;
-      const firstPageTop = headerHeight + 64;
+      const headerHeight = 148;
+      const firstPageTop = headerHeight + 72;
       const subsequentTop = margin + 30;
-      const logoSize = 52;
+      const logoSize = 60;
       const logoPadding = margin;
       const backgroundColor = { r: 248, g: 246, b: 242 };
       const logoDataUri = `data:image/png;base64,${REPORT_LOGO_PNG}`;
       const confidentialityNotice =
         "Dokument stanowi raport z czynności służbowych funkcjonariuszy LSPD, obejmujących okres wskazany w szczegółach dokumentu. Raport jest objęty klauzulą poufności i przeznaczony wyłącznie do użytku wewnętrznego Los Santos Police Department. Udostępnianie lub modyfikowanie bez upoważnienia jest zabronione. Dokument został wygenerowany za pośrednictwem Panelu Dokumentów LSPD.";
-      const confidentialityNoticeLines = doc.splitTextToSize(
-        confidentialityNotice,
-        contentWidth
-      );
       const wrappedTypeSummaryLines = typeSummaryLines
         .map((line) => normalizePdfLine(line))
         .map((line) => doc.splitTextToSize(line, contentWidth - 44));
@@ -644,43 +640,57 @@ export default function ArchivePage() {
         if (isFirstPage) {
           doc.rect(0, 0, pageWidth, headerHeight, "F");
 
-          doc.addImage(logoDataUri, "PNG", logoPadding, logoPadding - 18, logoSize, logoSize);
+          const headerTopPadding = 28;
+          const logoTop = headerTopPadding + 28;
+          const headerContentStartX = logoPadding + logoSize + 32;
+          const headerInnerWidth = pageWidth - margin - headerContentStartX;
+          const headerColumnGap = 24;
+          const rightColumnWidth = 220;
+          const leftColumnWidth = Math.max(140, headerInnerWidth - rightColumnWidth - headerColumnGap);
+
+          doc.setFontSize(7);
+          doc.setTextColor(148, 163, 184);
+          const rightColumnStartX = pageWidth - margin - rightColumnWidth;
+          const confidentialityNoticeWidth = Math.max(180, rightColumnStartX - margin - headerColumnGap);
+          const confidentialityNoticeLinesSmall = doc.splitTextToSize(
+            confidentialityNotice,
+            confidentialityNoticeWidth
+          );
+          doc.text(confidentialityNoticeLinesSmall, margin, headerTopPadding);
+          const confidentialityNoticeHeight = doc.getTextDimensions(confidentialityNoticeLinesSmall).h;
+
+          doc.addImage(logoDataUri, "PNG", logoPadding, logoTop, logoSize, logoSize);
 
           doc.setTextColor(255, 255, 255);
 
-          const headerContentStart = logoPadding + logoSize + 18;
-          const headerInnerWidth = pageWidth - margin - headerContentStart;
-          const headerColumnGap = 16;
-          const rightColumnWidth = 180;
-          const leftColumnWidth = Math.max(120, headerInnerWidth - rightColumnWidth - headerColumnGap);
-
           doc.setFontSize(18);
           const headerTitleLines = doc.splitTextToSize("Raport Czynności Służbowych", leftColumnWidth);
-          doc.text(headerTitleLines, headerContentStart, logoPadding + 10);
+          const headerTitleTop = Math.max(logoTop + 10, headerTopPadding + confidentialityNoticeHeight + 16);
+          doc.text(headerTitleLines, headerContentStartX, headerTitleTop);
           const headerTitleHeight = doc.getTextDimensions(headerTitleLines).h;
 
           doc.setFontSize(11);
-          const leftColumnBaseY = logoPadding + 10 + headerTitleHeight + 10;
-          doc.text("Jednostka: LSPD", headerContentStart, leftColumnBaseY);
+          const leftColumnBaseY = headerTitleTop + headerTitleHeight + 12;
+          doc.text("Jednostka: LSPD", headerContentStartX, leftColumnBaseY);
 
-          const rightColumnStartX = pageWidth - margin - rightColumnWidth;
-          const infoTop = logoPadding + 10;
+          const infoTop = headerTopPadding + 4;
           doc.setFontSize(10);
           const generatedInfoLines = doc.splitTextToSize(
             `Wygenerowano: ${now.toLocaleString("pl-PL")}`,
             rightColumnWidth
           );
-          doc.text(generatedInfoLines, rightColumnStartX, infoTop);
+          doc.text(generatedInfoLines, rightColumnStartX + rightColumnWidth, infoTop, { align: "right" });
           const generatedInfoHeight = doc.getTextDimensions(generatedInfoLines).h;
           const documentsInfoLines = doc.splitTextToSize(
             `Liczba dokumentów: ${totalDocuments}`,
             rightColumnWidth
           );
-          doc.text(documentsInfoLines, rightColumnStartX, infoTop + generatedInfoHeight + 6);
-
-          doc.setFontSize(8);
-          doc.setTextColor(226, 232, 240);
-          doc.text(confidentialityNoticeLines, margin, headerHeight - 18);
+          doc.text(
+            documentsInfoLines,
+            rightColumnStartX + rightColumnWidth,
+            infoTop + generatedInfoHeight + 8,
+            { align: "right" }
+          );
         } else {
           const secondaryHeaderHeight = 56;
           doc.rect(0, 0, pageWidth, secondaryHeaderHeight, "F");
