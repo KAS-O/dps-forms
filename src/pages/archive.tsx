@@ -75,6 +75,33 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
   return btoa(binary);
 }
 
+async function loadAssetAsBase64(path: string): Promise<string | null> {
+  try {
+    const response = await fetch(path);
+    if (!response.ok) {
+      return null;
+    }
+    const buffer = await response.arrayBuffer();
+    return arrayBufferToBase64(buffer);
+  } catch (error) {
+    console.warn("Nie udało się pobrać zasobu raportu", error);
+    return null;
+  }
+}
+
+function sanitizePdfLine(raw: string): string {
+  if (!raw) return "";
+  const normalized = raw.replace(/\u00a0/g, " ").replace(/\r/g, "").normalize("NFC");
+  const letterGroup = "[\\p{L}\\p{M}\\d]+";
+  const stretchedSequence = new RegExp(`((?:${letterGroup}\\s){2,}${letterGroup})`, "gu");
+  let cleaned = normalized.replace(stretchedSequence, (sequence) => sequence.replace(/\s+/g, ""));
+  cleaned = cleaned.replace(/\s+([.,!?;:%])/g, "$1");
+  cleaned = cleaned.replace(/([„(])\s+/g, "$1");
+  cleaned = cleaned.replace(/\s+(”)/g, "$1");
+  cleaned = cleaned.replace(/\s{2,}/g, " ");
+  return cleaned.trim();
+}
+
 function splitLines(text: string): string[] {
   return text.split(/\r?\n/).map((line) => line.trimEnd());
 }
@@ -514,46 +541,110 @@ export default function ArchivePage() {
         ([type, count]) => `${count}× ${type}`
       );
 
+      const [logoBase64] = await Promise.all([loadAssetAsBase64("/logo.png")]);
+
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 50;
-      let cursorY = margin;
+      const marginX = 60;
+      const bottomMargin = 70;
+      const contentTop = 160;
+      const contentBottom = pageHeight - bottomMargin;
+      const contentWidth = pageWidth - marginX * 2;
 
-      doc.setFontSize(18);
-      doc.text("Raport archiwum", margin, cursorY);
-      cursorY += 26;
+      const setBodyFont = () => {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(11);
+        doc.setTextColor(55, 65, 81);
+        doc.setLineHeightFactor(1.4);
+      };
 
+      const applyPageChrome = () => {
+        doc.setFillColor(245, 247, 250);
+        doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+        const cardTop = 120;
+        const cardHeight = pageHeight - cardTop - bottomMargin;
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.8);
+        doc.roundedRect(marginX - 20, cardTop, contentWidth + 40, cardHeight, 14, 14, "FD");
+
+        if (logoBase64) {
+          doc.addImage(`data:image/png;base64,${logoBase64}`, "PNG", marginX, 50, 56, 56);
+        }
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(22);
+        doc.setTextColor(23, 37, 84);
+        doc.text("Raport archiwum", marginX + 70, 82);
+
+        doc.setDrawColor(41, 128, 185);
+        doc.setLineWidth(1.2);
+        doc.line(marginX, 112, pageWidth - marginX, 112);
+
+        setBodyFont();
+      };
+
+      applyPageChrome();
+      let cursorY = contentTop;
+
+      const ensureSpace = (requiredHeight: number) => {
+        if (cursorY + requiredHeight > contentBottom) {
+          doc.addPage();
+          applyPageChrome();
+          cursorY = contentTop;
+        }
+      };
+
+      doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
-      doc.text(`Wygenerował: ${login || "—"}`, margin, cursorY);
-      cursorY += 18;
-      doc.text(`Data wygenerowania: ${now.toLocaleString("pl-PL")}`, margin, cursorY);
-      cursorY += 18;
-      doc.text(`Liczba dokumentów: ${totalDocuments}`, margin, cursorY);
-      cursorY += 20;
+      doc.setTextColor(30, 41, 59);
+      doc.text("Podsumowanie", marginX, cursorY);
+      cursorY += 22;
+
+      setBodyFont();
+      const summaryLines = [
+        `Wygenerował: ${login || "—"}`,
+        `Data wygenerowania: ${now.toLocaleString("pl-PL")}`,
+        `Liczba dokumentów: ${totalDocuments}`,
+      ];
+
+      summaryLines.forEach((line) => {
+        const sanitized = sanitizePdfLine(line);
+        if (!sanitized) return;
+        ensureSpace(18);
+        doc.text(sanitized, marginX, cursorY);
+        cursorY += 16;
+      });
 
       if (typeSummaryLines.length > 0) {
+        ensureSpace(20);
+        doc.setFont("helvetica", "bold");
         doc.setFontSize(12);
-        doc.text("Zestawienie typów dokumentów:", margin, cursorY);
+        doc.setTextColor(30, 41, 59);
+        doc.text("Zestawienie typów dokumentów:", marginX, cursorY);
         cursorY += 18;
-        doc.setFontSize(11);
+
+        setBodyFont();
         typeSummaryLines.forEach((line) => {
-          doc.text(`• ${line}`, margin + 12, cursorY);
-          cursorY += 16;
+          const sanitized = sanitizePdfLine(line);
+          if (!sanitized) return;
+          ensureSpace(16);
+          doc.text(`• ${sanitized}`, marginX + 12, cursorY);
+          cursorY += 14;
         });
       }
 
-      cursorY += 10;
+      cursorY += 12;
+      ensureSpace(24);
+      doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
-      doc.text("Szczegóły dokumentów:", margin, cursorY);
-      cursorY += 24;
+      doc.setTextColor(30, 41, 59);
+      doc.text("Szczegóły dokumentów", marginX, cursorY);
+      cursorY += 26;
 
-      const ensureSpace = (requiredHeight: number) => {
-        if (cursorY + requiredHeight > pageHeight - margin) {
-          doc.addPage();
-          cursorY = margin;
-        }
-      };
+      setBodyFont();
 
       for (const item of selectedItems) {
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate || null;
@@ -563,12 +654,15 @@ export default function ArchivePage() {
           ? `Folder pojazdu: ${item.vehicleFolderRegistration}`
           : null;
 
+        ensureSpace(32);
+        doc.setFont("helvetica", "bold");
         doc.setFontSize(14);
-        ensureSpace(24);
-        doc.text(item.templateName || item.templateSlug || "Dokument", margin, cursorY);
-        cursorY += 18;
+        doc.setTextColor(23, 37, 84);
+        const documentTitle = sanitizePdfLine(item.templateName || item.templateSlug || "Dokument");
+        doc.text(documentTitle, marginX, cursorY);
+        cursorY += 20;
 
-        doc.setFontSize(11);
+        setBodyFont();
         const infoLines = [
           `Autor (login): ${item.userLogin || "—"}`,
           `Funkcjonariusze: ${officers}`,
@@ -578,49 +672,70 @@ export default function ArchivePage() {
         if (vehicleRegistration) infoLines.push(vehicleRegistration);
 
         infoLines.forEach((line) => {
+          const sanitized = sanitizePdfLine(line);
+          if (!sanitized) return;
           ensureSpace(16);
-          doc.text(line, margin, cursorY);
+          doc.text(sanitized, marginX, cursorY);
           cursorY += 14;
         });
 
         const sections = buildArchiveTextSections(item);
         if (!sections.length) {
           ensureSpace(16);
-          doc.text("(Brak danych tekstowych w archiwum)", margin, cursorY);
-          cursorY += 18;
+          doc.text("(Brak danych tekstowych w archiwum)", marginX, cursorY);
+          cursorY += 30;
           continue;
         }
 
         sections.forEach((section) => {
           if (section.title) {
-            ensureSpace(18);
+            ensureSpace(20);
+            doc.setFont("helvetica", "bold");
             doc.setFontSize(12);
-            doc.text(section.title, margin, cursorY);
-            cursorY += 16;
-            doc.setFontSize(11);
+            doc.setTextColor(30, 41, 59);
+            const sanitizedTitle = sanitizePdfLine(section.title);
+            if (sanitizedTitle) {
+              doc.text(sanitizedTitle, marginX, cursorY);
+              cursorY += 16;
+            }
+            setBodyFont();
           }
 
           section.lines.forEach((line) => {
-            const content = line ?? "";
-            const trimmed = content.trim();
-            if (!trimmed) {
+            const sanitizedContent = sanitizePdfLine(line ?? "");
+            if (!sanitizedContent) {
               ensureSpace(12);
               cursorY += 12;
               return;
             }
-            const wrapped = doc.splitTextToSize(content, pageWidth - margin * 2 - 12);
+            const wrapped = doc.splitTextToSize(sanitizedContent, contentWidth - 24);
             wrapped.forEach((wrappedLine) => {
+              const sanitizedWrapped = sanitizePdfLine(wrappedLine);
+              if (!sanitizedWrapped) return;
               ensureSpace(14);
-              doc.text(wrappedLine, margin + 12, cursorY);
+              doc.text(sanitizedWrapped, marginX + 16, cursorY);
               cursorY += 14;
             });
           });
 
-          cursorY += 10;
+          cursorY += 12;
         });
 
-        cursorY += 10;
+        cursorY += 12;
       }
+
+      const totalPages = doc.getNumberOfPages();
+      for (let page = 1; page <= totalPages; page += 1) {
+        doc.setPage(page);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Strona ${page} z ${totalPages}`, pageWidth - marginX, pageHeight - bottomMargin / 2, {
+          align: "right",
+        });
+      }
+
+      doc.setPage(1);
 
       const arrayBuffer = doc.output("arraybuffer");
       if (!(arrayBuffer instanceof ArrayBuffer)) {
