@@ -1,5 +1,5 @@
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { onAuthStateChanged, onIdTokenChanged, User } from "firebase/auth";
+import { onAuthStateChanged, onIdTokenChanged, signOut, User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { deriveLoginFromEmail } from "@/lib/login";
 import { useRouter } from "next/router";
@@ -118,16 +118,19 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
   const tokenRef = useRef<string | null>(null);
   const endedRef = useRef(false);
   const lastPathRef = useRef<string | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
 
   const enrichEvents = useCallback(
     (events: ActivityEvent[]): ActivityEvent[] => {
       const current = sessionRef.current;
       if (!current) return [];
+      const durationMs = Math.max(0, Date.now() - current.startedAt);
       return events.map((event) => ({
         ...event,
         login: current.login,
         uid: current.uid,
         sessionId: current.sessionId,
+        durationMs: typeof event.durationMs === "number" ? event.durationMs : durationMs,
       }));
     },
     []
@@ -180,6 +183,7 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
       setSession(info);
       endedRef.current = false;
       lastPathRef.current = null;
+      lastActivityRef.current = Date.now();
       storeSession(info);
 
       if (!stored || stored.sessionId !== info.sessionId) {
@@ -204,6 +208,7 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
       if (lastPathRef.current === path) return;
       lastPathRef.current = path;
       const title = typeof document !== "undefined" ? document.title : "";
+      lastActivityRef.current = Date.now();
       void sendEvents([{ type: "page_view", path, title }]);
     };
 
@@ -239,6 +244,7 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
 
   const logActivity = useCallback(
     async (event: ActivityEvent) => {
+      lastActivityRef.current = Date.now();
       await sendEvents([event]);
     },
     [sendEvents]
@@ -263,6 +269,80 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
     },
     [sendEvents]
   );
+
+  useEffect(() => {
+    if (!session) return;
+    if (typeof window === "undefined") return;
+
+    lastActivityRef.current = Date.now();
+
+    const activityEvents: Array<keyof WindowEventMap> = [
+      "mousemove",
+      "mousedown",
+      "keydown",
+      "touchstart",
+      "scroll",
+    ];
+
+    const markActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, markActivity, { passive: true });
+    });
+
+    const HEARTBEAT_INTERVAL = 60_000;
+    const INACTIVITY_LIMIT = 15 * 60_000;
+
+    let intervalId: number | null = window.setInterval(() => {
+      if (endedRef.current) return;
+      const current = sessionRef.current;
+      if (!current) return;
+
+      const now = Date.now();
+      const idleMs = now - lastActivityRef.current;
+      const durationMs = Math.max(0, now - current.startedAt);
+
+      if (idleMs >= INACTIVITY_LIMIT) {
+        if (intervalId !== null) {
+          window.clearInterval(intervalId);
+          intervalId = null;
+        }
+        activityEvents.forEach((eventName) => {
+          window.removeEventListener(eventName, markActivity);
+        });
+
+        void (async () => {
+          await logLogout("timeout");
+          if (auth?.currentUser) {
+            try {
+              await signOut(auth);
+            } catch (error) {
+              console.warn("Nie udało się wylogować po bezczynności:", error);
+            }
+          }
+        })();
+        return;
+      }
+
+      void sendEvents([{ type: "session_heartbeat", idleMs, durationMs }]);
+    }, HEARTBEAT_INTERVAL);
+
+    // natychmiastowe wysłanie pierwszego pulsu
+    void sendEvents([
+      { type: "session_heartbeat", idleMs: 0, durationMs: Math.max(0, Date.now() - session.startedAt) },
+    ]);
+
+    return () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, markActivity);
+      });
+    };
+  }, [logLogout, sendEvents, session]);
 
   const value = useMemo(
     () => ({
