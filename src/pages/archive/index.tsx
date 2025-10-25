@@ -7,6 +7,7 @@ import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
 import { db } from "@/lib/firebase";
+import { UnderlightGlow } from "@/components/UnderlightGlow";
 import {
   addDoc,
   collection,
@@ -382,6 +383,7 @@ export default function ArchivePage() {
           <title>LSPD 77RP — Archiwum</title>
         </Head>
         <Nav />
+        <UnderlightGlow />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="grid gap-4">
             <div className="card p-4 space-y-4">

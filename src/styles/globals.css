@@ -146,9 +146,9 @@ select option {
   pointer-events: none;
   z-index: 1;
   display: block;
-  opacity: 0.5;
+  opacity: 0.45;
   mix-blend-mode: screen;
-  animation: underlightDrift 18s ease-in-out infinite alternate;
+  animation: underlightDrift 22s ease-in-out infinite alternate;
   will-change: transform, opacity;
 }
 
@@ -168,21 +168,21 @@ select option {
   width: 70vw;
   height: 70vw;
   border-radius: 9999px;
-  filter: blur(120px);
-  opacity: 0.55;
+  filter: blur(140px);
+  opacity: 0.58;
   will-change: transform, opacity;
 }
 
 .underlight-ambient__blue {
   left: 5%;
   background: radial-gradient(circle, rgba(80, 150, 255, 0.9), rgba(32, 85, 181, 0.45) 45%, transparent 80%);
-  animation: underlightBlue 6s ease-in-out infinite alternate;
+  animation: underlightBlue 8s ease-in-out infinite alternate;
 }
 
 .underlight-ambient__red {
   right: 5%;
   background: radial-gradient(circle, rgba(255, 92, 92, 0.8), rgba(160, 35, 35, 0.4) 45%, transparent 80%);
-  animation: underlightRed 7s ease-in-out infinite alternate;
+  animation: underlightRed 9s ease-in-out infinite alternate;
 }
 
 @keyframes underlightDrift {
@@ -202,31 +202,31 @@ select option {
 
 @keyframes underlightBlue {
   0% {
-    transform: translate(-8%, 4%) scale(0.95);
-    opacity: 0.45;
+    transform: translate(-8%, 4%) scale(0.93);
+    opacity: 0.42;
   }
   50% {
-    transform: translate(-4%, -6%) scale(1.05);
-    opacity: 0.7;
+    transform: translate(-5%, -6%) scale(1.06);
+    opacity: 0.68;
   }
   100% {
-    transform: translate(-10%, 2%) scale(0.98);
-    opacity: 0.5;
+    transform: translate(-11%, 3%) scale(0.97);
+    opacity: 0.46;
   }
 }
 
 @keyframes underlightRed {
   0% {
-    transform: translate(8%, -2%) scale(0.92);
-    opacity: 0.4;
+    transform: translate(8%, -2%) scale(0.91);
+    opacity: 0.38;
   }
   50% {
-    transform: translate(4%, 6%) scale(1.04);
-    opacity: 0.68;
+    transform: translate(4%, 6%) scale(1.05);
+    opacity: 0.66;
   }
   100% {
-    transform: translate(10%, 0%) scale(0.97);
-    opacity: 0.48;
+    transform: translate(11%, 1%) scale(0.96);
+    opacity: 0.44;
   }
 }
 
