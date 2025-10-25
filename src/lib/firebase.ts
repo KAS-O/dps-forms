@@ -1,7 +1,7 @@
 import { getApps, initializeApp, type FirebaseOptions } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore, serverTimestamp } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+import { getStorage, setMaxDownloadRetryTime } from "firebase/storage";
 
 type FirebaseConfig = {
   apiKey?: string;
@@ -48,5 +48,16 @@ if (isBrowser && !hasRequiredConfig) {
 export const app = firebaseApp;
 export const auth = firebaseApp ? getAuth(firebaseApp) : (null as unknown as ReturnType<typeof getAuth>);
 export const db = firebaseApp ? getFirestore(firebaseApp) : (null as unknown as ReturnType<typeof getFirestore>);
-export const storage = firebaseApp ? getStorage(firebaseApp) : (null as unknown as ReturnType<typeof getStorage>);
+
+const storageInstance = firebaseApp ? getStorage(firebaseApp) : null;
+
+if (storageInstance) {
+  try {
+    setMaxDownloadRetryTime(storageInstance, 20_000);
+  } catch (error) {
+    console.warn("Nie udało się ustawić limitu czasu pobierania dla Storage", error);
+  }
+}
+
+export const storage = storageInstance as unknown as ReturnType<typeof getStorage>;
 export { serverTimestamp };

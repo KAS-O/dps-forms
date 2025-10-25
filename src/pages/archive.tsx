@@ -7,6 +7,7 @@ import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
 import { db, storage } from "@/lib/firebase";
+import { TEMPLATES } from "@/lib/templates";
 import {
   addDoc,
   collection,
@@ -225,13 +226,21 @@ export default function ArchivePage() {
 
   const availableTypes = useMemo(() => {
     const entries = new Map<string, string>();
+
+    TEMPLATES.forEach((template) => {
+      entries.set(template.slug, template.name);
+    });
+
     items.forEach((item) => {
       const key = item.templateSlug || item.templateName || item.id;
       const label = item.templateName || key;
       if (!entries.has(key)) {
         entries.set(key, label);
+      } else if (item.templateSlug && item.templateName) {
+        entries.set(item.templateSlug, item.templateName);
       }
     });
+
     return Array.from(entries.entries())
       .map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label, "pl"));
@@ -378,10 +387,11 @@ export default function ArchivePage() {
     try {
       setDownloading(true);
       setDownloadError(null);
-      
+
       const { default: JSZip } = await import("jszip");
       const zip = new JSZip();
       let addedFiles = 0;
+      const failedDownloads: { item: Archive; pageIndex: number; reason?: string }[] = [];
 
       for (const item of items) {
         if (!selectedIds.includes(item.id)) continue;
@@ -410,13 +420,20 @@ export default function ArchivePage() {
             addedFiles += 1;
           } catch (error) {
             console.error("Błąd pobierania obrazu archiwum", error);
-            throw error;
+            failedDownloads.push({
+              item,
+              pageIndex: index,
+              reason: error instanceof Error ? error.message : undefined,
+            });
           }
         }
       }
 
       if (addedFiles === 0) {
-        throw new Error("Brak obrazów w zaznaczonych dokumentach.");
+        const message = failedDownloads.length
+          ? "Nie udało się pobrać żadnego pliku. Sprawdź, czy dokumenty nadal istnieją w archiwum."
+          : "Brak obrazów w zaznaczonych dokumentach.";
+        throw new Error(message);
       }
 
       const content = await zip.generateAsync({ type: "blob" });
@@ -428,9 +445,22 @@ export default function ArchivePage() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(blobUrl);
-      
+
       setSelectedIds([]);
       setSelectionMode(false);
+
+      if (failedDownloads.length > 0) {
+        const affectedDocuments = Array.from(
+          new Set(
+            failedDownloads.map((entry) => entry.item.templateName || entry.item.templateSlug || entry.item.id)
+          )
+        );
+        const summary = `Pobrano ${addedFiles} plików, ale ${failedDownloads.length} stron pominięto.`;
+        const documentsInfo = affectedDocuments.length
+          ? ` Brakujące pliki: ${affectedDocuments.join(", ")}.`
+          : "";
+        setDownloadError(`${summary}${documentsInfo}`);
+      }
     } catch (error: any) {
       console.error("Nie udało się pobrać zaznaczonych dokumentów", error);
       setDownloadError(error instanceof Error ? error.message : "Nie udało się pobrać dokumentów.");
