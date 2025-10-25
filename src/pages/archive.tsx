@@ -472,13 +472,15 @@ export default function ArchivePage() {
       }[] = [];
 
       selectedItems.forEach((item) => {
-        const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
-        const paths = item.imagePaths?.length
+        const imageUrls = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+        const imagePaths = item.imagePaths?.length
           ? item.imagePaths
           : item.imagePath
           ? [item.imagePath]
           : [];
-        if (images.length === 0) return;
+
+        const sourceCount = Math.max(imageUrls.length, imagePaths.length);
+        if (sourceCount === 0) return;
 
         const baseNameParts = [item.templateSlug || item.templateName || item.id, item.userLogin || "anon"];
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
@@ -487,15 +489,19 @@ export default function ArchivePage() {
         }
         const baseName = sanitizeFileFragment(baseNameParts.filter(Boolean).join("-"));
 
-        images.forEach((url, index) => {
-          const path = paths[index] ?? (paths.length === 1 ? paths[0] : undefined);
-          const pageLabel = images.length > 1 ? ` (strona ${index + 1})` : "";
+        for (let index = 0; index < sourceCount; index += 1) {
+          const url = imageUrls[index] ?? (imageUrls.length === 1 ? imageUrls[0] : undefined);
+          const path = imagePaths[index] ?? (imagePaths.length === 1 ? imagePaths[0] : undefined);
+          if (!url && !path) {
+            continue;
+          }
+          const pageLabel = sourceCount > 1 ? ` (strona ${index + 1})` : "";
           tasks.push({
             run: () => downloadArchiveAsset({ url, path }),
-            makeFileName: (extension) => `${baseName}${images.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`,
+            makeFileName: (extension) => `${baseName}${sourceCount > 1 ? `-strona-${index + 1}` : ""}.${extension}`,
             context: `${item.templateName || item.templateSlug || item.id}${pageLabel}`,
           });
-        });
+        }
       });
 
       if (tasks.length === 0) {
