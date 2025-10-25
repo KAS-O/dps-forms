@@ -472,13 +472,15 @@ export default function ArchivePage() {
       }[] = [];
 
       selectedItems.forEach((item) => {
-        const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+        const urls = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
         const paths = item.imagePaths?.length
           ? item.imagePaths
           : item.imagePath
           ? [item.imagePath]
           : [];
-        if (images.length === 0) return;
+
+        const entryCount = Math.max(urls.length, paths.length);
+        if (entryCount === 0) return;
 
         const baseNameParts = [item.templateSlug || item.templateName || item.id, item.userLogin || "anon"];
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
@@ -487,12 +489,13 @@ export default function ArchivePage() {
         }
         const baseName = sanitizeFileFragment(baseNameParts.filter(Boolean).join("-"));
 
-        images.forEach((url, index) => {
+        Array.from({ length: entryCount }).forEach((_, index) => {
+          const url = urls[index] ?? (urls.length === 1 ? urls[0] : undefined);
           const path = paths[index] ?? (paths.length === 1 ? paths[0] : undefined);
-          const pageLabel = images.length > 1 ? ` (strona ${index + 1})` : "";
+          const pageLabel = entryCount > 1 ? ` (strona ${index + 1})` : "";
           tasks.push({
             run: () => downloadArchiveAsset({ url, path }),
-            makeFileName: (extension) => `${baseName}${images.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`,
+            makeFileName: (extension) => `${baseName}${entryCount > 1 ? `-strona-${index + 1}` : ""}.${extension}`,
             context: `${item.templateName || item.templateSlug || item.id}${pageLabel}`,
           });
         });
