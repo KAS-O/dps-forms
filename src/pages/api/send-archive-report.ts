@@ -71,8 +71,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const payload = {
       embeds: [
         {
-          title: "Nowy raport archiwum",
-          description: "**Wygenerowano raport archiwum.**",
+          title: "Nowy raport czynności służbowych",
+          description: "**Wygenerowano raport czynności służbowych.**",
           color: 0x2980b9,
           fields: summaryFields,
           footer: { text: "DPS • Panel dokumentów" },
