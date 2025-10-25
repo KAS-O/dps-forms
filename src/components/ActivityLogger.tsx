@@ -1,5 +1,5 @@
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { onAuthStateChanged, onIdTokenChanged, User } from "firebase/auth";
+import { onAuthStateChanged, onIdTokenChanged, signOut, User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { deriveLoginFromEmail } from "@/lib/login";
 import { useRouter } from "next/router";
@@ -26,6 +26,7 @@ const SessionActivityContext = createContext<SessionActivityContextValue>({
 });
 
 const SESSION_STORAGE_KEY = "dps-activity-session";
+const INACTIVITY_LIMIT_MS = 15 * 60 * 1000;
 
 function readStoredSession(): SessionInfo | null {
   if (typeof window === "undefined") return null;
@@ -118,6 +119,8 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
   const tokenRef = useRef<string | null>(null);
   const endedRef = useRef(false);
   const lastPathRef = useRef<string | null>(null);
+  const inactivityTimeoutRef = useRef<number | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
 
   const enrichEvents = useCallback(
     (events: ActivityEvent[]): ActivityEvent[] => {
@@ -158,6 +161,71 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
     return () => unsub();
   }, []);
 
+  const clearInactivityTimer = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (inactivityTimeoutRef.current != null) {
+      window.clearTimeout(inactivityTimeoutRef.current);
+      inactivityTimeoutRef.current = null;
+    }
+  }, []);
+
+  const finalizeSession = useCallback(
+    async ({
+      reason,
+      includeLogout = false,
+      useBeacon = false,
+    }: {
+      reason: "logout" | "timeout" | "window_closed";
+      includeLogout?: boolean;
+      useBeacon?: boolean;
+    }) => {
+      if (endedRef.current) return;
+      const current = sessionRef.current;
+      if (!current) return;
+      endedRef.current = true;
+      clearStoredSession();
+      clearInactivityTimer();
+      const durationMs = Math.max(0, Date.now() - current.startedAt);
+      const events: ActivityEvent[] = [{ type: "session_end", reason, durationMs }];
+      if (includeLogout) {
+        events.unshift({ type: "logout", reason, durationMs });
+      }
+      await sendEvents(events, { useBeacon });
+      sessionRef.current = null;
+      setSession(null);
+      tokenRef.current = null;
+      lastPathRef.current = null;
+    },
+    [clearInactivityTimer, sendEvents]
+  );
+
+  const handleInactivityTimeout = useCallback(async () => {
+    if (!sessionRef.current) return;
+    await finalizeSession({ reason: "timeout", includeLogout: true });
+    if (auth) {
+      try {
+        await signOut(auth);
+      } catch (error) {
+        console.warn("Nie udało się wylogować użytkownika po czasie bezczynności:", error);
+      }
+    }
+  }, [finalizeSession]);
+
+  const scheduleInactivityTimer = useCallback(() => {
+    if (typeof window === "undefined") return;
+    clearInactivityTimer();
+    if (!sessionRef.current) return;
+    inactivityTimeoutRef.current = window.setTimeout(() => {
+      void handleInactivityTimeout();
+    }, INACTIVITY_LIMIT_MS);
+  }, [clearInactivityTimer, handleInactivityTimeout]);
+
+  const registerActivity = useCallback(() => {
+    if (!sessionRef.current) return;
+    lastActivityRef.current = Date.now();
+    scheduleInactivityTimer();
+  }, [scheduleInactivityTimer]);
+
   const handleUser = useCallback(
     async (user: User | null) => {
       if (!user) {
@@ -166,6 +234,7 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
         tokenRef.current = null;
         endedRef.current = false;
         lastPathRef.current = null;
+        clearInactivityTimer();
         return;
       }
 
@@ -181,13 +250,14 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
       endedRef.current = false;
       lastPathRef.current = null;
       storeSession(info);
+      registerActivity();
 
       if (!stored || stored.sessionId !== info.sessionId) {
         tokenRef.current = await ensureIdToken(user);
         await sendEvents([{ type: "session_start" }]);
       }
     },
-    [sendEvents]
+    [registerActivity, sendEvents, clearInactivityTimer]
   );
 
   useEffect(() => {
@@ -220,48 +290,68 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
     if (!session) return;
 
     const handleUnload = () => {
-      if (endedRef.current) return;
-      const current = sessionRef.current;
-      if (!current) return;
-      endedRef.current = true;
-      const durationMs = Math.max(0, Date.now() - current.startedAt);
-      clearStoredSession();
-      void sendEvents([{ type: "session_end", reason: "window_closed", durationMs }], { useBeacon: true });
-      sessionRef.current = null;
-      setSession(null);
+      void finalizeSession({ reason: "window_closed", useBeacon: true });
     };
 
     window.addEventListener("beforeunload", handleUnload);
     return () => {
       window.removeEventListener("beforeunload", handleUnload);
     };
-  }, [sendEvents, session]);
+  }, [finalizeSession, session]);
+
+  useEffect(() => {
+    if (!session) {
+      clearInactivityTimer();
+      return;
+    }
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    const activityEvents: (keyof WindowEventMap)[] = [
+      "mousemove",
+      "mousedown",
+      "keydown",
+      "scroll",
+      "touchstart",
+    ];
+
+    const handleActivity = () => {
+      registerActivity();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        registerActivity();
+      }
+    };
+
+    activityEvents.forEach((event) => {
+      window.addEventListener(event, handleActivity, { passive: true } as EventListenerOptions);
+    });
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    registerActivity();
+
+    return () => {
+      activityEvents.forEach((event) => {
+        window.removeEventListener(event, handleActivity);
+      });
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [clearInactivityTimer, registerActivity, session]);
 
   const logActivity = useCallback(
     async (event: ActivityEvent) => {
+      registerActivity();
       await sendEvents([event]);
     },
-    [sendEvents]
+    [registerActivity, sendEvents]
   );
 
   const logLogout = useCallback(
     async (reason: "logout" | "timeout" = "logout") => {
-      if (endedRef.current) return;
-      const current = sessionRef.current;
-      if (!current) return;
-      endedRef.current = true;
-      const durationMs = Math.max(0, Date.now() - current.startedAt);
-      clearStoredSession();
-      await sendEvents(
-        [
-          { type: "logout", reason, durationMs },
-          { type: "session_end", reason, durationMs },
-        ]
-      );
-      sessionRef.current = null;
-      setSession(null);
+      await finalizeSession({ reason, includeLogout: true });
     },
-    [sendEvents]
+    [finalizeSession]
   );
 
   const value = useMemo(
