@@ -126,6 +126,58 @@ function getExtensionFromPath(path?: string | null) {
   return match ? match[1].toLowerCase() : null;
 }
 
+class ArchiveProxyError extends Error {
+  status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = "ArchiveProxyError";
+    this.status = status;
+  }
+}
+
+async function fetchArchiveProxy(path: string) {
+  if (typeof window === "undefined") {
+    throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
+  }
+
+  const params = new URLSearchParams();
+  params.set("path", path);
+
+  const headers: HeadersInit = {};
+  const user = auth?.currentUser;
+  if (user) {
+    try {
+      const token = await user.getIdToken();
+      headers["Authorization"] = `Bearer ${token}`;
+    } catch (tokenError) {
+      console.warn("Nie udało się pobrać tokenu użytkownika do pobrania pliku archiwum", tokenError);
+    }
+  }
+
+  const response = await fetch(`/api/archive/file?${params.toString()}`, {
+    headers,
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let message = `Nie udało się pobrać pliku archiwum (status ${response.status}).`;
+    try {
+      const data = await response.json();
+      if (data?.error && typeof data.error === "string") {
+        message = data.error;
+      }
+    } catch (readError) {
+      console.warn("Nie udało się odczytać odpowiedzi proxy archiwum", readError);
+    }
+    throw new ArchiveProxyError(message, response.status);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const contentType = response.headers.get("content-type");
+  return { arrayBuffer, extension: getExtension(contentType, path) };
+}
+
 async function fetchAsArrayBuffer(url: string) {
   const normalized = normalizeUrl(url);
   const response = await fetch(normalized, { mode: "cors", referrerPolicy: "no-referrer" });
@@ -138,12 +190,23 @@ async function fetchAsArrayBuffer(url: string) {
 }
 
 async function fetchStoragePath(path: string) {
+  let lastError: unknown = null;
+
+  try {
+    return await fetchArchiveProxy(path);
+  } catch (error) {
+    lastError = error;
+  }
+
   const bucket =
     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
     storage?.app?.options?.storageBucket ||
     null;
 
   if (!bucket) {
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
     throw new Error("Brak konfiguracji usługi plików.");
   }
 
@@ -191,35 +254,6 @@ async function downloadArchiveAsset(source: { url?: string; path?: string | null
   }
 
   if (source.path) {
-    const storageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
-    if (storageBucket) {
-      try {
-        const encodedPath = encodeURIComponent(source.path);
-        const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o/${encodedPath}?alt=media`;
-        const headers: HeadersInit = {};
-        const user = auth?.currentUser;
-        if (user) {
-          try {
-            const token = await user.getIdToken();
-            headers["Authorization"] = `Bearer ${token}`;
-          } catch (tokenError) {
-            console.warn("Nie udało się pobrać tokenu użytkownika do pobrania pliku archiwum", tokenError);
-          }
-        }
-
-        const response = await fetch(downloadUrl, { headers });
-        if (!response.ok) {
-          throw new Error(`Nie udało się pobrać pliku (status ${response.status}).`);
-        }
-
-        const arrayBuffer = await response.arrayBuffer();
-        const contentType = response.headers.get("content-type");
-        return { arrayBuffer, extension: getExtension(contentType, downloadUrl) };
-      } catch (restError) {
-        lastError = restError;
-      }
-    }
-
     try {
       return await fetchStoragePath(source.path);
     } catch (restError) {
