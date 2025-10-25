@@ -261,8 +261,8 @@ export default function ArchivePage() {
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [downloading, setDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [reporting, setReporting] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
 
 
@@ -362,7 +362,7 @@ export default function ArchivePage() {
       }
       return !prev;
     });
-    setDownloadError(null);
+    setReportError(null);
   };
 
   const toggleType = (value: string) => {
@@ -456,125 +456,277 @@ export default function ArchivePage() {
   };
 
 
-  const downloadSelected = useCallback(async () => {
+  const generateReport = useCallback(async () => {
     if (!selectionMode || selectedIds.length === 0) return;
-    try {
-      setDownloading(true);
-      setDownloadError(null);
-      
-      const { default: JSZip } = await import("jszip");
-      const zip = new JSZip();
-      const selectedItems = items.filter((item) => selectedIds.includes(item.id));
-      const tasks: {
-        run: () => Promise<{ arrayBuffer: ArrayBuffer; extension: string }>;
-        makeFileName: (extension: string) => string;
-        context: string;
-      }[] = [];
 
+    const arrayBufferToDataUrl = async (
+      arrayBuffer: ArrayBuffer,
+      extension: string
+    ): Promise<{ dataUrl: string; format: "PNG" | "JPEG" | "WEBP" }> => {
+      const ext = extension.toLowerCase();
+      let mime: string = "image/png";
+      let format: "PNG" | "JPEG" | "WEBP" = "PNG";
+      if (ext === "jpg" || ext === "jpeg") {
+        mime = "image/jpeg";
+        format = "JPEG";
+      } else if (ext === "webp") {
+        mime = "image/webp";
+        format = "WEBP";
+      }
+
+      const blob = new Blob([arrayBuffer], { type: mime });
+
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string) || "");
+        reader.onerror = () => reject(new Error("Nie udało się przetworzyć obrazu."));
+        reader.readAsDataURL(blob);
+      });
+
+      return { dataUrl, format };
+    };
+
+    const loadImageDimensions = async (dataUrl: string) =>
+      new Promise<{ width: number; height: number }>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve({ width: img.width, height: img.height });
+        img.onerror = () => reject(new Error("Nie udało się wczytać obrazu."));
+        img.src = dataUrl;
+      });
+
+    try {
+      setReporting(true);
+      setReportError(null);
+
+      const selectedItems = items.filter((item) => selectedIds.includes(item.id));
+      if (selectedItems.length === 0) {
+        throw new Error("Nie wybrano żadnych dokumentów.");
+      }
+
+      const generationDate = new Date();
+      const typeSummary = new Map<string, number>();
       selectedItems.forEach((item) => {
+        const label = item.templateName || item.templateSlug || "Inny dokument";
+        typeSummary.set(label, (typeSummary.get(label) ?? 0) + 1);
+      });
+
+      const imagesByItem = new Map<
+        string,
+        { dataUrl: string; width: number; height: number; format: "PNG" | "JPEG" | "WEBP" }[]
+      >();
+
+      for (const item of selectedItems) {
         const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
         const paths = item.imagePaths?.length
           ? item.imagePaths
           : item.imagePath
           ? [item.imagePath]
           : [];
-        if (images.length === 0) return;
 
-        const baseNameParts = [item.templateSlug || item.templateName || item.id, item.userLogin || "anon"];
-        const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
-        if (createdAt) {
-          baseNameParts.push(createdAt.toISOString().replace(/[:.]/g, "-"));
-        }
-        const baseName = sanitizeFileFragment(baseNameParts.filter(Boolean).join("-"));
-
-        images.forEach((url, index) => {
+        const itemImages: { dataUrl: string; width: number; height: number; format: "PNG" | "JPEG" | "WEBP" }[] = [];
+        for (let index = 0; index < images.length; index += 1) {
+          const url = images[index];
           const path = paths[index] ?? (paths.length === 1 ? paths[0] : undefined);
-          const pageLabel = images.length > 1 ? ` (strona ${index + 1})` : "";
-          tasks.push({
-            run: () => downloadArchiveAsset({ url, path }),
-            makeFileName: (extension) => `${baseName}${images.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`,
-            context: `${item.templateName || item.templateSlug || item.id}${pageLabel}`,
-          });
-        });
-      });
+          if (!url && !path) continue;
 
-      if (tasks.length === 0) {
-        throw new Error("Brak obrazów w zaznaczonych dokumentach.");
-      }
-
-      const results: { fileName: string; arrayBuffer: ArrayBuffer }[] = new Array(tasks.length);
-      let pointer = 0;
-      const concurrency = Math.min(4, tasks.length);
-
-      const workers = Array.from({ length: concurrency }).map(async () => {
-        while (true) {
-          const currentIndex = pointer;
-          pointer += 1;
-          if (currentIndex >= tasks.length) break;
-          const task = tasks[currentIndex];
           try {
-            const { arrayBuffer, extension } = await task.run();
-            const fileName = task.makeFileName(extension);
-            results[currentIndex] = { fileName, arrayBuffer };
+            const { arrayBuffer, extension } = await downloadArchiveAsset({ url, path });
+            const { dataUrl, format } = await arrayBufferToDataUrl(arrayBuffer, extension);
+            const { width, height } = await loadImageDimensions(dataUrl);
+            itemImages.push({ dataUrl, width, height, format });
           } catch (error) {
             console.error("Błąd pobierania obrazu archiwum", error);
-            const message =
-              error instanceof Error && error.message
-                ? error.message
-                : "Nieznany błąd pobierania.";
-            throw new Error(`Nie udało się pobrać dokumentu "${task.context}": ${message}`);
+            throw new Error(
+              `Nie udało się pobrać strony ${index + 1} dokumentu "${
+                item.templateName || item.templateSlug || item.id
+              }".`
+            );
           }
         }
-      });
 
-      await Promise.all(workers);
-
-      const fileNameCounts = new Map<string, number>();
-      const makeUniqueFileName = (fileName: string) => {
-        const dotIndex = fileName.lastIndexOf(".");
-        const base = dotIndex === -1 ? fileName : fileName.slice(0, dotIndex);
-        const extension = dotIndex === -1 ? "" : fileName.slice(dotIndex);
-        const currentCount = fileNameCounts.get(base) ?? 0;
-        fileNameCounts.set(base, currentCount + 1);
-        if (currentCount === 0) {
-          return `${base}${extension}`;
-        }
-        return `${base}-${currentCount + 1}${extension}`;
-      };
-
-      let addedFiles = 0;
-      results.forEach((result) => {
-        if (!result) return;
-        const uniqueName = makeUniqueFileName(result.fileName);
-        zip.file(uniqueName, result.arrayBuffer);
-        addedFiles += 1;
-      });
-
-      if (addedFiles === 0) {
-        throw new Error("Nie udało się przygotować pliku do pobrania.");
+        imagesByItem.set(item.id, itemImages);
       }
 
-      const content = await zip.generateAsync({ type: "blob" });
-      const blobUrl = URL.createObjectURL(content);
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 15;
+      const maxWidth = pageWidth - margin * 2;
+
+      doc.setFontSize(20);
+      doc.text("Raport archiwum", pageWidth / 2, 20, { align: "center" });
+
+      doc.setFontSize(12);
+      let cursorY = 35;
+      const summaryLines = [
+        `Wygenerowano przez: ${login || "Nieznany użytkownik"}`,
+        `Data wygenerowania: ${generationDate.toLocaleString("pl-PL")}`,
+        `Łączna liczba dokumentów: ${selectedItems.length}`,
+      ];
+
+      summaryLines.forEach((line) => {
+        if (cursorY > pageHeight - margin) {
+          doc.addPage();
+          doc.setFontSize(12);
+          cursorY = margin;
+        }
+        doc.text(line, margin, cursorY);
+        cursorY += 7;
+      });
+
+      if (typeSummary.size > 0) {
+        if (cursorY > pageHeight - margin) {
+          doc.addPage();
+          doc.setFontSize(12);
+          cursorY = margin;
+        }
+        doc.text("Rodzaje dokumentów:", margin, cursorY);
+        cursorY += 7;
+        Array.from(typeSummary.entries()).forEach(([label, count]) => {
+          if (cursorY > pageHeight - margin) {
+            doc.addPage();
+            doc.setFontSize(12);
+            cursorY = margin;
+          }
+          doc.text(`• ${count}× ${label}`, margin + 4, cursorY);
+          cursorY += 6;
+        });
+      }
+
+      selectedItems.forEach((item, index) => {
+        doc.addPage();
+        doc.setFontSize(16);
+        doc.text(`${index + 1}. ${item.templateName}`, margin, margin);
+
+        let y = margin + 8;
+        doc.setFontSize(11);
+        const createdAt = item.createdAt?.toDate?.() || item.createdAtDate || null;
+        const infoLines = [
+          `Autor (login): ${item.userLogin || "—"}`,
+          `Funkcjonariusze: ${(item.officers || []).join(", ") || "—"}`,
+          `Data utworzenia: ${createdAt ? createdAt.toLocaleString("pl-PL") : "—"}`,
+        ];
+
+        if (item.dossierId) {
+          infoLines.push(`Powiązana teczka: ${item.dossierId}`);
+        }
+        if (item.vehicleFolderRegistration) {
+          infoLines.push(`Pojazd: ${item.vehicleFolderRegistration}`);
+        }
+
+        infoLines.forEach((line) => {
+          const lines = doc.splitTextToSize(line, maxWidth);
+          if (y + lines.length * 6 > pageHeight - margin) {
+            doc.addPage();
+            doc.setFontSize(11);
+            y = margin;
+          }
+          doc.text(lines, margin, y);
+          y += lines.length * 6;
+        });
+
+        const itemImages = imagesByItem.get(item.id) || [];
+        itemImages.forEach((image, imageIndex) => {
+          if (y > pageHeight - margin - 10) {
+            doc.addPage();
+            doc.setFontSize(11);
+            y = margin;
+          }
+
+          doc.text(`Dokument — strona ${imageIndex + 1}`, margin, y);
+          y += 6;
+
+          const availableHeight = pageHeight - margin - y;
+          let scale = Math.min(maxWidth / image.width, availableHeight / image.height, 1);
+          if (!Number.isFinite(scale) || scale <= 0) {
+            scale = 1;
+          }
+
+          let renderWidth = image.width * scale;
+          let renderHeight = image.height * scale;
+
+          if (renderHeight > availableHeight) {
+            doc.addPage();
+            doc.setFontSize(11);
+            y = margin;
+            doc.text(`Dokument — strona ${imageIndex + 1}`, margin, y);
+            y += 6;
+            const freshAvailableHeight = pageHeight - margin - y;
+            scale = Math.min(maxWidth / image.width, freshAvailableHeight / image.height, 1);
+            if (!Number.isFinite(scale) || scale <= 0) {
+              scale = 1;
+            }
+            renderWidth = image.width * scale;
+            renderHeight = image.height * scale;
+          }
+
+          const offsetX = margin + (maxWidth - renderWidth) / 2;
+          doc.addImage(image.dataUrl, image.format, offsetX, y, renderWidth, renderHeight);
+          y += renderHeight + 8;
+        });
+
+        if (itemImages.length === 0) {
+          if (y > pageHeight - margin) {
+            doc.addPage();
+            doc.setFontSize(11);
+            y = margin;
+          }
+          doc.text("Brak załączonych obrazów.", margin, y);
+        }
+      });
+
+      const reportFileName = `raport-archiwum-${generationDate.toISOString().replace(/[:.]/g, "-")}.pdf`;
+      const pdfBlob = doc.output("blob");
+      const dataUri = doc.output("datauristring");
+      const pdfBase64 = dataUri.split(",", 2)[1];
+
+      const response = await fetch("/api/send-archive-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: reportFileName,
+          pdfBase64,
+          generatedBy: login || "Nieznany użytkownik",
+          generatedAt: generationDate.toISOString(),
+          documentCount: selectedItems.length,
+          typeSummary: Array.from(typeSummary.entries()).map(([label, count]) => ({ label, count })),
+        }),
+      });
+
+      if (!response.ok) {
+        const details = await response.json().catch(() => ({}));
+        throw new Error(details?.error || "Nie udało się wysłać raportu na Discord.");
+      }
+
+      const blobUrl = URL.createObjectURL(pdfBlob);
       const link = document.createElement("a");
       link.href = blobUrl;
-      link.download = `archiwum-${new Date().toISOString().slice(0, 10)}.zip`;
+      link.download = reportFileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      setTimeout(() => {
-        URL.revokeObjectURL(blobUrl);
-      }, 2000);
-      
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+
+      if (session) {
+        void logActivity({ type: "archive_report_generate", documentCount: selectedItems.length });
+      }
+
+      await alert({
+        title: "Raport wygenerowany",
+        message: "Raport został wygenerowany, pobrany oraz wysłany na Discord.",
+        tone: "success",
+      });
+
       setSelectedIds([]);
       setSelectionMode(false);
     } catch (error: any) {
-      console.error("Nie udało się pobrać zaznaczonych dokumentów", error);
-      setDownloadError(error instanceof Error ? error.message : "Nie udało się pobrać dokumentów.");
+      console.error("Nie udało się wygenerować raportu archiwum", error);
+      setReportError(error instanceof Error ? error.message : "Nie udało się wygenerować raportu.");
     } finally {
-      setDownloading(false);
+      setReporting(false);
     }
-  }, [items, selectedIds, selectionMode]);
+  }, [alert, items, logActivity, login, selectedIds, selectionMode, session]);
 
   const selectedCount = selectedIds.length;
 
@@ -627,10 +779,10 @@ export default function ArchivePage() {
                     <button
                       className="btn bg-green-600 text-white"
                       type="button"
-                      disabled={selectedCount === 0 || downloading}
-                      onClick={downloadSelected}
+                      disabled={selectedCount === 0 || reporting}
+                      onClick={generateReport}
                     >
-                      {downloading ? "Pakowanie..." : `Pobierz (${selectedCount})`}
+                      {reporting ? "Tworzenie raportu..." : `Utwórz raport (${selectedCount})`}
                     </button>
                   )}
                   {can.deleteArchive(role) && (
@@ -679,10 +831,11 @@ export default function ArchivePage() {
 
               {selectionMode && (
                 <p className="text-xs text-beige-700">
-                  Zaznacz dokumenty do pobrania. Każdy obraz zostanie zapisany w jednym pliku ZIP.
+                  Zaznacz dokumenty do raportu. Wszystkie informacje i załączone obrazy zostaną zebrane w jeden
+                  plik PDF wysyłany na Discord.
                 </p>
               )}
-              {downloadError && <p className="text-sm text-red-300">{downloadError}</p>}
+              {reportError && <p className="text-sm text-red-300">{reportError}</p>}
             </div>
   
             <div className="grid gap-2">
