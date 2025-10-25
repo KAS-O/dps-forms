@@ -356,8 +356,8 @@ export default function Admin() {
       setErr("Hasło jest wymagane przy tworzeniu nowego konta.");
       return;
     }
-    if (passwordValue && passwordValue.length < 1) {
-      setErr("Hasło musi mieć co najmniej 1 znak.");
+    if (passwordValue && passwordValue.length < 6) {
+      setErr("Hasło musi mieć co najmniej 6 znaków.");
       return;
     }
 

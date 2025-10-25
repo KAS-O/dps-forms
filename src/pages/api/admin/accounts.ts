@@ -232,6 +232,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).end();
   } catch (e: any) {
     console.error(e);
+
+    if (e?.code && typeof e.code === "string" && e.code.startsWith("auth/")) {
+      switch (e.code) {
+        case "auth/email-already-exists":
+        case "auth/uid-already-exists":
+          return res.status(409).json({ error: "Login jest już zajęty." });
+        case "auth/invalid-password":
+        case "auth/weak-password":
+          return res.status(400).json({ error: "Hasło musi mieć co najmniej 6 znaków." });
+        case "auth/invalid-email":
+          return res.status(400).json({ error: "Nieprawidłowy login." });
+        default:
+          return res.status(400).json({ error: e?.message || "Błąd zapisu konta" });
+      }
+    }
+
     return res.status(500).json({ error: e?.message || "Błąd serwera" });
   }
 }
