@@ -7,6 +7,7 @@ import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
 import { db, storage } from "@/lib/firebase";
+import { TEMPLATES } from "@/lib/templates";
 import {
   addDoc,
   collection,
@@ -225,6 +226,11 @@ export default function ArchivePage() {
 
   const availableTypes = useMemo(() => {
     const entries = new Map<string, string>();
+
+    TEMPLATES.forEach((template) => {
+      entries.set(template.slug, template.name);
+    });
+
     items.forEach((item) => {
       const key = item.templateSlug || item.templateName || item.id;
       const label = item.templateName || key;
@@ -232,6 +238,7 @@ export default function ArchivePage() {
         entries.set(key, label);
       }
     });
+
     return Array.from(entries.entries())
       .map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label, "pl"));
@@ -381,17 +388,21 @@ export default function ArchivePage() {
       
       const { default: JSZip } = await import("jszip");
       const zip = new JSZip();
-      let addedFiles = 0;
+      const selectedItems = items.filter((item) => selectedIds.includes(item.id));
+      const tasks: {
+        run: () => Promise<{ arrayBuffer: ArrayBuffer; extension: string }>;
+        makeFileName: (extension: string) => string;
+        context: string;
+      }[] = [];
 
-      for (const item of items) {
-        if (!selectedIds.includes(item.id)) continue;
+      selectedItems.forEach((item) => {
         const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
         const paths = item.imagePaths?.length
           ? item.imagePaths
           : item.imagePath
           ? [item.imagePath]
           : [];
-        if (images.length === 0) continue;
+        if (images.length === 0) return;
 
         const baseNameParts = [item.templateSlug || item.templateName || item.id, item.userLogin || "anon"];
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
@@ -400,24 +411,54 @@ export default function ArchivePage() {
         }
         const baseName = sanitizeFileFragment(baseNameParts.filter(Boolean).join("-"));
 
-        for (let index = 0; index < images.length; index += 1) {
-          const url = images[index];
+        images.forEach((url, index) => {
           const path = paths[index] ?? (paths.length === 1 ? paths[0] : undefined);
-          try {
-            const { arrayBuffer, extension } = await downloadArchiveAsset({ url, path });
-            const fileName = `${baseName}${images.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`;
-            zip.file(fileName, arrayBuffer);
-            addedFiles += 1;
-          } catch (error) {
-            console.error("Błąd pobierania obrazu archiwum", error);
-            throw error;
-          }
-        }
-      }
+          const pageLabel = images.length > 1 ? ` (strona ${index + 1})` : "";
+          tasks.push({
+            run: () => downloadArchiveAsset({ url, path }),
+            makeFileName: (extension) => `${baseName}${images.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`,
+            context: `${item.templateName || item.templateSlug || item.id}${pageLabel}`,
+          });
+        });
+      });
 
-      if (addedFiles === 0) {
+      if (tasks.length === 0) {
         throw new Error("Brak obrazów w zaznaczonych dokumentach.");
       }
+
+      const results: { fileName: string; arrayBuffer: ArrayBuffer }[] = new Array(tasks.length);
+      let pointer = 0;
+      const concurrency = Math.min(4, tasks.length);
+
+      const workers = Array.from({ length: concurrency }).map(async () => {
+        while (true) {
+          const currentIndex = pointer;
+          pointer += 1;
+          if (currentIndex >= tasks.length) break;
+          const task = tasks[currentIndex];
+          try {
+            const { arrayBuffer, extension } = await task.run();
+            const fileName = task.makeFileName(extension);
+            results[currentIndex] = { fileName, arrayBuffer };
+          } catch (error) {
+            console.error("Błąd pobierania obrazu archiwum", error);
+            const message =
+              error instanceof Error && error.message
+                ? error.message
+                : "Nieznany błąd pobierania.";
+            throw new Error(`Nie udało się pobrać dokumentu "${task.context}": ${message}`);
+          }
+        }
+      });
+
+      await Promise.all(workers);
+
+      let addedFiles = 0;
+      results.forEach((result) => {
+        if (!result) return;
+        zip.file(result.fileName, result.arrayBuffer);
+        addedFiles += 1;
+      });
 
       const content = await zip.generateAsync({ type: "blob" });
       const blobUrl = URL.createObjectURL(content);
