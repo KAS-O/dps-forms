@@ -746,8 +746,11 @@ export default function DocPage() {
               ))}
 
               <button className="btn" disabled={sending || (requiresDossier && !dossierId)}>
-                {sending ? "Wysyłanie..." : "Wyślij do ARCHIWUM (obraz PNG)"}
+                {sending ? "Wysyłanie..." : "Wyślij do ARCHIWUM (obraz + tekst)"}
               </button>
+              <p className="text-xs text-beige-700">
+                Archiwum zapisze zarówno obraz dokumentu, jak i pełną treść pól w formie tekstowej.
+              </p>
               {ok && <p className="text-green-700 text-sm">{ok}</p>}
               {err && <p className="text-red-700 text-sm">{err}</p>}
             </form>
@@ -756,7 +759,7 @@ export default function DocPage() {
           {/* PREVIEW */}
           <div className="card p-6">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Podgląd dokumentu (to idzie jako obraz)</h2>
+              <h2 className="text-lg font-semibold">Podgląd dokumentu (wersja graficzna)</h2>
               <span className="text-xs text-beige-700">
                 A4 • wysoka jakość • {pages.length} {pages.length === 1 ? "strona" : "strony"}
               </span>

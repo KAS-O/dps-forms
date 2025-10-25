@@ -6,8 +6,9 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { auth, db, storage } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import { TEMPLATES } from "@/lib/templates";
+import type { Field, Template } from "@/lib/templates";
 import {
   addDoc,
   collection,
@@ -27,6 +28,7 @@ type Archive = {
   templateName: string;
   templateSlug?: string;
   userLogin?: string;
+  values?: Record<string, unknown> | null;
   imageUrl?: string;
   imageUrls?: string[];
   imagePath?: string;
@@ -37,13 +39,6 @@ type Archive = {
   officers?: string[];
   vehicleFolderRegistration?: string;
 };
-
-type ArchiveAssetSource = {
-  path?: string | null;
-  url?: string | null;
-};
-
-const HTTP_PROTOCOL_REGEX = /^http:\/\//i;
 
 function ensureArray(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -68,261 +63,116 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
   return btoa(binary);
 }
 
-async function loadImageElement(src: string) {
-  if (typeof window === "undefined") {
-    throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
+const TEMPLATE_MAP = new Map<string, Template>(
+  TEMPLATES.map((template) => [template.slug, template] as const)
+);
+
+const ADDITIONAL_FIELD_LABELS: Record<string, string> = {
+  liczbaStron: "Łącznie stron",
+  teczkaPojazdu: "Teczka pojazdu",
+};
+
+function formatFallbackLabel(key: string) {
+  if (ADDITIONAL_FIELD_LABELS[key]) {
+    return ADDITIONAL_FIELD_LABELS[key];
   }
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = (event) => reject(event instanceof ErrorEvent ? event.error : new Error("Nie udało się wczytać obrazu."));
-    image.src = src;
+
+  const spaced = key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .trim();
+
+  if (!spaced) {
+    return key;
+  }
+
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+type ArchiveFieldEntry = {
+  key: string;
+  label: string;
+  value: string;
+};
+
+function formatArchiveValue(raw: unknown, field?: Field): string {
+  if (raw == null) {
+    return "—";
+  }
+
+  if (Array.isArray(raw)) {
+    const normalized = raw
+      .map((item) => (typeof item === "string" ? item.trim() : String(item)))
+      .filter((item) => item.length > 0);
+    return normalized.length ? normalized.join(", ") : "—";
+  }
+
+  if (typeof raw === "string") {
+    if (field?.type === "multiselect") {
+      const parts = raw
+        .split("|")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      return parts.length ? parts.join(", ") : "—";
+    }
+    const normalized = raw.replace(/\r\n/g, "\n").trim();
+    return normalized || "—";
+  }
+
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) ? String(raw) : "—";
+  }
+
+  if (typeof raw === "boolean") {
+    return raw ? "Tak" : "Nie";
+  }
+
+  if (raw instanceof Date) {
+    return raw.toLocaleString("pl-PL");
+  }
+
+  return String(raw);
+}
+
+function getArchiveFieldEntries(item: Archive): ArchiveFieldEntry[] {
+  if (!isRecord(item.values)) {
+    return [];
+  }
+
+  const values = item.values as Record<string, unknown>;
+  const template = item.templateSlug ? TEMPLATE_MAP.get(item.templateSlug) : undefined;
+  const entries: ArchiveFieldEntry[] = [];
+  const usedKeys = new Set<string>();
+
+  if (template) {
+    template.fields.forEach((field) => {
+      usedKeys.add(field.key);
+      entries.push({
+        key: field.key,
+        label: field.label,
+        value: formatArchiveValue(values[field.key], field),
+      });
+    });
+  }
+
+  Object.entries(values).forEach(([key, value]) => {
+    if (usedKeys.has(key) || key === "funkcjonariusze") {
+      return;
+    }
+
+    const label = formatFallbackLabel(key);
+    entries.push({
+      key,
+      label,
+      value: formatArchiveValue(value),
+    });
   });
-}
 
-async function prepareImageForPdf(arrayBuffer: ArrayBuffer, extension: string) {
-  if (typeof window === "undefined") {
-    throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
-  }
-  const normalizedExtension = extension.toLowerCase();
-  const mediaType = normalizedExtension === "jpg" ? "jpeg" : normalizedExtension;
-  let dataUrl = `data:image/${mediaType};base64,${arrayBufferToBase64(arrayBuffer)}`;
-  let format: "PNG" | "JPEG" = normalizedExtension === "png" ? "PNG" : "JPEG";
-  let imageElement = await loadImageElement(dataUrl);
-
-  if (normalizedExtension === "webp") {
-    const { document } = window;
-    const canvas = document.createElement("canvas");
-    canvas.width = imageElement.width;
-    canvas.height = imageElement.height;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("Brak wsparcia dla rysowania obrazów w przeglądarce.");
-    }
-    context.drawImage(imageElement, 0, 0);
-    dataUrl = canvas.toDataURL("image/png");
-    imageElement = await loadImageElement(dataUrl);
-    format = "PNG";
-  }
-
-  return {
-    dataUrl,
-    format,
-    width: imageElement.width,
-    height: imageElement.height,
-  };
-}
-
-function normalizeUrl(url: string) {
-  return url.replace(HTTP_PROTOCOL_REGEX, "https://");
-}
-
-function getExtension(contentType: string | null, url: string) {
-  if (contentType?.includes("png")) return "png";
-  if (contentType?.includes("jpeg") || contentType?.includes("jpg")) return "jpg";
-  if (contentType?.includes("webp")) return "webp";
-  const match = url.match(/\.([a-zA-Z0-9]{2,4})(?:\?|$)/);
-  return match ? match[1].toLowerCase() : "png";
-}
-
-function getExtensionFromPath(path?: string | null) {
-  if (!path) return null;
-  const match = path.match(/\.([a-zA-Z0-9]{2,4})$/);
-  return match ? match[1].toLowerCase() : null;
-}
-
-class ArchiveProxyError extends Error {
-  status?: number;
-
-  constructor(message: string, status?: number) {
-    super(message);
-    this.name = "ArchiveProxyError";
-    this.status = status;
-  }
-}
-
-async function fetchArchiveProxy(source: ArchiveAssetSource) {
-  if (typeof window === "undefined") {
-    throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
-  }
-
-  const params = new URLSearchParams();
-  if (source.path) {
-    params.set("path", source.path);
-  }
-  if (source.url) {
-    params.set("url", source.url);
-  }
-
-  if (!params.toString()) {
-    throw new ArchiveProxyError("Brak informacji o pliku archiwum do pobrania.");
-  }
-
-  const headers: HeadersInit = {};
-  const user = auth?.currentUser;
-  if (user) {
-    try {
-      const token = await user.getIdToken();
-      headers["Authorization"] = `Bearer ${token}`;
-    } catch (tokenError) {
-      console.warn("Nie udało się pobrać tokenu użytkownika do pobrania pliku archiwum", tokenError);
-    }
-  }
-
-  const response = await fetch(`/api/archive/file?${params.toString()}`, {
-    headers,
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    let message = `Nie udało się pobrać pliku archiwum (status ${response.status}).`;
-    const contentType = response.headers.get("content-type") || "";
-    try {
-      if (contentType.includes("application/json")) {
-        const data = await response.json();
-        if (data?.error && typeof data.error === "string") {
-          message = data.error;
-        }
-      } else {
-        const text = await response.text();
-        if (text) {
-          message = text.slice(0, 400);
-        }
-      }
-    } catch (readError) {
-      console.warn("Nie udało się odczytać odpowiedzi proxy archiwum", readError);
-    }
-    throw new ArchiveProxyError(message, response.status);
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  const contentType = response.headers.get("content-type");
-  const fallbackPath = source.path || source.url || "";
-  return { arrayBuffer, extension: getExtension(contentType, fallbackPath) };
-}
-
-async function fetchAsArrayBuffer(url: string) {
-  const normalized = normalizeUrl(url);
-  const response = await fetch(normalized, { mode: "cors", referrerPolicy: "no-referrer" });
-  if (!response.ok) {
-    throw new Error(`Nie udało się pobrać obrazu (${response.status}).`);
-  }
-  const blob = await response.blob();
-  const arrayBuffer = await blob.arrayBuffer();
-  return { arrayBuffer, contentType: response.headers.get("content-type"), resolvedUrl: response.url || normalized };
-}
-
-async function fetchStoragePath(path: string) {
-  const bucket =
-    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
-    storage?.app?.options?.storageBucket ||
-    null;
-
-  if (!bucket) {
-    throw new Error("Brak konfiguracji usługi plików.");
-  }
-
-  const encodedPath = encodeURIComponent(path);
-  const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media`;
-  const user = auth?.currentUser;
-  const attempt = async (forceRefresh: boolean) => {
-    const headers: HeadersInit = {};
-    if (user) {
-      try {
-        const token = await user.getIdToken(forceRefresh);
-        headers["Authorization"] = `Bearer ${token}`;
-      } catch (tokenError) {
-        console.warn("Nie udało się pobrać tokenu użytkownika do pobrania pliku archiwum", tokenError);
-      }
-    }
-
-    const response = await fetch(downloadUrl, { headers, cache: "no-store" });
-    if (response.ok) {
-      const arrayBuffer = await response.arrayBuffer();
-      const contentType = response.headers.get("content-type");
-      return { arrayBuffer, extension: getExtension(contentType, downloadUrl) };
-    }
-
-    if ((response.status === 401 || response.status === 403) && user && !forceRefresh) {
-      return attempt(true);
-    }
-
-    throw new Error(`Nie udało się pobrać pliku (status ${response.status}).`);
-  };
-
-  return attempt(false);
-}
-
-async function downloadArchiveAsset(source: { url?: string; path?: string | null }) {
-  let lastError: unknown = null;
-
-  if (source.url || source.path) {
-    try {
-      return await fetchArchiveProxy({ path: source.path ?? null, url: source.url ?? null });
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  if (source.url) {
-    try {
-      const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(source.url);
-      return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  if (source.path) {
-    try {
-      return await fetchStoragePath(source.path);
-    } catch (restError) {
-      lastError = restError;
-    }
-
-    try {
-      const { ref, getDownloadURL, getBytes, getMetadata } = await import("firebase/storage");
-      if (!storage) {
-        throw new Error("Usługa plików nie jest dostępna.");
-      }
-      const storageRef = ref(storage, source.path);
-
-      try {
-        const downloadUrl = await getDownloadURL(storageRef);
-        const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(downloadUrl);
-        return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
-      } catch (downloadUrlError) {
-        lastError = downloadUrlError;
-      }
-
-      const bytes = await getBytes(storageRef);
-      let contentType: string | null = null;
-      try {
-        const metadata = await getMetadata(storageRef);
-        contentType = metadata.contentType || null;
-      } catch (metadataError) {
-        console.warn("Nie udało się pobrać metadanych pliku archiwum", metadataError);
-      }
-
-      const extensionFromPath = getExtensionFromPath(source.path);
-      const fallbackUrl = source.url || source.path || "";
-      const extension = extensionFromPath || getExtension(contentType, fallbackUrl);
-      const uint8Array = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-      const arrayBuffer = uint8Array.buffer.slice(
-        uint8Array.byteOffset,
-        uint8Array.byteOffset + uint8Array.byteLength
-      );
-      return { arrayBuffer, extension };
-    } catch (storageError) {
-      lastError = storageError;
-    }
-  }
-
-  if (lastError instanceof Error) {
-    throw lastError;
-  }
-
-  throw new Error("Nie udało się pobrać pliku archiwum.");
+  return entries;
 }
 
 function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
@@ -338,6 +188,7 @@ function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
     templateName: (data.templateName as string) || "Bez nazwy",
     templateSlug: (data.templateSlug as string) || undefined,
     userLogin: (data.userLogin as string) || undefined,
+    values: isRecord(data.values) ? (data.values as Record<string, unknown>) : null,
     officers: Array.isArray(data.officers)
       ? (data.officers as unknown[]).filter((value): value is string => typeof value === "string")
       : undefined,
@@ -446,7 +297,16 @@ export default function ArchivePage() {
       ]
         .join(" ")
         .toLowerCase();
-      return haystack.includes(needle);
+      if (haystack.includes(needle)) {
+        return true;
+      }
+
+      const textHaystack = getArchiveFieldEntries(item)
+        .map((entry) => `${entry.label} ${entry.value}`)
+        .join(" ")
+        .toLowerCase();
+
+      return textHaystack.includes(needle);
     });
   }, [fromDate, items, search, selectedTypes, toDate]);
 
@@ -652,46 +512,29 @@ export default function ArchivePage() {
           cursorY += 14;
         });
 
-        const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
-        const paths = item.imagePaths?.length
-          ? item.imagePaths
-          : item.imagePath
-          ? [item.imagePath]
-          : [];
+        const fieldEntries = getArchiveFieldEntries(item);
+        if (fieldEntries.length === 0) {
+          ensureSpace(18);
+          doc.text("Brak zapisanych danych tekstowych dla tego dokumentu.", margin, cursorY);
+          cursorY += 18;
+        } else {
+          cursorY += 6;
+          fieldEntries.forEach((entry) => {
+            const rawValue = entry.value === "—" ? "—" : entry.value;
+            const valueLines = rawValue.split("\n");
 
-        if (images.length === 0) {
-          ensureSpace(20);
-          doc.text("(Brak załączonych obrazów)", margin, cursorY);
-          cursorY += 20;
-          continue;
-        }
+            valueLines.forEach((line, lineIndex) => {
+              const prefix = lineIndex === 0 ? `${entry.label}: ${line || "—"}` : line || "—";
+              const wrapped = doc.splitTextToSize(prefix, pageWidth - margin * 2);
+              wrapped.forEach((wrappedLine) => {
+                ensureSpace(16);
+                doc.text(wrappedLine, margin, cursorY);
+                cursorY += 14;
+              });
+            });
 
-        for (let index = 0; index < images.length; index += 1) {
-          const url = images[index];
-          const path = paths[index] ?? (paths.length === 1 ? paths[0] : undefined);
-          const { arrayBuffer, extension } = await downloadArchiveAsset({ url, path });
-          const image = await prepareImageForPdf(arrayBuffer, extension);
-          const maxWidth = pageWidth - margin * 2;
-          const maxHeight = pageHeight - margin - cursorY;
-          const aspectRatio = image.width / (image.height || 1);
-          let renderWidth = maxWidth;
-          let renderHeight = renderWidth / (aspectRatio || 1);
-          if (renderHeight > maxHeight) {
-            renderHeight = maxHeight;
-            renderWidth = renderHeight * aspectRatio;
-          }
-
-          if (renderHeight <= 0 || !Number.isFinite(renderHeight) || renderWidth <= 0) {
-            continue;
-          }
-
-          if (cursorY + renderHeight > pageHeight - margin) {
-            doc.addPage();
-            cursorY = margin;
-          }
-
-          doc.addImage(image.dataUrl, image.format, margin, cursorY, renderWidth, renderHeight);
-          cursorY += renderHeight + 16;
+            cursorY += 6;
+          });
         }
 
         cursorY += 10;
@@ -850,7 +693,7 @@ export default function ArchivePage() {
 
               {selectionMode && (
                 <p className="text-xs text-beige-700">
-                  Zaznacz dokumenty do raportu. Wszystkie informacje i obrazy trafią do jednego pliku PDF.
+                  Zaznacz dokumenty do raportu. Wszystkie informacje tekstowe trafią do jednego pliku PDF.
                 </p>
               )}
               {reportError && <p className="text-sm text-red-300">{reportError}</p>}
@@ -861,6 +704,7 @@ export default function ArchivePage() {
                 const isSelected = selectedIds.includes(item.id);
                 const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
                 const imageLinks = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+                const fieldEntries = getArchiveFieldEntries(item);
 
                 return (
                   <div
@@ -898,6 +742,22 @@ export default function ArchivePage() {
                           </>
                         )}
                       </div>
+                      {fieldEntries.length > 0 && (
+                        <div className="mt-3 border-t border-white/5 pt-3">
+                          <div className="grid gap-3 text-sm text-beige-100/90">
+                            {fieldEntries.map((entry) => (
+                              <div key={`${item.id}-${entry.key}`} className="grid gap-1">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-beige-500">
+                                  {entry.label}
+                                </div>
+                                <div className="whitespace-pre-wrap leading-relaxed text-beige-100">
+                                  {entry.value}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {imageLinks.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-2 text-sm">
                           {imageLinks.map((url, index) => (
