@@ -2,7 +2,7 @@ import Head from "next/head";
 import Nav from "@/components/Nav";
 import AuthGate from "@/components/AuthGate";
 import { useProfile, Role } from "@/hooks/useProfile";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   addDoc,
   collection,
@@ -99,6 +99,7 @@ export default function Admin() {
   const [section, setSection] = useState<AdminSection>("overview");
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   // ogólne
   const [mandaty, setMandaty] = useState(0);
@@ -171,6 +172,17 @@ export default function Admin() {
     );
     return () => unsub();
   }, [role]);
+
+  useEffect(() => {
+    if (section !== "logs") return;
+    if (typeof window === "undefined") return;
+    const id = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [section]);
 
 
   // okres
@@ -550,26 +562,36 @@ export default function Admin() {
         : "bg-white/5 border-white/10 hover:bg-white/15"
     }`;
 
-  const formatLogTimestamp = (log: any) => {
+  const getLogTimestampMs = (log: any): number | null => {
     const raw = log?.ts || log?.createdAt;
     if (raw?.toDate && typeof raw.toDate === "function") {
       try {
-        return raw.toDate().toLocaleString("pl-PL");
+        return raw.toDate().getTime();
       } catch (error) {
-        return raw.toDate().toISOString();
+        return null;
       }
     }
     if (raw instanceof Date) {
-      return raw.toLocaleString("pl-PL");
+      return raw.getTime();
     }
     if (typeof raw === "string") {
-      try {
-        return new Date(raw).toLocaleString("pl-PL");
-      } catch (error) {
-        return raw;
-      }
+      const parsed = Date.parse(raw);
+      return Number.isNaN(parsed) ? null : parsed;
     }
-    return "—";
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      return raw;
+    }
+    return null;
+  };
+
+  const formatLogTimestamp = (log: any) => {
+    const timestamp = getLogTimestampMs(log);
+    if (timestamp == null) return "—";
+    try {
+      return new Date(timestamp).toLocaleString("pl-PL");
+    } catch (error) {
+      return new Date(timestamp).toISOString();
+    }
   };
 
   const formatDuration = (ms?: number) => {
@@ -631,6 +653,36 @@ export default function Admin() {
       }
     }
   };
+
+  const activeSessionStarts = useMemo(() => {
+    const map = new Map<string, number>();
+    const chronological = [...activityLogs].reverse();
+    chronological.forEach((log) => {
+      const sessionId = log?.sessionId;
+      if (!sessionId) return;
+      const ts = getLogTimestampMs(log);
+      if (ts == null) return;
+      if (log.type === "session_start") {
+        map.set(sessionId, ts);
+      } else if (log.type === "session_end" || log.type === "logout") {
+        map.delete(sessionId);
+      }
+    });
+    return map;
+  }, [activityLogs]);
+
+  const resolveDurationMs = useCallback(
+    (log: any): number | null => {
+      if (typeof log?.durationMs === "number" && log.durationMs > 0) {
+        return log.durationMs;
+      }
+      if (!log?.sessionId) return null;
+      const start = activeSessionStarts.get(log.sessionId);
+      if (!start) return null;
+      return Math.max(0, nowMs - start);
+    },
+    [activeSessionStarts, nowMs]
+  );
 
 
   // lifecycle
@@ -1121,7 +1173,7 @@ export default function Admin() {
                                 </span>
                               </td>
                               <td className="px-4 py-3">{describeLog(log)}</td>
-                              <td className="px-4 py-3 whitespace-nowrap">{formatDuration(log.durationMs)}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">{formatDuration(resolveDurationMs(log) ?? undefined)}</td>
                             </tr>
                           ))
                         )}
