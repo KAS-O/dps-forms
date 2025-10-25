@@ -159,6 +159,27 @@ select option {
   opacity: 0.6;
 }
 
+.underlight-ambient::after {
+  content: "";
+  position: absolute;
+  bottom: 5%;
+  left: 50%;
+  width: 160vw;
+  height: 40vh;
+  transform: translateX(-50%);
+  background: linear-gradient(
+    95deg,
+    transparent 5%,
+    rgba(68, 141, 255, 0.2) 25%,
+    rgba(122, 198, 255, 0.45) 45%,
+    rgba(255, 118, 118, 0.35) 60%,
+    transparent 85%
+  );
+  opacity: 0.4;
+  filter: blur(140px);
+  animation: underlightSweep 16s ease-in-out infinite;
+}
+
 .underlight-ambient__blue,
 .underlight-ambient__red {
   position: absolute;
@@ -173,13 +194,13 @@ select option {
 .underlight-ambient__blue {
   left: 5%;
   background: radial-gradient(circle, rgba(80, 150, 255, 0.9), rgba(32, 85, 181, 0.45) 45%, transparent 80%);
-  animation: underlightBlue 6s ease-in-out infinite alternate;
+  animation: underlightBlue 8s ease-in-out infinite alternate;
 }
 
 .underlight-ambient__red {
   right: 5%;
   background: radial-gradient(circle, rgba(255, 92, 92, 0.8), rgba(160, 35, 35, 0.4) 45%, transparent 80%);
-  animation: underlightRed 7s ease-in-out infinite alternate;
+  animation: underlightRed 9s ease-in-out infinite alternate;
 }
 
 @keyframes underlightBlue {
@@ -209,6 +230,29 @@ select option {
   100% {
     transform: translate(10%, 0%) scale(0.97);
     opacity: 0.48;
+  }
+}
+
+@keyframes underlightSweep {
+  0% {
+    transform: translate(-55%, 8%) scaleX(0.9);
+    opacity: 0.32;
+  }
+  25% {
+    transform: translate(-35%, 4%) scaleX(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translate(-10%, 10%) scaleX(1.1);
+    opacity: 0.55;
+  }
+  75% {
+    transform: translate(-30%, 6%) scaleX(0.98);
+    opacity: 0.48;
+  }
+  100% {
+    transform: translate(-55%, 8%) scaleX(0.9);
+    opacity: 0.32;
   }
 }
 
