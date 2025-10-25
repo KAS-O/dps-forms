@@ -6,18 +6,9 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { db } from "@/lib/firebase";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  writeBatch,
-} from "firebase/firestore";
+import { db, storage } from "@/lib/firebase";
+import { addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, serverTimestamp, writeBatch } from "firebase/firestore";
+import { deleteObject, ref } from "firebase/storage";
 
 import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
 
@@ -209,7 +200,29 @@ export default function ArchivePage() {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((entry) => entry !== id) : [...prev, id]));
   };
 
-  const remove = async (id: string) => {
+  const deleteArchiveFiles = async (entry: Archive) => {
+    const uniquePaths = new Set<string>();
+    const rawPaths = entry.imagePaths?.length ? entry.imagePaths : entry.imagePath ? [entry.imagePath] : [];
+    rawPaths.forEach((path) => {
+      if (typeof path === "string" && path.length > 0) {
+        uniquePaths.add(path);
+      }
+    });
+
+    if (!uniquePaths.size) return;
+
+    await Promise.all(
+      Array.from(uniquePaths).map(async (path) => {
+        try {
+          await deleteObject(ref(storage, path));
+        } catch (error) {
+          console.warn("Nie udało się usunąć pliku archiwum", error);
+        }
+      })
+    );
+  };
+
+  const remove = async (entry: Archive) => {
     if (!can.deleteArchive(role)) {
       await alert({
         title: "Brak uprawnień",
@@ -227,10 +240,11 @@ export default function ArchivePage() {
     });
     if (!confirmed) return;
     
-    await deleteDoc(doc(db, "archives", id));
-    await addDoc(collection(db, "logs"), { type: "archive_delete", id, by: login, ts: serverTimestamp() });
-    setItems((prev) => prev.filter((entry) => entry.id !== id));
-    setSelectedIds((prev) => prev.filter((entry) => entry !== id));
+    await deleteDoc(doc(db, "archives", entry.id));
+    await deleteArchiveFiles(entry);
+    await addDoc(collection(db, "logs"), { type: "archive_delete", id: entry.id, by: login, ts: serverTimestamp() });
+    setItems((prev) => prev.filter((item) => item.id !== entry.id));
+    setSelectedIds((prev) => prev.filter((value) => value !== entry.id));
   };
 
   const clearAll = async () => {
@@ -254,9 +268,11 @@ export default function ArchivePage() {
     try {
       setClearing(true);
       const snapshot = await getDocs(collection(db, "archives"));
+      const archives = snapshot.docs.map(buildArchive);
       let batch = writeBatch(db);
       let counter = 0;
       const commits: Promise<void>[] = [];
+      const fileRemovalPromises: Promise<void>[] = [];
 
       snapshot.docs.forEach((docSnap, index) => {
         batch.delete(docSnap.ref);
@@ -267,8 +283,12 @@ export default function ArchivePage() {
           counter = 0;
         }
       });
-      
+
       await Promise.all(commits);
+      archives.forEach((archive) => {
+        fileRemovalPromises.push(deleteArchiveFiles(archive));
+      });
+      await Promise.all(fileRemovalPromises);
       await addDoc(collection(db, "logs"), {
         type: "archive_clear",
         by: login,
@@ -298,8 +318,9 @@ export default function ArchivePage() {
       setDownloading(true);
       setDownloadError(null);
       
-      const { default: JSZip } = await import("jszip");
-      const zip = new JSZip();
+      const JSZipModule = await import("jszip");
+      const JSZipConstructor = (JSZipModule as { default?: any }).default ?? JSZipModule;
+      const zip = new JSZipConstructor();
       let addedFiles = 0;
 
       for (const item of items) {
@@ -531,7 +552,7 @@ export default function ArchivePage() {
                     
                     <div className="flex items-center justify-end gap-2">
                       {can.deleteArchive(role) && !selectionMode && (
-                        <button className="btn bg-red-700 text-white" onClick={() => remove(item.id)}>
+                        <button className="btn bg-red-700 text-white" onClick={() => remove(item)}>
                           Usuń
                         </button>
                       )}

@@ -142,12 +142,14 @@ select option {
   left: 50%;
   width: 140vw;
   height: 55vh;
-  transform: translateX(-50%);
+  transform: translate3d(-50%, 0, 0);
   pointer-events: none;
   z-index: 1;
   display: block;
   opacity: 0.5;
   mix-blend-mode: screen;
+  animation: underlightAmbientDrift 22s ease-in-out infinite alternate;
+  will-change: transform, opacity;
 }
 
 .underlight-ambient::before {
@@ -157,6 +159,7 @@ select option {
   background: radial-gradient(circle at 50% 100%, rgba(11, 34, 78, 0.65), transparent 70%);
   filter: blur(120px);
   opacity: 0.6;
+  will-change: opacity;
 }
 
 .underlight-ambient__blue,
@@ -168,6 +171,7 @@ select option {
   border-radius: 9999px;
   filter: blur(120px);
   opacity: 0.55;
+  will-change: transform, opacity;
 }
 
 .underlight-ambient__blue {
@@ -180,6 +184,21 @@ select option {
   right: 5%;
   background: radial-gradient(circle, rgba(255, 92, 92, 0.8), rgba(160, 35, 35, 0.4) 45%, transparent 80%);
   animation: underlightRed 7s ease-in-out infinite alternate;
+}
+
+@keyframes underlightAmbientDrift {
+  0% {
+    transform: translate3d(-52%, -3%, 0);
+    opacity: 0.42;
+  }
+  50% {
+    transform: translate3d(-48%, 2%, 0);
+    opacity: 0.6;
+  }
+  100% {
+    transform: translate3d(-53%, -1%, 0);
+    opacity: 0.48;
+  }
 }
 
 @keyframes underlightBlue {
