@@ -125,6 +125,8 @@ export default function DocPage() {
   }, [requiresDossier, values]);
 
   const previewFields = useMemo<FieldRender[]>(() => {
+    if (!template) return [];
+
     return template.fields.map((f) => {
       const rawValue = values[f.key];
       let displayText = "";
@@ -163,7 +165,7 @@ export default function DocPage() {
         signature: `${displayText}|${note}`,
       };
     });
-  }, [nextPayoutDate, template.fields, template.slug, values]);
+  }, [nextPayoutDate, template, values]);
 
   const fieldsSignature = useMemo(() => previewFields.map((f) => `${f.id}:${f.signature}`).join("|"), [previewFields]);
 
@@ -686,7 +688,7 @@ export default function DocPage() {
               )}
 
               {/* pola */}
-              {template.fields.map((f) => (
+              {(template?.fields ?? []).map((f) => (
                 <div key={f.key} className="grid gap-1">
                   <label className="label">{f.label}{f.required && " *"}</label>
 
