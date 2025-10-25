@@ -38,16 +38,6 @@ type Archive = {
   vehicleFolderRegistration?: string;
 };
 
-function sanitizeFileFragment(value: string) {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/gi, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "dokument"
-  );
-}
-
 const HTTP_PROTOCOL_REGEX = /^http:\/\//i;
 
 function ensureArray(value: unknown): string[] {
@@ -58,6 +48,62 @@ function ensureArray(value: unknown): string[] {
     return [value];
   }
   return [];
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+async function loadImageElement(src: string) {
+  if (typeof window === "undefined") {
+    throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
+  }
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = (event) => reject(event instanceof ErrorEvent ? event.error : new Error("Nie udało się wczytać obrazu."));
+    image.src = src;
+  });
+}
+
+async function prepareImageForPdf(arrayBuffer: ArrayBuffer, extension: string) {
+  if (typeof window === "undefined") {
+    throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
+  }
+  const normalizedExtension = extension.toLowerCase();
+  const mediaType = normalizedExtension === "jpg" ? "jpeg" : normalizedExtension;
+  let dataUrl = `data:image/${mediaType};base64,${arrayBufferToBase64(arrayBuffer)}`;
+  let format: "PNG" | "JPEG" = normalizedExtension === "png" ? "PNG" : "JPEG";
+  let imageElement = await loadImageElement(dataUrl);
+
+  if (normalizedExtension === "webp") {
+    const { document } = window;
+    const canvas = document.createElement("canvas");
+    canvas.width = imageElement.width;
+    canvas.height = imageElement.height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Brak wsparcia dla rysowania obrazów w przeglądarce.");
+    }
+    context.drawImage(imageElement, 0, 0);
+    dataUrl = canvas.toDataURL("image/png");
+    imageElement = await loadImageElement(dataUrl);
+    format = "PNG";
+  }
+
+  return {
+    dataUrl,
+    format,
+    width: imageElement.width,
+    height: imageElement.height,
+  };
 }
 
 function normalizeUrl(url: string) {
@@ -261,8 +307,8 @@ export default function ArchivePage() {
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [downloading, setDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [creatingReport, setCreatingReport] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
 
 
@@ -362,7 +408,7 @@ export default function ArchivePage() {
       }
       return !prev;
     });
-    setDownloadError(null);
+    setReportError(null);
   };
 
   const toggleType = (value: string) => {
@@ -454,127 +500,196 @@ export default function ArchivePage() {
       setClearing(false);
     }
   };
-
-
-  const downloadSelected = useCallback(async () => {
+  const createReport = useCallback(async () => {
     if (!selectionMode || selectedIds.length === 0) return;
     try {
-      setDownloading(true);
-      setDownloadError(null);
-      
-      const { default: JSZip } = await import("jszip");
-      const zip = new JSZip();
+      setCreatingReport(true);
+      setReportError(null);
+
+      const { jsPDF } = await import("jspdf");
+
       const selectedItems = items.filter((item) => selectedIds.includes(item.id));
-      const tasks: {
-        run: () => Promise<{ arrayBuffer: ArrayBuffer; extension: string }>;
-        makeFileName: (extension: string) => string;
-        context: string;
-      }[] = [];
+      if (selectedItems.length === 0) {
+        throw new Error("Nie wybrano żadnych dokumentów.");
+      }
+
+      const now = new Date();
+      const documentName = `raport-archiwum-${now.toISOString().replace(/[:.]/g, "-")}.pdf`;
+      const totalDocuments = selectedItems.length;
+      const typeCounts = new Map<string, number>();
 
       selectedItems.forEach((item) => {
+        const key = item.templateName || item.templateSlug || "Nieznany dokument";
+        typeCounts.set(key, (typeCounts.get(key) ?? 0) + 1);
+      });
+
+      const typeSummaryLines = Array.from(typeCounts.entries()).map(
+        ([type, count]) => `${count}× ${type}`
+      );
+
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 50;
+      let cursorY = margin;
+
+      doc.setFontSize(18);
+      doc.text("Raport archiwum", margin, cursorY);
+      cursorY += 26;
+
+      doc.setFontSize(12);
+      doc.text(`Wygenerował: ${login || "—"}`, margin, cursorY);
+      cursorY += 18;
+      doc.text(`Data wygenerowania: ${now.toLocaleString("pl-PL")}`, margin, cursorY);
+      cursorY += 18;
+      doc.text(`Liczba dokumentów: ${totalDocuments}`, margin, cursorY);
+      cursorY += 20;
+
+      if (typeSummaryLines.length > 0) {
+        doc.setFontSize(12);
+        doc.text("Zestawienie typów dokumentów:", margin, cursorY);
+        cursorY += 18;
+        doc.setFontSize(11);
+        typeSummaryLines.forEach((line) => {
+          doc.text(`• ${line}`, margin + 12, cursorY);
+          cursorY += 16;
+        });
+      }
+
+      cursorY += 10;
+      doc.setFontSize(12);
+      doc.text("Szczegóły dokumentów:", margin, cursorY);
+      cursorY += 24;
+
+      const ensureSpace = (requiredHeight: number) => {
+        if (cursorY + requiredHeight > pageHeight - margin) {
+          doc.addPage();
+          cursorY = margin;
+        }
+      };
+
+      for (const item of selectedItems) {
+        const createdAt = item.createdAt?.toDate?.() || item.createdAtDate || null;
+        const officers = (item.officers || []).join(", ") || "—";
+        const dossier = item.dossierId ? `Teczka: ${item.dossierId}` : null;
+        const vehicleRegistration = item.vehicleFolderRegistration
+          ? `Folder pojazdu: ${item.vehicleFolderRegistration}`
+          : null;
+
+        doc.setFontSize(14);
+        ensureSpace(24);
+        doc.text(item.templateName || item.templateSlug || "Dokument", margin, cursorY);
+        cursorY += 18;
+
+        doc.setFontSize(11);
+        const infoLines = [
+          `Autor (login): ${item.userLogin || "—"}`,
+          `Funkcjonariusze: ${officers}`,
+          `Data utworzenia: ${createdAt ? createdAt.toLocaleString("pl-PL") : "—"}`,
+        ];
+        if (dossier) infoLines.push(dossier);
+        if (vehicleRegistration) infoLines.push(vehicleRegistration);
+
+        infoLines.forEach((line) => {
+          ensureSpace(16);
+          doc.text(line, margin, cursorY);
+          cursorY += 14;
+        });
+
         const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
         const paths = item.imagePaths?.length
           ? item.imagePaths
           : item.imagePath
           ? [item.imagePath]
           : [];
-        if (images.length === 0) return;
 
-        const baseNameParts = [item.templateSlug || item.templateName || item.id, item.userLogin || "anon"];
-        const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
-        if (createdAt) {
-          baseNameParts.push(createdAt.toISOString().replace(/[:.]/g, "-"));
+        if (images.length === 0) {
+          ensureSpace(20);
+          doc.text("(Brak załączonych obrazów)", margin, cursorY);
+          cursorY += 20;
+          continue;
         }
-        const baseName = sanitizeFileFragment(baseNameParts.filter(Boolean).join("-"));
 
-        images.forEach((url, index) => {
+        for (let index = 0; index < images.length; index += 1) {
+          const url = images[index];
           const path = paths[index] ?? (paths.length === 1 ? paths[0] : undefined);
-          const pageLabel = images.length > 1 ? ` (strona ${index + 1})` : "";
-          tasks.push({
-            run: () => downloadArchiveAsset({ url, path }),
-            makeFileName: (extension) => `${baseName}${images.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`,
-            context: `${item.templateName || item.templateSlug || item.id}${pageLabel}`,
-          });
-        });
-      });
-
-      if (tasks.length === 0) {
-        throw new Error("Brak obrazów w zaznaczonych dokumentach.");
-      }
-
-      const results: { fileName: string; arrayBuffer: ArrayBuffer }[] = new Array(tasks.length);
-      let pointer = 0;
-      const concurrency = Math.min(4, tasks.length);
-
-      const workers = Array.from({ length: concurrency }).map(async () => {
-        while (true) {
-          const currentIndex = pointer;
-          pointer += 1;
-          if (currentIndex >= tasks.length) break;
-          const task = tasks[currentIndex];
-          try {
-            const { arrayBuffer, extension } = await task.run();
-            const fileName = task.makeFileName(extension);
-            results[currentIndex] = { fileName, arrayBuffer };
-          } catch (error) {
-            console.error("Błąd pobierania obrazu archiwum", error);
-            const message =
-              error instanceof Error && error.message
-                ? error.message
-                : "Nieznany błąd pobierania.";
-            throw new Error(`Nie udało się pobrać dokumentu "${task.context}": ${message}`);
+          const { arrayBuffer, extension } = await downloadArchiveAsset({ url, path });
+          const image = await prepareImageForPdf(arrayBuffer, extension);
+          const maxWidth = pageWidth - margin * 2;
+          const maxHeight = pageHeight - margin - cursorY;
+          const aspectRatio = image.width / (image.height || 1);
+          let renderWidth = maxWidth;
+          let renderHeight = renderWidth / (aspectRatio || 1);
+          if (renderHeight > maxHeight) {
+            renderHeight = maxHeight;
+            renderWidth = renderHeight * aspectRatio;
           }
+
+          if (renderHeight <= 0 || !Number.isFinite(renderHeight) || renderWidth <= 0) {
+            continue;
+          }
+
+          if (cursorY + renderHeight > pageHeight - margin) {
+            doc.addPage();
+            cursorY = margin;
+          }
+
+          doc.addImage(image.dataUrl, image.format, margin, cursorY, renderWidth, renderHeight);
+          cursorY += renderHeight + 16;
         }
-      });
 
-      await Promise.all(workers);
-
-      const fileNameCounts = new Map<string, number>();
-      const makeUniqueFileName = (fileName: string) => {
-        const dotIndex = fileName.lastIndexOf(".");
-        const base = dotIndex === -1 ? fileName : fileName.slice(0, dotIndex);
-        const extension = dotIndex === -1 ? "" : fileName.slice(dotIndex);
-        const currentCount = fileNameCounts.get(base) ?? 0;
-        fileNameCounts.set(base, currentCount + 1);
-        if (currentCount === 0) {
-          return `${base}${extension}`;
-        }
-        return `${base}-${currentCount + 1}${extension}`;
-      };
-
-      let addedFiles = 0;
-      results.forEach((result) => {
-        if (!result) return;
-        const uniqueName = makeUniqueFileName(result.fileName);
-        zip.file(uniqueName, result.arrayBuffer);
-        addedFiles += 1;
-      });
-
-      if (addedFiles === 0) {
-        throw new Error("Nie udało się przygotować pliku do pobrania.");
+        cursorY += 10;
       }
 
-      const content = await zip.generateAsync({ type: "blob" });
-      const blobUrl = URL.createObjectURL(content);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = `archiwum-${new Date().toISOString().slice(0, 10)}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(() => {
-        URL.revokeObjectURL(blobUrl);
-      }, 2000);
-      
+      const arrayBuffer = doc.output("arraybuffer");
+      if (!(arrayBuffer instanceof ArrayBuffer)) {
+        throw new Error("Nie udało się wygenerować pliku PDF.");
+      }
+      const pdfBase64 = arrayBufferToBase64(arrayBuffer);
+      const typeSummaryText = typeSummaryLines.length ? typeSummaryLines.join("\n") : "—";
+
+      const response = await fetch("/api/send-archive-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: documentName,
+          fileBase64: pdfBase64,
+          metadata: {
+            generatedBy: login || "—",
+            generatedAt: now.toISOString(),
+            generatedAtDisplay: now.toLocaleString("pl-PL"),
+            totalDocuments,
+            typeSummary: typeSummaryText,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const details = await response.text();
+        throw new Error(details || "Nie udało się wysłać raportu na Discord.");
+      }
+
+      await alert({
+        title: "Raport wysłany",
+        message: "Raport został wygenerowany i przesłany na Discord.",
+        tone: "success",
+      });
+
       setSelectedIds([]);
       setSelectionMode(false);
-    } catch (error: any) {
-      console.error("Nie udało się pobrać zaznaczonych dokumentów", error);
-      setDownloadError(error instanceof Error ? error.message : "Nie udało się pobrać dokumentów.");
+    } catch (error) {
+      console.error("Nie udało się wygenerować raportu", error);
+      const message = error instanceof Error ? error.message : "Nie udało się wygenerować raportu.";
+      setReportError(message);
+      await alert({
+        title: "Błąd raportu",
+        message,
+        tone: "danger",
+      });
     } finally {
-      setDownloading(false);
+      setCreatingReport(false);
     }
-  }, [items, selectedIds, selectionMode]);
+  }, [alert, items, login, selectedIds, selectionMode]);
 
   const selectedCount = selectedIds.length;
 
@@ -627,10 +742,10 @@ export default function ArchivePage() {
                     <button
                       className="btn bg-green-600 text-white"
                       type="button"
-                      disabled={selectedCount === 0 || downloading}
-                      onClick={downloadSelected}
+                      disabled={selectedCount === 0 || creatingReport}
+                      onClick={createReport}
                     >
-                      {downloading ? "Pakowanie..." : `Pobierz (${selectedCount})`}
+                      {creatingReport ? "Generowanie..." : `Utwórz raport (${selectedCount})`}
                     </button>
                   )}
                   {can.deleteArchive(role) && (
@@ -679,10 +794,10 @@ export default function ArchivePage() {
 
               {selectionMode && (
                 <p className="text-xs text-beige-700">
-                  Zaznacz dokumenty do pobrania. Każdy obraz zostanie zapisany w jednym pliku ZIP.
+                  Zaznacz dokumenty do raportu. Wszystkie informacje i obrazy trafią do jednego pliku PDF.
                 </p>
               )}
-              {downloadError && <p className="text-sm text-red-300">{downloadError}</p>}
+              {reportError && <p className="text-sm text-red-300">{reportError}</p>}
             </div>
   
             <div className="grid gap-2">
