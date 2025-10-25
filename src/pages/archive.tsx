@@ -6,7 +6,7 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { db } from "@/lib/firebase";
+import { db, storage } from "@/lib/firebase";
 import {
   addDoc,
   collection,
@@ -47,6 +47,8 @@ function sanitizeFileFragment(value: string) {
   );
 }
 
+const HTTP_PROTOCOL_REGEX = /^http:\/\//i;
+
 function ensureArray(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is string => typeof item === "string" && item.length > 0);
@@ -57,12 +59,91 @@ function ensureArray(value: unknown): string[] {
   return [];
 }
 
+function normalizeUrl(url: string) {
+  return url.replace(HTTP_PROTOCOL_REGEX, "https://");
+}
+
 function getExtension(contentType: string | null, url: string) {
   if (contentType?.includes("png")) return "png";
   if (contentType?.includes("jpeg") || contentType?.includes("jpg")) return "jpg";
   if (contentType?.includes("webp")) return "webp";
   const match = url.match(/\.([a-zA-Z0-9]{2,4})(?:\?|$)/);
   return match ? match[1].toLowerCase() : "png";
+}
+
+function getExtensionFromPath(path?: string | null) {
+  if (!path) return null;
+  const match = path.match(/\.([a-zA-Z0-9]{2,4})$/);
+  return match ? match[1].toLowerCase() : null;
+}
+
+async function fetchAsArrayBuffer(url: string) {
+  const normalized = normalizeUrl(url);
+  const response = await fetch(normalized, { mode: "cors", referrerPolicy: "no-referrer" });
+  if (!response.ok) {
+    throw new Error(`Nie udało się pobrać obrazu (${response.status}).`);
+  }
+  const blob = await response.blob();
+  const arrayBuffer = await blob.arrayBuffer();
+  return { arrayBuffer, contentType: response.headers.get("content-type"), resolvedUrl: response.url || normalized };
+}
+
+async function downloadArchiveAsset(source: { url?: string; path?: string | null }) {
+  let lastError: unknown = null;
+
+  if (source.url) {
+    try {
+      const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(source.url);
+      return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (source.path) {
+    try {
+      const { ref, getDownloadURL, getBytes, getMetadata } = await import("firebase/storage");
+      if (!storage) {
+        throw new Error("Usługa plików nie jest dostępna.");
+      }
+      const storageRef = ref(storage, source.path);
+
+      try {
+        const downloadUrl = await getDownloadURL(storageRef);
+        const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(downloadUrl);
+        return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
+      } catch (downloadUrlError) {
+        lastError = downloadUrlError;
+      }
+
+      const bytes = await getBytes(storageRef);
+      let contentType: string | null = null;
+      try {
+        const metadata = await getMetadata(storageRef);
+        contentType = metadata.contentType || null;
+      } catch (metadataError) {
+        console.warn("Nie udało się pobrać metadanych pliku archiwum", metadataError);
+      }
+
+      const extensionFromPath = getExtensionFromPath(source.path);
+      const fallbackUrl = source.url || source.path || "";
+      const extension = extensionFromPath || getExtension(contentType, fallbackUrl);
+      const uint8Array = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+      const arrayBuffer = uint8Array.buffer.slice(
+        uint8Array.byteOffset,
+        uint8Array.byteOffset + uint8Array.byteLength
+      );
+      return { arrayBuffer, extension };
+    } catch (storageError) {
+      lastError = storageError;
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+
+  throw new Error("Nie udało się pobrać pliku archiwum.");
 }
 
 function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
@@ -305,6 +386,11 @@ export default function ArchivePage() {
       for (const item of items) {
         if (!selectedIds.includes(item.id)) continue;
         const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+        const paths = item.imagePaths?.length
+          ? item.imagePaths
+          : item.imagePath
+          ? [item.imagePath]
+          : [];
         if (images.length === 0) continue;
 
         const baseNameParts = [item.templateSlug || item.templateName || item.id, item.userLogin || "anon"];
@@ -316,14 +402,9 @@ export default function ArchivePage() {
 
         for (let index = 0; index < images.length; index += 1) {
           const url = images[index];
+          const path = paths[index] ?? (paths.length === 1 ? paths[0] : undefined);
           try {
-            const response = await fetch(url);
-            if (!response.ok) {
-              throw new Error(`Nie udało się pobrać obrazu (${response.status}).`);
-            }
-            const blob = await response.blob();
-            const arrayBuffer = await blob.arrayBuffer();
-            const extension = getExtension(response.headers.get("content-type"), url);
+            const { arrayBuffer, extension } = await downloadArchiveAsset({ url, path });
             const fileName = `${baseName}${images.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`;
             zip.file(fileName, arrayBuffer);
             addedFiles += 1;
@@ -351,7 +432,8 @@ export default function ArchivePage() {
       setSelectedIds([]);
       setSelectionMode(false);
     } catch (error: any) {
-      setDownloadError(error?.message || "Nie udało się pobrać dokumentów.");
+      console.error("Nie udało się pobrać zaznaczonych dokumentów", error);
+      setDownloadError(error instanceof Error ? error.message : "Nie udało się pobrać dokumentów.");
     } finally {
       setDownloading(false);
     }
