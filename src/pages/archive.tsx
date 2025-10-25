@@ -523,8 +523,11 @@ export default function ArchivePage() {
         typeCounts.set(key, (typeCounts.get(key) ?? 0) + 1);
       });
 
-      const typeSummaryLines = Array.from(typeCounts.entries()).map(
-        ([type, count]) => `${count}× ${type}`
+      const typeSummaryEntries = Array.from(typeCounts.entries()).sort((a, b) =>
+        a[0].localeCompare(b[0], "pl")
+      );
+      const typeSummaryLines = typeSummaryEntries.map(
+        ([type, count]) => `${type} x${count}`
       );
 
       const doc = new jsPDF({ unit: "pt", format: "a4" });
@@ -646,7 +649,9 @@ export default function ArchivePage() {
         throw new Error("Nie udało się wygenerować pliku PDF.");
       }
       const pdfBase64 = arrayBufferToBase64(arrayBuffer);
-      const typeSummaryText = typeSummaryLines.length ? typeSummaryLines.join("\n") : "—";
+      const typeSummaryText = typeSummaryLines.length
+        ? typeSummaryLines.map((line) => `• ${line}`).join("\n")
+        : "—";
 
       const response = await fetch("/api/send-archive-report", {
         method: "POST",
@@ -745,7 +750,7 @@ export default function ArchivePage() {
                       disabled={selectedCount === 0 || creatingReport}
                       onClick={createReport}
                     >
-                      {creatingReport ? "Generowanie..." : `Utwórz raport (${selectedCount})`}
+                      {creatingReport ? "Generowanie..." : `Generuj raport (${selectedCount})`}
                     </button>
                   )}
                   {can.deleteArchive(role) && (
