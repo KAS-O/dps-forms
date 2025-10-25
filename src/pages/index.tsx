@@ -6,7 +6,6 @@ import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
-import { UnderlightGlow } from "@/components/UnderlightGlow";
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
 
@@ -53,8 +52,6 @@ export default function LoginPage() {
         <Head>
           <title>LSPD 77RP — Logowanie</title>
         </Head>
-
-        <UnderlightGlow />
 
         <div className="min-h-screen flex items-center justify-center px-4">
           <div className="card w-full max-w-md p-8 bg-[var(--card)] border border-white/10">

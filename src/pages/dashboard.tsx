@@ -5,7 +5,6 @@ import { TEMPLATES } from "@/lib/templates";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
-import { UnderlightGlow } from "@/components/UnderlightGlow";
 
 export default function Dashboard() {
   const [q, setQ] = useState("");
@@ -25,8 +24,6 @@ export default function Dashboard() {
         </Head>
 
         <Nav />
-
-        <UnderlightGlow />
 
         <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
           <div>
