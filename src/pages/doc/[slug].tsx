@@ -378,7 +378,7 @@ export default function DocPage() {
       setErr("Ten dokument wymaga powiązania z teczką.");
       return;
     }
-     if (requiresVehicleFolder && !vehicleFolderId) {
+    if (requiresVehicleFolder && !vehicleFolderId) {
       setErr("Ten dokument wymaga wskazania teczki pojazdu.");
       return;
     }
@@ -447,8 +447,8 @@ export default function DocPage() {
         userLogin: userLogin || "nieznany",
         createdAt: serverTimestamp(),
         values: valuesOut,
-        officers: selectedNames,        // dla podglądu
-        officersUid: selectedUids,      // <— KLUCZ DO STATYSTYK
+        officers: selectedNames, // dla podglądu
+        officersUid: selectedUids, // <— KLUCZ DO STATYSTYK
         dossierId: dossierId || null,
         vehicleFolderId: vehicleFolderId || null,
         vehicleFolderRegistration: selectedVehicle?.registration || "",

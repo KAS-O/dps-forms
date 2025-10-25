@@ -13,13 +13,28 @@ function normalizePath(value: unknown): string | null {
     value = value[0];
   }
   if (typeof value !== "string") return null;
+
   const trimmed = value.trim();
   if (!trimmed) return null;
+
   const withoutPrefix = trimmed.replace(/^\/+/, "");
-  if (!withoutPrefix || withoutPrefix.includes("..")) {
+  if (!withoutPrefix) {
     return null;
   }
-  return withoutPrefix;
+
+  let decoded = withoutPrefix;
+  try {
+    decoded = decodeURIComponent(withoutPrefix);
+  } catch (error) {
+    console.warn("Nie udało się zdekodować ścieżki archiwum", error);
+    return null;
+  }
+
+  if (!decoded || decoded.includes("..")) {
+    return null;
+  }
+
+  return decoded;
 }
 
 async function verifyToken(req: NextApiRequest) {
@@ -65,6 +80,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const [[metadata], contents] = await Promise.all([file.getMetadata(), file.download()]);
+    const buffer = Buffer.isBuffer(contents[0]) ? contents[0] : Buffer.from(contents[0]);
     const contentType = metadata?.contentType || "application/octet-stream";
     const contentDisposition = metadata?.contentDisposition;
 
@@ -73,10 +89,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.setHeader("Content-Disposition", contentDisposition);
     }
     res.setHeader("Cache-Control", "private, max-age=60");
+    res.setHeader("Content-Length", buffer.length.toString());
 
-    return res.status(200).send(contents[0]);
+    return res.status(200).send(buffer);
   } catch (error: any) {
     console.error("Nie udało się pobrać pliku archiwum", error);
-    return res.status(500).json({ error: "Nie udało się pobrać pliku archiwum" });
+    if (!res.headersSent) {
+      return res.status(500).json({ error: "Nie udało się pobrać pliku archiwum" });
+    }
+    res.end();
   }
 }

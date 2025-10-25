@@ -144,38 +144,61 @@ async function fetchArchiveProxy(path: string) {
   const params = new URLSearchParams();
   params.set("path", path);
 
-  const headers: HeadersInit = {};
-  const user = auth?.currentUser;
-  if (user) {
-    try {
-      const token = await user.getIdToken();
-      headers["Authorization"] = `Bearer ${token}`;
-    } catch (tokenError) {
-      console.warn("Nie udało się pobrać tokenu użytkownika do pobrania pliku archiwum", tokenError);
-    }
-  }
-
-  const response = await fetch(`/api/archive/file?${params.toString()}`, {
-    headers,
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    let message = `Nie udało się pobrać pliku archiwum (status ${response.status}).`;
-    try {
-      const data = await response.json();
-      if (data?.error && typeof data.error === "string") {
-        message = data.error;
+  const attempt = async (forceRefresh: boolean) => {
+    const headers: HeadersInit = {};
+    const user = auth?.currentUser;
+    if (user) {
+      try {
+        const token = await user.getIdToken(forceRefresh);
+        headers["Authorization"] = `Bearer ${token}`;
+      } catch (tokenError) {
+        console.warn("Nie udało się pobrać tokenu użytkownika do pobrania pliku archiwum", tokenError);
       }
-    } catch (readError) {
-      console.warn("Nie udało się odczytać odpowiedzi proxy archiwum", readError);
     }
-    throw new ArchiveProxyError(message, response.status);
-  }
 
-  const arrayBuffer = await response.arrayBuffer();
-  const contentType = response.headers.get("content-type");
-  return { arrayBuffer, extension: getExtension(contentType, path) };
+    const response = await fetch(`/api/archive/file?${params.toString()}`, {
+      headers,
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        if (user && !forceRefresh) {
+          return attempt(true);
+        }
+      }
+
+      let message = `Nie udało się pobrać pliku archiwum (status ${response.status}).`;
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        try {
+          const data = await response.json();
+          if (data?.error && typeof data.error === "string") {
+            message = data.error;
+          }
+        } catch (readError) {
+          console.warn("Nie udało się odczytać odpowiedzi proxy archiwum", readError);
+        }
+      } else {
+        try {
+          const text = await response.text();
+          if (text) {
+            console.warn("Odpowiedź proxy archiwum", text.slice(0, 200));
+          }
+        } catch (textError) {
+          console.warn("Nie udało się odczytać odpowiedzi proxy archiwum jako tekstu", textError);
+        }
+      }
+
+      throw new ArchiveProxyError(message, response.status);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const contentType = response.headers.get("content-type");
+    return { arrayBuffer, extension: getExtension(contentType, path) };
+  };
+
+  return attempt(false);
 }
 
 async function fetchAsArrayBuffer(url: string) {
