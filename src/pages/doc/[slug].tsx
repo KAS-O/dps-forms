@@ -4,7 +4,6 @@ import AuthGate from "@/components/AuthGate";
 import { TEMPLATES, Template } from "@/lib/templates";
 import {
   FormEvent,
-  ReactNode,
   forwardRef,
   useCallback,
   useEffect,
@@ -35,7 +34,8 @@ type FieldRender = {
   id: string;
   label: string;
   required: boolean;
-  content: ReactNode;
+  textValue: string;
+  note?: string;
   signature: string;
 };
 
@@ -46,7 +46,10 @@ const FieldBlock = forwardRef<HTMLDivElement, { field: FieldRender }>(({ field }
         {field.label}
         {field.required ? " *" : ""}
       </div>
-      <div className="whitespace-pre-wrap break-words">{field.content}</div>
+      <div className="whitespace-pre-wrap break-words">
+        {field.textValue}
+        {field.note && <div className="text-[11px] text-gray-600">{field.note}</div>}
+      </div>
     </div>
   );
 });
@@ -156,12 +159,8 @@ export default function DocPage() {
         id: f.key,
         label: f.label,
         required: !!f.required,
-        content: (
-          <>
-            {displayText}
-            {note && <div className="text-[11px] text-gray-600">{note}</div>}
-          </>
-        ),
+        textValue: displayText,
+        note,
         signature: `${displayText}|${note}`,
       };
     });
@@ -422,23 +421,62 @@ export default function DocPage() {
       const imagePathsAll = uploadResults.map((item) => item.path);
       const imageUrlsAll = uploadResults.map((item) => item.url);
 
+      const officerText = selectedNames.join(", ") || "—";
+      const vehicleLabelParts = selectedVehicle
+        ? [
+            selectedVehicle.registration || null,
+            selectedVehicle.brand || null,
+            selectedVehicle.color ? `Kolor: ${selectedVehicle.color}` : null,
+            selectedVehicle.ownerName ? `Właściciel: ${selectedVehicle.ownerName}` : null,
+          ].filter(Boolean)
+        : [];
+      const vehicleLabel = vehicleLabelParts.join(" • ");
+      const dossierEntry = dossierId ? dossiers.find((d) => d.id === dossierId) : undefined;
+      const dossierLabel =
+        dossierEntry?.title ||
+        [dossierEntry?.first, dossierEntry?.last]
+          .map((part) => (typeof part === "string" ? part.trim() : ""))
+          .filter(Boolean)
+          .join(" ") ||
+        (dossierId || "");
+
+      const fieldLinesForText = previewFields.flatMap((field) => {
+        const base = `${field.label}: ${field.textValue || "—"}`;
+        return field.note ? [base, `  ${field.note}`] : [base];
+      });
+
+      const textPagesRaw = pages.map((pageFields) =>
+        pageFields
+          .flatMap((field) => {
+            const base = `${field.label}: ${field.textValue || "—"}`;
+            return field.note ? [base, `  ${field.note}`] : [base];
+          })
+          .join("\n")
+      );
+      const textPages = textPagesRaw.filter((page) => page.trim().length > 0);
+
+      const documentTextLines = [
+        `Dokument: ${template.name}`,
+        `Funkcjonariusze: ${officerText}`,
+        dossierId ? `Powiązana teczka: ${dossierLabel}` : null,
+        vehicleFolderId
+          ? `Teczka pojazdu: ${vehicleLabel || selectedVehicle?.registration || selectedVehicle?.id || "—"}`
+          : null,
+        "",
+        ...fieldLinesForText,
+      ].filter((line): line is string => line != null);
+      const documentTextContent = documentTextLines.join("\n");
+
       // 2) Firestore – zapis archiwum
       const valuesOut: Record<string, any> = {
         ...values,
-        funkcjonariusze: selectedNames.join(", "),
+        funkcjonariusze: officerText,
       };
       if (requiresDossier && nextPayoutDate) {
         valuesOut["dni"] = nextPayoutDate;
       }
       valuesOut["liczbaStron"] = imageUrlsAll.length;
       if (requiresVehicleFolder && selectedVehicle) {
-        const vehicleLabel = [
-          selectedVehicle.registration || null,
-          selectedVehicle.brand || null,
-          selectedVehicle.color ? `Kolor: ${selectedVehicle.color}` : null,
-        ]
-          .filter(Boolean)
-          .join(" • ");
         valuesOut["teczkaPojazdu"] = vehicleLabel || selectedVehicle.registration || selectedVehicle.id;
       }
       const archiveRef = await addDoc(collection(db, "archives"), {
@@ -456,12 +494,21 @@ export default function DocPage() {
         imageUrl: primaryImage.url,
         imagePaths: imagePathsAll,
         imageUrls: imageUrlsAll,
+        textContent: documentTextContent,
+        textPages,
       });
 
       // 2a) wpis w teczce (opcjonalnie)
       if (dossierId) {
+        const dossierTextLines = [
+          `Dokument: ${template.name}`,
+          `Autor: ${userLogin}`,
+          "Treść:",
+          ...fieldLinesForText,
+          `URL: ${primaryImage.url}`,
+        ];
         await addDoc(collection(db, "dossiers", dossierId, "records"), {
-          text: `Dokument: ${template.name}\nAutor: ${userLogin}\nURL: ${primaryImage.url}`,
+          text: dossierTextLines.join("\n"),
           createdAt: serverTimestamp(),
           author: auth.currentUser?.email || "",
           authorUid: auth.currentUser?.uid || "",
@@ -488,22 +535,8 @@ export default function DocPage() {
             .join(" • ");
           if (parts) noteLines.push(`Pojazd: ${parts}`);
         }
-
-        const fieldLines = template.fields.map((f) => {
-          const raw = values[f.key];
-          if (!raw) return `${f.label}: —`;
-          if (typeof raw === "string" && raw.includes("|")) {
-            const formatted = raw
-              .split("|")
-              .map((x) => x.trim())
-              .filter(Boolean)
-              .join(", ");
-            return `${f.label}: ${formatted || "—"}`;
-          }
-          return `${f.label}: ${raw}`;
-        });
-        if (fieldLines.length) {
-          noteLines.push("", ...fieldLines);
+        if (fieldLinesForText.length) {
+          noteLines.push("", "Treść dokumentu:", ...fieldLinesForText);
         }
 
         const rawAmount = vehicleNoteConfig ? values[vehicleNoteConfig.amountField] : undefined;
@@ -746,7 +779,7 @@ export default function DocPage() {
               ))}
 
               <button className="btn" disabled={sending || (requiresDossier && !dossierId)}>
-                {sending ? "Wysyłanie..." : "Wyślij do ARCHIWUM (obraz PNG)"}
+                {sending ? "Wysyłanie..." : "Wyślij do ARCHIWUM (obraz + tekst)"}
               </button>
               {ok && <p className="text-green-700 text-sm">{ok}</p>}
               {err && <p className="text-red-700 text-sm">{err}</p>}
@@ -756,7 +789,7 @@ export default function DocPage() {
           {/* PREVIEW */}
           <div className="card p-6">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Podgląd dokumentu (to idzie jako obraz)</h2>
+              <h2 className="text-lg font-semibold">Podgląd dokumentu (obraz + zapis tekstowy)</h2>
               <span className="text-xs text-beige-700">
                 A4 • wysoka jakość • {pages.length} {pages.length === 1 ? "strona" : "strony"}
               </span>
