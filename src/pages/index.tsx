@@ -1,12 +1,11 @@
+import { FormEvent, useState } from "react";
 import Image from "next/image";
 import Head from "next/head";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { FormEvent, useState } from "react";
 import { useRouter } from "next/router";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import AuthGate from "@/components/AuthGate";
-import { UnderlightGlow } from "@/components/UnderlightGlow";
+import { auth, db } from "@/lib/firebase";
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
 
@@ -17,15 +16,14 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const onSubmit = async (event: FormEvent) => {
+    event.preventDefault();
     setError(null);
     setLoading(true);
     try {
       const email = `${login}@${LOGIN_DOMAIN}`;
       await signInWithEmailAndPassword(auth, email, password);
 
-      // log sukcesu
       await addDoc(collection(db, "logs"), {
         type: "login_success",
         login,
@@ -33,12 +31,11 @@ export default function LoginPage() {
       });
 
       router.push("/dashboard");
-    } catch (e: any) {
-      // log niepowodzenia
+    } catch (error: any) {
       await addDoc(collection(db, "logs"), {
         type: "login_fail",
         login,
-        error: e?.code || e?.message,
+        error: error?.code || error?.message,
         ts: serverTimestamp(),
       });
 
@@ -53,13 +50,9 @@ export default function LoginPage() {
         <Head>
           <title>LSPD 77RP — Logowanie</title>
         </Head>
-
-        <UnderlightGlow />
-
         <div className="min-h-screen flex items-center justify-center px-4">
           <div className="card w-full max-w-md p-8 bg-[var(--card)] border border-white/10">
-            <div className="flex flex-col items-center gap-4 mb-6">
-              {/* Jeśli masz PNG: zmień logo.svg na logo.png */}
+            <div className="mb-6 flex flex-col items-center gap-4">
               <Image src="/logo.png" alt="LSPD" width={320} height={80} priority className="floating" />
               <h1 className="text-xl font-semibold text-center">
                 Los Santos Police Department — Panel dokumentów
@@ -69,12 +62,7 @@ export default function LoginPage() {
             <form onSubmit={onSubmit} className="space-y-4">
               <div>
                 <label className="label">Login</label>
-                <input
-                  className="input"
-                  value={login}
-                  onChange={(e) => setLogin(e.target.value)}
-                  required
-                />
+                <input className="input" value={login} onChange={(event) => setLogin(event.target.value)} required />
               </div>
 
               <div>
@@ -83,7 +71,7 @@ export default function LoginPage() {
                   className="input"
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(event) => setPassword(event.target.value)}
                   required
                 />
               </div>
@@ -99,7 +87,7 @@ export default function LoginPage() {
               </p>
             </form>
 
-            <p className="text-[11px] text-center mt-3 text-beige-900/80">
+            <p className="mt-3 text-center text-[11px] text-beige-900/80">
               Loginy mają format wewnętrzny <code>LOGIN@{LOGIN_DOMAIN}</code>.
             </p>
           </div>
