@@ -24,6 +24,23 @@ service cloud.firestore {
       return signedIn() && (r == "director" || r == "chief" || r == "senior" || r == "agent");
     }
 
+    function vehicleFolderProtectedFieldsUnchanged() {
+      return request.resource.data.createdBy == resource.data.createdBy &&
+        request.resource.data.createdByUid == resource.data.createdByUid &&
+        request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function vehicleNotePaymentOnlyUpdate() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        "paymentStatus",
+        "paymentStatusMessage",
+        "paymentResolvedAt",
+        "paymentResolvedBy",
+        "paymentResolvedByUid",
+        "paymentCredited"
+      ]);
+    }
+
     // profile
     match /profiles/{uid} {
       allow read: if signedIn();
@@ -77,13 +94,16 @@ service cloud.firestore {
       allow read: if isStaff();
       allow create: if isStaff();
       allow update: if (isDirector() || isChief()) ||
-        (signedIn() && request.auth.uid == resource.data.createdByUid);
+        (isStaff() && vehicleFolderProtectedFieldsUnchanged());
       allow delete: if (isDirector() || isChief()) ||
         (signedIn() && request.auth.uid == resource.data.createdByUid);
 
       match /notes/{noteId} {
         allow read, create: if isStaff();
-        allow update, delete: if (isDirector() || isChief()) ||
+        allow update: if (isDirector() || isChief()) ||
+          (signedIn() && request.auth.uid == resource.data.authorUid) ||
+          (isStaff() && vehicleNotePaymentOnlyUpdate());
+        allow delete: if (isDirector() || isChief()) ||
           (signedIn() && request.auth.uid == resource.data.authorUid);
       }
     }
