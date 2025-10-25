@@ -37,6 +37,7 @@ type FieldRender = {
   required: boolean;
   content: ReactNode;
   signature: string;
+  plainText: string;
 };
 
 const FieldBlock = forwardRef<HTMLDivElement, { field: FieldRender }>(({ field }, ref) => {
@@ -152,6 +153,8 @@ export default function DocPage() {
         displayText = "—";
       }
 
+      const plainText = note ? `${displayText}${note ? ` (${note})` : ""}` : displayText;
+
       return {
         id: f.key,
         label: f.label,
@@ -163,6 +166,7 @@ export default function DocPage() {
           </>
         ),
         signature: `${displayText}|${note}`,
+        plainText,
       };
     });
   }, [nextPayoutDate, template, values]);
@@ -441,6 +445,37 @@ export default function DocPage() {
           .join(" • ");
         valuesOut["teczkaPojazdu"] = vehicleLabel || selectedVehicle.registration || selectedVehicle.id;
       }
+      const officersText = selectedNames.join(", ") || "—";
+      const vehicleSummary = requiresVehicleFolder
+        ? selectedVehicle
+          ? [
+              selectedVehicle.registration || null,
+              selectedVehicle.brand || null,
+              selectedVehicle.color ? `Kolor: ${selectedVehicle.color}` : null,
+              selectedVehicle.ownerName ? `Właściciel: ${selectedVehicle.ownerName}` : null,
+            ]
+              .filter(Boolean)
+              .join(" • ") || "—"
+          : "—"
+        : null;
+
+      const fieldLines = previewFields.map((field) => {
+        const suffix = field.required ? " *" : "";
+        return `${field.label}${suffix}: ${field.plainText || "—"}`;
+      });
+
+      const summaryLines = [
+        `Dokument: ${template.name}`,
+        `Funkcjonariusze: ${officersText}`,
+      ];
+      if (vehicleSummary != null) {
+        summaryLines.push(`Teczka pojazdu: ${vehicleSummary}`);
+      }
+      summaryLines.push("", ...fieldLines);
+
+      const textPages = [summaryLines.join("\n")];
+      const textContent = textPages.join("\n\n");
+
       const archiveRef = await addDoc(collection(db, "archives"), {
         templateName: template.name,
         templateSlug: template.slug,
@@ -456,6 +491,8 @@ export default function DocPage() {
         imageUrl: primaryImage.url,
         imagePaths: imagePathsAll,
         imageUrls: imageUrlsAll,
+        textPages,
+        textContent,
       });
 
       // 2a) wpis w teczce (opcjonalnie)
