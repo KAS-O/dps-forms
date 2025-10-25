@@ -647,20 +647,36 @@ export default function ArchivePage() {
           doc.addImage(logoDataUri, "PNG", logoPadding, logoPadding - 18, logoSize, logoSize);
 
           doc.setTextColor(255, 255, 255);
-          doc.setFontSize(20);
-          doc.text(
-            "Raport Czynności Służbowych",
-            logoPadding + logoSize + 18,
-            logoPadding + 6
-          );
+
+          const headerContentStart = logoPadding + logoSize + 18;
+          const headerInnerWidth = pageWidth - margin - headerContentStart;
+          const headerColumnGap = 16;
+          const rightColumnWidth = 180;
+          const leftColumnWidth = Math.max(120, headerInnerWidth - rightColumnWidth - headerColumnGap);
+
+          doc.setFontSize(18);
+          const headerTitleLines = doc.splitTextToSize("Raport Czynności Służbowych", leftColumnWidth);
+          doc.text(headerTitleLines, headerContentStart, logoPadding + 10);
+          const headerTitleHeight = doc.getTextDimensions(headerTitleLines).h;
+
           doc.setFontSize(11);
-          doc.text("Jednostka: LSPD", logoPadding + logoSize + 18, logoPadding + 26);
-          doc.text(`Wygenerowano: ${now.toLocaleString("pl-PL")}`, pageWidth - margin, logoPadding + 6, {
-            align: "right",
-          });
-          doc.text(`Liczba dokumentów: ${totalDocuments}`, pageWidth - margin, logoPadding + 26, {
-            align: "right",
-          });
+          const leftColumnBaseY = logoPadding + 10 + headerTitleHeight + 10;
+          doc.text("Jednostka: LSPD", headerContentStart, leftColumnBaseY);
+
+          const rightColumnStartX = pageWidth - margin - rightColumnWidth;
+          const infoTop = logoPadding + 10;
+          doc.setFontSize(10);
+          const generatedInfoLines = doc.splitTextToSize(
+            `Wygenerowano: ${now.toLocaleString("pl-PL")}`,
+            rightColumnWidth
+          );
+          doc.text(generatedInfoLines, rightColumnStartX, infoTop);
+          const generatedInfoHeight = doc.getTextDimensions(generatedInfoLines).h;
+          const documentsInfoLines = doc.splitTextToSize(
+            `Liczba dokumentów: ${totalDocuments}`,
+            rightColumnWidth
+          );
+          doc.text(documentsInfoLines, rightColumnStartX, infoTop + generatedInfoHeight + 6);
 
           doc.setFontSize(8);
           doc.setTextColor(226, 232, 240);
