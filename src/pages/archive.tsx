@@ -187,7 +187,6 @@ function buildFieldLinesFromValues(
 function buildFallbackMetaLines(item: Archive): string[] {
   const lines: string[] = [];
   lines.push(`Dokument: ${item.templateName || "—"}`);
-  lines.push(`Autor (login): ${item.userLogin || "—"}`);
   const officersText = (item.officers || []).join(", ");
   lines.push(`Funkcjonariusze: ${officersText || "—"}`);
   if (item.vehicleFolderRegistration) {
@@ -561,7 +560,7 @@ export default function ArchivePage() {
           doc.setFontSize(20);
           doc.text("Raport archiwum", logoPadding + logoSize + 18, logoPadding + 6);
           doc.setFontSize(11);
-          doc.text("Jednostka: LSPD 77RP", logoPadding + logoSize + 18, logoPadding + 26);
+          doc.text("Jednostka: LSPD", logoPadding + logoSize + 18, logoPadding + 26);
           doc.text(`Wygenerowano: ${now.toLocaleString("pl-PL")}`, pageWidth - margin, logoPadding + 6, {
             align: "right",
           });
@@ -646,7 +645,7 @@ export default function ArchivePage() {
         }
       };
 
-      for (const item of selectedItems) {
+      selectedItems.forEach((item, index) => {
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate || null;
         const officers = (item.officers || []).join(", ") || "—";
         const dossier = item.dossierId ? `Teczka: ${item.dossierId}` : null;
@@ -654,32 +653,59 @@ export default function ArchivePage() {
           ? `Folder pojazdu: ${item.vehicleFolderRegistration}`
           : null;
 
+        const sections = buildArchiveTextSections(item);
+        const metaContainsOfficers = sections.some((section) =>
+          section.lines.some((line) => line.toLowerCase().includes("funkcjonariusz"))
+        );
+
+        const infoLines = [
+          `Data utworzenia: ${createdAt ? createdAt.toLocaleString("pl-PL") : "—"}`,
+        ];
+        if (!metaContainsOfficers && officers !== "—") {
+          infoLines.push(`Funkcjonariusze: ${officers}`);
+        }
+        if (dossier) infoLines.push(dossier);
+        if (vehicleRegistration) infoLines.push(vehicleRegistration);
+
+        const minimumDocumentBlockHeight = 48 + infoLines.length * 14;
+        ensureSpace(minimumDocumentBlockHeight);
+
+        if (index > 0 && cursorY > subsequentTop + 1) {
+          doc.setDrawColor(214, 211, 209);
+          doc.setLineWidth(0.6);
+          doc.line(margin, cursorY, pageWidth - margin, cursorY);
+          cursorY += 18;
+        }
+
+        doc.setFontSize(10);
+        doc.setTextColor(107, 114, 128);
+        doc.text(`Dokument ${index + 1} z ${totalDocuments}`, margin, cursorY);
+        cursorY += 14;
+
         doc.setFontSize(14);
-        ensureSpace(24);
+        doc.setTextColor(55, 65, 81);
         doc.text(item.templateName || item.templateSlug || "Dokument", margin, cursorY);
         cursorY += 18;
 
         doc.setFontSize(11);
-        const infoLines = [
-          `Autor (login): ${item.userLogin || "—"}`,
-          `Funkcjonariusze: ${officers}`,
-          `Data utworzenia: ${createdAt ? createdAt.toLocaleString("pl-PL") : "—"}`,
-        ];
-        if (dossier) infoLines.push(dossier);
-        if (vehicleRegistration) infoLines.push(vehicleRegistration);
-
+        doc.setTextColor(75, 85, 99);
         infoLines.forEach((line) => {
           ensureSpace(16);
           doc.text(normalizePdfLine(line), margin, cursorY);
           cursorY += 14;
         });
 
-        const sections = buildArchiveTextSections(item);
+        doc.setTextColor(55, 65, 81);
+        cursorY += 8;
+
         if (!sections.length) {
           ensureSpace(16);
           doc.text("(Brak danych tekstowych w archiwum)", margin, cursorY);
           cursorY += 18;
-          continue;
+          if (index < selectedItems.length - 1) {
+            cursorY += 12;
+          }
+          return;
         }
 
         sections.forEach((section) => {
@@ -710,8 +736,10 @@ export default function ArchivePage() {
           cursorY += 10;
         });
 
-        cursorY += 10;
-      }
+        if (index < selectedItems.length - 1) {
+          cursorY += 12;
+        }
+      });
 
       const arrayBuffer = doc.output("arraybuffer");
       if (!(arrayBuffer instanceof ArrayBuffer)) {
