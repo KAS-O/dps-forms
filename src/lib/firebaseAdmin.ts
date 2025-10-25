@@ -5,6 +5,7 @@ import admin from "firebase-admin";
 import { App, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 type ServiceAccount = {
   project_id?: string;
@@ -66,11 +67,16 @@ const serviceAccount =
 let projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 let clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
 let rawPrivateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
+let storageBucket =
+  process.env.FIREBASE_ADMIN_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || undefined;
 
 if (serviceAccount) {
   projectId = projectId || serviceAccount.project_id;
   clientEmail = clientEmail || serviceAccount.client_email;
   rawPrivateKey = rawPrivateKey || serviceAccount.private_key;
+  if (!storageBucket && serviceAccount.project_id) {
+    storageBucket = `${serviceAccount.project_id}.appspot.com`;
+  }
 }
 
 if (!rawPrivateKey && process.env.FIREBASE_ADMIN_PRIVATE_KEY_BASE64) {
@@ -101,7 +107,10 @@ function ensureFirebaseAdminApp(): App | null {
   if (!projectId || !clientEmail || !privateKey) {
     if (projectId && (process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST)) {
       try {
-        const app = initializeApp({ projectId });
+        const app = initializeApp({
+          projectId,
+          storageBucket: storageBucket || `${projectId}.appspot.com`,
+        });
         globalWithAdmin.__FIREBASE_ADMIN_APP__ = app;
         return app;
       } catch (error) {
@@ -121,6 +130,7 @@ function ensureFirebaseAdminApp(): App | null {
         clientEmail,
         privateKey,
       }),
+      storageBucket,
     });
     globalWithAdmin.__FIREBASE_ADMIN_APP__ = app;
     return app;
@@ -137,3 +147,5 @@ export const adminAuth = app ? getAuth(app) : null;
 export const adminDb = app ? admin.firestore(app) : null;
 export const adminFieldValue: typeof FieldValue | null = app ? FieldValue : null;
 export const adminTimestamp: typeof Timestamp | null = app ? Timestamp : null;
+export const adminStorage = app ? getStorage(app) : null;
+export const adminBucket = adminStorage ? adminStorage.bucket() : null;

@@ -6,7 +6,7 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { db, storage } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { TEMPLATES } from "@/lib/templates";
 import {
   addDoc,
@@ -38,18 +38,6 @@ type Archive = {
   vehicleFolderRegistration?: string;
 };
 
-function sanitizeFileFragment(value: string) {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/gi, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "dokument"
-  );
-}
-
-const HTTP_PROTOCOL_REGEX = /^http:\/\//i;
-
 function ensureArray(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is string => typeof item === "string" && item.length > 0);
@@ -58,93 +46,6 @@ function ensureArray(value: unknown): string[] {
     return [value];
   }
   return [];
-}
-
-function normalizeUrl(url: string) {
-  return url.replace(HTTP_PROTOCOL_REGEX, "https://");
-}
-
-function getExtension(contentType: string | null, url: string) {
-  if (contentType?.includes("png")) return "png";
-  if (contentType?.includes("jpeg") || contentType?.includes("jpg")) return "jpg";
-  if (contentType?.includes("webp")) return "webp";
-  const match = url.match(/\.([a-zA-Z0-9]{2,4})(?:\?|$)/);
-  return match ? match[1].toLowerCase() : "png";
-}
-
-function getExtensionFromPath(path?: string | null) {
-  if (!path) return null;
-  const match = path.match(/\.([a-zA-Z0-9]{2,4})$/);
-  return match ? match[1].toLowerCase() : null;
-}
-
-async function fetchAsArrayBuffer(url: string) {
-  const normalized = normalizeUrl(url);
-  const response = await fetch(normalized, { mode: "cors", referrerPolicy: "no-referrer" });
-  if (!response.ok) {
-    throw new Error(`Nie udało się pobrać obrazu (${response.status}).`);
-  }
-  const blob = await response.blob();
-  const arrayBuffer = await blob.arrayBuffer();
-  return { arrayBuffer, contentType: response.headers.get("content-type"), resolvedUrl: response.url || normalized };
-}
-
-async function downloadArchiveAsset(source: { url?: string; path?: string | null }) {
-  let lastError: unknown = null;
-
-  if (source.url) {
-    try {
-      const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(source.url);
-      return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  if (source.path) {
-    try {
-      const { ref, getDownloadURL, getBytes, getMetadata } = await import("firebase/storage");
-      if (!storage) {
-        throw new Error("Usługa plików nie jest dostępna.");
-      }
-      const storageRef = ref(storage, source.path);
-
-      try {
-        const downloadUrl = await getDownloadURL(storageRef);
-        const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(downloadUrl);
-        return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
-      } catch (downloadUrlError) {
-        lastError = downloadUrlError;
-      }
-
-      const bytes = await getBytes(storageRef);
-      let contentType: string | null = null;
-      try {
-        const metadata = await getMetadata(storageRef);
-        contentType = metadata.contentType || null;
-      } catch (metadataError) {
-        console.warn("Nie udało się pobrać metadanych pliku archiwum", metadataError);
-      }
-
-      const extensionFromPath = getExtensionFromPath(source.path);
-      const fallbackUrl = source.url || source.path || "";
-      const extension = extensionFromPath || getExtension(contentType, fallbackUrl);
-      const uint8Array = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-      const arrayBuffer = uint8Array.buffer.slice(
-        uint8Array.byteOffset,
-        uint8Array.byteOffset + uint8Array.byteLength
-      );
-      return { arrayBuffer, extension };
-    } catch (storageError) {
-      lastError = storageError;
-    }
-  }
-
-  if (lastError instanceof Error) {
-    throw lastError;
-  }
-
-  throw new Error("Nie udało się pobrać pliku archiwum.");
 }
 
 function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
@@ -385,91 +286,46 @@ export default function ArchivePage() {
     try {
       setDownloading(true);
       setDownloadError(null);
-      
-      const { default: JSZip } = await import("jszip");
-      const zip = new JSZip();
-      const selectedItems = items.filter((item) => selectedIds.includes(item.id));
-      const tasks: {
-        run: () => Promise<{ arrayBuffer: ArrayBuffer; extension: string }>;
-        makeFileName: (extension: string) => string;
-        context: string;
-      }[] = [];
 
-      selectedItems.forEach((item) => {
-        const images = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
-        const paths = item.imagePaths?.length
-          ? item.imagePaths
-          : item.imagePath
-          ? [item.imagePath]
-          : [];
-        if (images.length === 0) return;
-
-        const baseNameParts = [item.templateSlug || item.templateName || item.id, item.userLogin || "anon"];
-        const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
-        if (createdAt) {
-          baseNameParts.push(createdAt.toISOString().replace(/[:.]/g, "-"));
-        }
-        const baseName = sanitizeFileFragment(baseNameParts.filter(Boolean).join("-"));
-
-        images.forEach((url, index) => {
-          const path = paths[index] ?? (paths.length === 1 ? paths[0] : undefined);
-          const pageLabel = images.length > 1 ? ` (strona ${index + 1})` : "";
-          tasks.push({
-            run: () => downloadArchiveAsset({ url, path }),
-            makeFileName: (extension) => `${baseName}${images.length > 1 ? `-strona-${index + 1}` : ""}.${extension}`,
-            context: `${item.templateName || item.templateSlug || item.id}${pageLabel}`,
-          });
-        });
-      });
-
-      if (tasks.length === 0) {
-        throw new Error("Brak obrazów w zaznaczonych dokumentach.");
+      if (!auth) {
+        throw new Error("Usługa pobierania nie jest dostępna.");
       }
 
-      const results: { fileName: string; arrayBuffer: ArrayBuffer }[] = new Array(tasks.length);
-      let pointer = 0;
-      const concurrency = Math.min(4, tasks.length);
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error("Brak zalogowanego użytkownika.");
+      }
 
-      const workers = Array.from({ length: concurrency }).map(async () => {
-        while (true) {
-          const currentIndex = pointer;
-          pointer += 1;
-          if (currentIndex >= tasks.length) break;
-          const task = tasks[currentIndex];
-          try {
-            const { arrayBuffer, extension } = await task.run();
-            const fileName = task.makeFileName(extension);
-            results[currentIndex] = { fileName, arrayBuffer };
-          } catch (error) {
-            console.error("Błąd pobierania obrazu archiwum", error);
-            const message =
-              error instanceof Error && error.message
-                ? error.message
-                : "Nieznany błąd pobierania.";
-            throw new Error(`Nie udało się pobrać dokumentu "${task.context}": ${message}`);
+      const token = await user.getIdToken();
+      const response = await fetch("/api/archive/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, ids: selectedIds }),
+      });
+
+      if (!response.ok) {
+        let message = "Nie udało się pobrać dokumentów.";
+        try {
+          const data = await response.json();
+          if (data?.error) {
+            message = data.error;
           }
+        } catch (parseError) {
+          console.warn("Nie udało się sparsować odpowiedzi pobierania archiwum", parseError);
         }
-      });
+        throw new Error(message);
+      }
 
-      await Promise.all(workers);
-
-      let addedFiles = 0;
-      results.forEach((result) => {
-        if (!result) return;
-        zip.file(result.fileName, result.arrayBuffer);
-        addedFiles += 1;
-      });
-
-      const content = await zip.generateAsync({ type: "blob" });
-      const blobUrl = URL.createObjectURL(content);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = blobUrl;
       link.download = `archiwum-${new Date().toISOString().slice(0, 10)}.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
-      
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+
       setSelectedIds([]);
       setSelectionMode(false);
     } catch (error: any) {
@@ -478,7 +334,7 @@ export default function ArchivePage() {
     } finally {
       setDownloading(false);
     }
-  }, [items, selectedIds, selectionMode]);
+  }, [selectionMode, selectedIds]);
 
   const selectedCount = selectedIds.length;
 
