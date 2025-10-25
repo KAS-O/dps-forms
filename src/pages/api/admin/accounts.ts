@@ -119,6 +119,28 @@ async function listAccounts(): Promise<AccountResponse[]> {
 }
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
+const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
+
+function mapFirebaseAuthError(error: any): { status: number; message: string } | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+  const code = typeof error.code === "string" ? error.code : "";
+  switch (code) {
+    case "auth/email-already-exists":
+      return { status: 400, message: "Login jest już zajęty." };
+    case "auth/invalid-email":
+      return {
+        status: 400,
+        message: "Login zawiera niedozwolone znaki. Dozwolone są małe litery, cyfry, kropki, myślniki i podkreślniki.",
+      };
+    case "auth/invalid-password":
+    case "auth/weak-password":
+      return { status: 400, message: "Hasło musi mieć co najmniej 6 znaków." };
+    default:
+      return null;
+  }
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -146,12 +168,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: "Login i hasło są wymagane" });
       }
       const normalizedLogin = String(login).trim().toLowerCase();
+      if (!LOGIN_PATTERN.test(normalizedLogin)) {
+        return res.status(400).json({
+          error: "Login może zawierać jedynie małe litery, cyfry, kropki, myślniki i podkreślniki.",
+        });
+      }
+      if (String(password).length < 6) {
+        return res.status(400).json({ error: "Hasło musi mieć co najmniej 6 znaków." });
+      }
       const email = `${normalizedLogin}@${LOGIN_DOMAIN}`;
-      const newUser = await adminAuth.createUser({
-        email,
-        password,
-        displayName: fullName || normalizedLogin,
-      });
+
+      let newUser;
+      try {
+        newUser = await adminAuth.createUser({
+          email,
+          password,
+          displayName: fullName || normalizedLogin,
+        });
+      } catch (error: any) {
+        const mapped = mapFirebaseAuthError(error);
+        if (mapped) {
+          return res.status(mapped.status).json({ error: mapped.message });
+        }
+        throw error;
+      }
 
       const createdAt = adminFieldValue?.serverTimestamp?.();
       await adminDb.collection("profiles").doc(newUser.uid).set({
@@ -173,6 +213,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const updatePayload: any = {};
       if (login) {
         const normalizedLogin = String(login).trim().toLowerCase();
+        if (!LOGIN_PATTERN.test(normalizedLogin)) {
+          return res.status(400).json({
+            error: "Login może zawierać jedynie małe litery, cyfry, kropki, myślniki i podkreślniki.",
+          });
+        }
         updatePayload.email = `${normalizedLogin}@${LOGIN_DOMAIN}`;
         updatePayload.displayName = fullName || normalizedLogin;
         const updatedAt = adminFieldValue?.serverTimestamp?.();
@@ -209,11 +254,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
       if (password) {
+        if (String(password).length < 6) {
+          return res.status(400).json({ error: "Hasło musi mieć co najmniej 6 znaków." });
+        }
         updatePayload.password = password;
         updates.push("password");
       }
       if (Object.keys(updatePayload).length) {
-        await adminAuth.updateUser(uid, updatePayload);
+        try {
+          await adminAuth.updateUser(uid, updatePayload);
+        } catch (error: any) {
+          const mapped = mapFirebaseAuthError(error);
+          if (mapped) {
+            return res.status(mapped.status).json({ error: mapped.message });
+          }
+          throw error;
+        }
       }
       return res.status(200).json({ ok: true, updated: updates });
     }
