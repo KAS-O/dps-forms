@@ -38,6 +38,11 @@ type Archive = {
   vehicleFolderRegistration?: string;
 };
 
+type ArchiveAssetSource = {
+  path?: string | null;
+  url?: string | null;
+};
+
 const HTTP_PROTOCOL_REGEX = /^http:\/\//i;
 
 function ensureArray(value: unknown): string[] {
@@ -136,13 +141,22 @@ class ArchiveProxyError extends Error {
   }
 }
 
-async function fetchArchiveProxy(path: string) {
+async function fetchArchiveProxy(source: ArchiveAssetSource) {
   if (typeof window === "undefined") {
     throw new Error("Generowanie raportu jest dostępne tylko w przeglądarce.");
   }
 
   const params = new URLSearchParams();
-  params.set("path", path);
+  if (source.path) {
+    params.set("path", source.path);
+  }
+  if (source.url) {
+    params.set("url", source.url);
+  }
+
+  if (!params.toString()) {
+    throw new ArchiveProxyError("Brak informacji o pliku archiwum do pobrania.");
+  }
 
   const headers: HeadersInit = {};
   const user = auth?.currentUser;
@@ -162,10 +176,18 @@ async function fetchArchiveProxy(path: string) {
 
   if (!response.ok) {
     let message = `Nie udało się pobrać pliku archiwum (status ${response.status}).`;
+    const contentType = response.headers.get("content-type") || "";
     try {
-      const data = await response.json();
-      if (data?.error && typeof data.error === "string") {
-        message = data.error;
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        if (data?.error && typeof data.error === "string") {
+          message = data.error;
+        }
+      } else {
+        const text = await response.text();
+        if (text) {
+          message = text.slice(0, 400);
+        }
       }
     } catch (readError) {
       console.warn("Nie udało się odczytać odpowiedzi proxy archiwum", readError);
@@ -175,7 +197,8 @@ async function fetchArchiveProxy(path: string) {
 
   const arrayBuffer = await response.arrayBuffer();
   const contentType = response.headers.get("content-type");
-  return { arrayBuffer, extension: getExtension(contentType, path) };
+  const fallbackPath = source.path || source.url || "";
+  return { arrayBuffer, extension: getExtension(contentType, fallbackPath) };
 }
 
 async function fetchAsArrayBuffer(url: string) {
@@ -190,23 +213,12 @@ async function fetchAsArrayBuffer(url: string) {
 }
 
 async function fetchStoragePath(path: string) {
-  let lastError: unknown = null;
-
-  try {
-    return await fetchArchiveProxy(path);
-  } catch (error) {
-    lastError = error;
-  }
-
   const bucket =
     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
     storage?.app?.options?.storageBucket ||
     null;
 
   if (!bucket) {
-    if (lastError instanceof Error) {
-      throw lastError;
-    }
     throw new Error("Brak konfiguracji usługi plików.");
   }
 
@@ -243,6 +255,14 @@ async function fetchStoragePath(path: string) {
 
 async function downloadArchiveAsset(source: { url?: string; path?: string | null }) {
   let lastError: unknown = null;
+
+  if (source.url || source.path) {
+    try {
+      return await fetchArchiveProxy({ path: source.path ?? null, url: source.url ?? null });
+    } catch (error) {
+      lastError = error;
+    }
+  }
 
   if (source.url) {
     try {
