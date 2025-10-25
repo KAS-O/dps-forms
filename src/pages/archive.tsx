@@ -6,7 +6,7 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { db, storage } from "@/lib/firebase";
+import { auth, db, storage } from "@/lib/firebase";
 import { TEMPLATES } from "@/lib/templates";
 import {
   addDoc,
@@ -89,13 +89,132 @@ async function fetchAsArrayBuffer(url: string) {
   return { arrayBuffer, contentType: response.headers.get("content-type"), resolvedUrl: response.url || normalized };
 }
 
+async function resolveAuthToken(forceRefresh = false) {
+  if (!auth) return null;
+
+  const directUser = auth.currentUser;
+  if (directUser) {
+    try {
+      return await directUser.getIdToken(forceRefresh);
+    } catch (error) {
+      console.warn("Nie udało się pobrać tokenu użytkownika (bezpośrednio)", error);
+    }
+  }
+
+  return new Promise<string | null>((resolve) => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      unsubscribe();
+      if (!user) {
+        resolve(null);
+        return;
+      }
+      try {
+        resolve(await user.getIdToken(forceRefresh));
+      } catch (error) {
+        console.warn("Nie udało się pobrać tokenu użytkownika (po zmianie stanu)", error);
+        resolve(null);
+      }
+    });
+  });
+}
+
+type StorageAssetLocation = {
+  downloadUrl?: string;
+  bucket?: string;
+  objectPath?: string;
+};
+
+function resolveStorageLocation(source: { url?: string; path?: string | null }): StorageAssetLocation {
+  if (source.url) {
+    return { downloadUrl: normalizeUrl(source.url) };
+  }
+
+  if (!source.path) {
+    return {};
+  }
+
+  const path = source.path.trim();
+  if (!path) {
+    return {};
+  }
+
+  if (/^https?:\/\//i.test(path)) {
+    return { downloadUrl: normalizeUrl(path) };
+  }
+
+  if (path.startsWith("gs://")) {
+    try {
+      const { host, pathname } = new URL(path);
+      return { bucket: host, objectPath: pathname.replace(/^\//, "") };
+    } catch (error) {
+      console.warn("Nie udało się sparsować ścieżki gs://", error);
+    }
+  }
+
+  const bucket =
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
+    (storage?.app?.options?.storageBucket as string | undefined) ||
+    undefined;
+
+  return { bucket, objectPath: path };
+}
+
+async function downloadViaRest({ bucket, objectPath }: { bucket: string; objectPath: string }) {
+  const encodedPath = encodeURIComponent(objectPath);
+  const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media`;
+  const headers: HeadersInit = {};
+
+  let token = await resolveAuthToken(false);
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const performFetch = async (): Promise<{ arrayBuffer: ArrayBuffer; extension: string }> => {
+    const response = await fetch(downloadUrl, { headers, mode: "cors" });
+    if (response.status === 401 || response.status === 403) {
+      const refreshedToken = await resolveAuthToken(true);
+      if (refreshedToken && refreshedToken !== token) {
+        token = refreshedToken;
+        headers["Authorization"] = `Bearer ${token}`;
+        return performFetch();
+      }
+      if (!token && refreshedToken) {
+        token = refreshedToken;
+        headers["Authorization"] = `Bearer ${token}`;
+        return performFetch();
+      }
+      throw new Error("Brak uprawnień do pobrania pliku archiwum.");
+    }
+
+    if (!response.ok) {
+      throw new Error(`Nie udało się pobrać pliku (status ${response.status}).`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const contentType = response.headers.get("content-type");
+    return { arrayBuffer, extension: getExtension(contentType, downloadUrl) };
+  };
+
+  return performFetch();
+}
+
 async function downloadArchiveAsset(source: { url?: string; path?: string | null }) {
   let lastError: unknown = null;
 
-  if (source.url) {
+  const location = resolveStorageLocation(source);
+
+  if (location.downloadUrl) {
     try {
-      const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(source.url);
+      const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(location.downloadUrl);
       return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (location.bucket && location.objectPath) {
+    try {
+      return await downloadViaRest({ bucket: location.bucket, objectPath: location.objectPath });
     } catch (error) {
       lastError = error;
     }
@@ -103,11 +222,16 @@ async function downloadArchiveAsset(source: { url?: string; path?: string | null
 
   if (source.path) {
     try {
-      const { ref, getDownloadURL, getBytes, getMetadata } = await import("firebase/storage");
+      const { ref, refFromURL, getDownloadURL, getBytes, getMetadata } = await import("firebase/storage");
       if (!storage) {
         throw new Error("Usługa plików nie jest dostępna.");
       }
-      const storageRef = ref(storage, source.path);
+
+      const storageRef = /^https?:\/\//i.test(source.path)
+        ? refFromURL(source.path)
+        : /^gs:\/\//i.test(source.path)
+        ? refFromURL(source.path)
+        : ref(storage, source.path);
 
       try {
         const downloadUrl = await getDownloadURL(storageRef);
