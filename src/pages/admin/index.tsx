@@ -1056,8 +1056,8 @@ export default function Admin() {
                           }
                         </span>
                         <span>
-                          {announcement.expiresAt
-                            ? `Wygasa: ${announcement.expiresAt.toDate().toLocaleString()}`
+                          {announcement.expiresAtDate
+                            ? `Wygasa: ${announcement.expiresAtDate.toLocaleString()}`
                             : "Wygasa: do czasu usunięcia"}
                         </span>
                       </div>
