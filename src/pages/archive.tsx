@@ -6,7 +6,7 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { db, storage } from "@/lib/firebase";
+import { auth, db, storage } from "@/lib/firebase";
 import { TEMPLATES } from "@/lib/templates";
 import {
   addDoc,
@@ -78,9 +78,16 @@ function getExtensionFromPath(path?: string | null) {
   return match ? match[1].toLowerCase() : null;
 }
 
-async function fetchAsArrayBuffer(url: string) {
+async function fetchAsArrayBuffer(url: string, init?: RequestInit) {
   const normalized = normalizeUrl(url);
-  const response = await fetch(normalized, { mode: "cors", referrerPolicy: "no-referrer" });
+  const headers = new Headers(init?.headers ?? undefined);
+  const requestInit: RequestInit = {
+    mode: init?.mode ?? "cors",
+    referrerPolicy: init?.referrerPolicy ?? "no-referrer",
+    ...init,
+    headers,
+  };
+  const response = await fetch(normalized, requestInit);
   if (!response.ok) {
     throw new Error(`Nie udało się pobrać obrazu (${response.status}).`);
   }
@@ -106,6 +113,20 @@ async function downloadArchiveAsset(source: { url?: string; path?: string | null
       const { ref, getDownloadURL, getBytes, getMetadata } = await import("firebase/storage");
       if (!storage) {
         throw new Error("Usługa plików nie jest dostępna.");
+      }
+      const bucket = storage.app?.options?.storageBucket;
+      if (bucket) {
+        try {
+          const idToken = await auth.currentUser?.getIdToken();
+          const headers: HeadersInit | undefined = idToken ? { Authorization: `Bearer ${idToken}` } : undefined;
+          const directUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(
+            source.path
+          )}?alt=media`;
+          const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(directUrl, { headers });
+          return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
+        } catch (directFetchError) {
+          lastError = directFetchError;
+        }
       }
       const storageRef = ref(storage, source.path);
 
