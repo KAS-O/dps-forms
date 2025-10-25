@@ -603,6 +603,10 @@ export default function Admin() {
         return `Koniec sesji • ID: ${log.sessionId || "—"} • Powód: ${formatReason(log.reason)}`;
       case "logout":
         return `Wylogowanie • Powód: ${formatReason(log.reason)}`;
+      case "session_heartbeat": {
+        const idleText = formatDuration(log.idleMs);
+        return `Puls sesji • Bezczynność: ${idleText}`;
+      }
       case "page_view":
         return `Strona: ${log.path || "—"}${log.title ? ` • ${log.title}` : ""}`;
       case "template_view":
