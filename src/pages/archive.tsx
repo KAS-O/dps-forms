@@ -162,6 +162,7 @@ async function fetchArchiveProxy(path: string) {
 
   if (!response.ok) {
     let message = `Nie udało się pobrać pliku archiwum (status ${response.status}).`;
+    const responseClone = response.clone();
     try {
       const data = await response.json();
       if (data?.error && typeof data.error === "string") {
@@ -169,6 +170,14 @@ async function fetchArchiveProxy(path: string) {
       }
     } catch (readError) {
       console.warn("Nie udało się odczytać odpowiedzi proxy archiwum", readError);
+      try {
+        const text = await responseClone.text();
+        if (text) {
+          message = `${message} Szczegóły: ${text.slice(0, 200)}`;
+        }
+      } catch (textReadError) {
+        console.warn("Nie udało się odczytać treści odpowiedzi proxy archiwum", textReadError);
+      }
     }
     throw new ArchiveProxyError(message, response.status);
   }
@@ -244,36 +253,18 @@ async function fetchStoragePath(path: string) {
 async function downloadArchiveAsset(source: { url?: string; path?: string | null }) {
   let lastError: unknown = null;
 
-  if (source.url) {
-    try {
-      const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(source.url);
-      return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
   if (source.path) {
     try {
       return await fetchStoragePath(source.path);
     } catch (restError) {
       lastError = restError;
     }
-
     try {
-      const { ref, getDownloadURL, getBytes, getMetadata } = await import("firebase/storage");
+      const { ref, getBytes, getMetadata } = await import("firebase/storage");
       if (!storage) {
         throw new Error("Usługa plików nie jest dostępna.");
       }
       const storageRef = ref(storage, source.path);
-
-      try {
-        const downloadUrl = await getDownloadURL(storageRef);
-        const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(downloadUrl);
-        return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
-      } catch (downloadUrlError) {
-        lastError = downloadUrlError;
-      }
 
       const bytes = await getBytes(storageRef);
       let contentType: string | null = null;
@@ -295,6 +286,15 @@ async function downloadArchiveAsset(source: { url?: string; path?: string | null
       return { arrayBuffer, extension };
     } catch (storageError) {
       lastError = storageError;
+    }
+  }
+
+  if (source.url) {
+    try {
+      const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(source.url);
+      return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
+    } catch (error) {
+      lastError = error;
     }
   }
 
