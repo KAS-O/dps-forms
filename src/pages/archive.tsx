@@ -6,7 +6,7 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
-import { db, storage } from "@/lib/firebase";
+import { app, auth, db, storage } from "@/lib/firebase";
 import { TEMPLATES } from "@/lib/templates";
 import {
   addDoc,
@@ -89,6 +89,50 @@ async function fetchAsArrayBuffer(url: string) {
   return { arrayBuffer, contentType: response.headers.get("content-type"), resolvedUrl: response.url || normalized };
 }
 
+type StorageLocation = {
+  bucket: string | null;
+  objectPath: string | null;
+};
+
+function parseStorageLocation(path?: string | null): StorageLocation {
+  if (!path) {
+    return { bucket: null, objectPath: null };
+  }
+
+  const trimmed = path.trim();
+  if (!trimmed) {
+    return { bucket: null, objectPath: null };
+  }
+
+  if (trimmed.startsWith("gs://")) {
+    const withoutScheme = trimmed.slice(5);
+    const slashIndex = withoutScheme.indexOf("/");
+    if (slashIndex === -1) {
+      return { bucket: withoutScheme, objectPath: null };
+    }
+    const bucket = withoutScheme.slice(0, slashIndex);
+    const objectPath = withoutScheme.slice(slashIndex + 1);
+    return { bucket, objectPath };
+  }
+
+  const normalizedPath = trimmed.replace(/^\/+/, "");
+  return { bucket: null, objectPath: normalizedPath };
+}
+
+function resolveStorageBucket(): string | null {
+  const fromEnv = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+  if (fromEnv) return fromEnv;
+
+  const fromStorage = storage?.app?.options?.storageBucket;
+  if (fromStorage) return fromStorage;
+
+  const fromAuth = auth?.app?.options?.storageBucket;
+  if (fromAuth) return fromAuth;
+
+  const fromApp = app?.options?.storageBucket as string | undefined;
+  return fromApp ?? null;
+}
+
 async function downloadArchiveAsset(source: { url?: string; path?: string | null }) {
   let lastError: unknown = null;
 
@@ -102,6 +146,36 @@ async function downloadArchiveAsset(source: { url?: string; path?: string | null
   }
 
   if (source.path) {
+    const { bucket: explicitBucket, objectPath } = parseStorageLocation(source.path);
+    const storageBucket = explicitBucket || resolveStorageBucket();
+    if (storageBucket && objectPath) {
+      try {
+        const encodedPath = encodeURIComponent(objectPath);
+        const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o/${encodedPath}?alt=media`;
+        const headers: HeadersInit = {};
+        const user = auth?.currentUser;
+        if (user) {
+          try {
+            const token = await user.getIdToken();
+            headers["Authorization"] = `Bearer ${token}`;
+          } catch (tokenError) {
+            console.warn("Nie udało się pobrać tokenu użytkownika do pobrania pliku archiwum", tokenError);
+          }
+        }
+
+        const response = await fetch(downloadUrl, { headers });
+        if (!response.ok) {
+          throw new Error(`Nie udało się pobrać pliku (status ${response.status}).`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const contentType = response.headers.get("content-type");
+        return { arrayBuffer, extension: getExtension(contentType, downloadUrl) };
+      } catch (restError) {
+        lastError = restError;
+      }
+    }
+
     try {
       const { ref, getDownloadURL, getBytes, getMetadata } = await import("firebase/storage");
       if (!storage) {
