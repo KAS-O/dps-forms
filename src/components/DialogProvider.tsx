@@ -1,6 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 
-type DialogTone = "default" | "danger" | "info";
+type DialogTone = "default" | "danger" | "info" | "success";
 
 type BaseOptions = {
   title?: string;
@@ -52,6 +52,8 @@ function toneClasses(tone: DialogTone | undefined) {
       return "border-red-400 bg-gradient-to-br from-rose-600/90 via-rose-500/80 to-red-500/80 text-white shadow-[0_0_30px_rgba(220,38,38,0.4)]";
     case "info":
       return "border-sky-400 bg-gradient-to-br from-sky-500/90 via-blue-500/80 to-indigo-500/80 text-white shadow-[0_0_30px_rgba(14,165,233,0.4)]";
+    case "success":
+      return "border-emerald-400 bg-gradient-to-br from-emerald-600/90 via-emerald-500/80 to-green-500/80 text-white shadow-[0_0_30px_rgba(16,185,129,0.4)]";
     default:
       return "border-purple-400 bg-gradient-to-br from-purple-600/90 via-violet-500/80 to-indigo-500/80 text-white shadow-[0_0_30px_rgba(168,85,247,0.4)]";
   }
