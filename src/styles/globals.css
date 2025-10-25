@@ -148,6 +148,8 @@ select option {
   display: block;
   opacity: 0.5;
   mix-blend-mode: screen;
+  animation: underlightDrift 18s ease-in-out infinite alternate;
+  will-change: transform, opacity;
 }
 
 .underlight-ambient::before {
@@ -168,6 +170,7 @@ select option {
   border-radius: 9999px;
   filter: blur(120px);
   opacity: 0.55;
+  will-change: transform, opacity;
 }
 
 .underlight-ambient__blue {
@@ -180,6 +183,21 @@ select option {
   right: 5%;
   background: radial-gradient(circle, rgba(255, 92, 92, 0.8), rgba(160, 35, 35, 0.4) 45%, transparent 80%);
   animation: underlightRed 7s ease-in-out infinite alternate;
+}
+
+@keyframes underlightDrift {
+  0% {
+    transform: translate(-55%, -2%) scale(0.95);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translate(-45%, 1%) scale(1.05);
+    opacity: 0.62;
+  }
+  100% {
+    transform: translate(-50%, -1%) scale(0.98);
+    opacity: 0.5;
+  }
 }
 
 @keyframes underlightBlue {
