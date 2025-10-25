@@ -187,9 +187,6 @@ function buildFieldLinesFromValues(
 function buildFallbackMetaLines(item: Archive): string[] {
   const lines: string[] = [];
   lines.push(`Dokument: ${item.templateName || "—"}`);
-  lines.push(`Autor (login): ${item.userLogin || "—"}`);
-  const officersText = (item.officers || []).join(", ");
-  lines.push(`Funkcjonariusze: ${officersText || "—"}`);
   if (item.vehicleFolderRegistration) {
     lines.push(`Teczka pojazdu: ${item.vehicleFolderRegistration}`);
   }
@@ -197,6 +194,27 @@ function buildFallbackMetaLines(item: Archive): string[] {
     lines.push(`Powiązana teczka: ${item.dossierId}`);
   }
   return lines;
+}
+
+function cleanMetaLines(metaLines: string[]): string[] {
+  const cleaned: string[] = [];
+
+  metaLines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    const lower = trimmed.toLowerCase();
+    if (lower.includes("login")) {
+      return;
+    }
+    if (lower.startsWith("funkcjonariusze")) {
+      return;
+    }
+
+    cleaned.push(line);
+  });
+
+  return cleaned;
 }
 
 function buildArchiveTextSections(item: Archive): ArchiveTextSection[] {
@@ -208,8 +226,9 @@ function buildArchiveTextSections(item: Archive): ArchiveTextSection[] {
   if (!metaLines.length) {
     metaLines = buildFallbackMetaLines(item).filter((line) => line.trim().length > 0);
   }
-  if (metaLines.length) {
-    sections.push({ title: "Metryka", lines: metaLines });
+  const cleanedMetaLines = cleanMetaLines(metaLines);
+  if (cleanedMetaLines.length) {
+    sections.push({ title: "Metryka", lines: cleanedMetaLines });
   }
 
   if (item.textPages && item.textPages.length) {
@@ -561,7 +580,7 @@ export default function ArchivePage() {
           doc.setFontSize(20);
           doc.text("Raport archiwum", logoPadding + logoSize + 18, logoPadding + 6);
           doc.setFontSize(11);
-          doc.text("Jednostka: LSPD 77RP", logoPadding + logoSize + 18, logoPadding + 26);
+          doc.text("Jednostka: LSPD", logoPadding + logoSize + 18, logoPadding + 26);
           doc.text(`Wygenerowano: ${now.toLocaleString("pl-PL")}`, pageWidth - margin, logoPadding + 6, {
             align: "right",
           });
@@ -646,6 +665,8 @@ export default function ArchivePage() {
         }
       };
 
+      let isFirstDocument = true;
+
       for (const item of selectedItems) {
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate || null;
         const officers = (item.officers || []).join(", ") || "—";
@@ -654,17 +675,24 @@ export default function ArchivePage() {
           ? `Folder pojazdu: ${item.vehicleFolderRegistration}`
           : null;
 
+        if (!isFirstDocument) {
+          ensureSpace(32);
+          doc.setDrawColor(214, 211, 209);
+          doc.setLineWidth(0.6);
+          doc.line(margin, cursorY, pageWidth - margin, cursorY);
+          cursorY += 24;
+        }
+        isFirstDocument = false;
+
         doc.setFontSize(14);
         ensureSpace(24);
         doc.text(item.templateName || item.templateSlug || "Dokument", margin, cursorY);
         cursorY += 18;
 
         doc.setFontSize(11);
-        const infoLines = [
-          `Autor (login): ${item.userLogin || "—"}`,
-          `Funkcjonariusze: ${officers}`,
-          `Data utworzenia: ${createdAt ? createdAt.toLocaleString("pl-PL") : "—"}`,
-        ];
+        const infoLines: string[] = [];
+        infoLines.push(`Funkcjonariusze: ${officers}`);
+        infoLines.push(`Data utworzenia: ${createdAt ? createdAt.toLocaleString("pl-PL") : "—"}`);
         if (dossier) infoLines.push(dossier);
         if (vehicleRegistration) infoLines.push(vehicleRegistration);
 
