@@ -126,6 +126,16 @@ function getExtensionFromPath(path?: string | null) {
   return match ? match[1].toLowerCase() : null;
 }
 
+function base64ToArrayBuffer(base64: string) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
 async function fetchAsArrayBuffer(url: string) {
   const normalized = normalizeUrl(url);
   const response = await fetch(normalized, { mode: "cors", referrerPolicy: "no-referrer" });
@@ -135,6 +145,36 @@ async function fetchAsArrayBuffer(url: string) {
   const blob = await response.blob();
   const arrayBuffer = await blob.arrayBuffer();
   return { arrayBuffer, contentType: response.headers.get("content-type"), resolvedUrl: response.url || normalized };
+}
+
+async function fetchArchiveFile(source: { path?: string | null; url?: string | null }) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const response = await fetch("/api/archive/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: source.path, url: source.url }),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const { base64, contentType } = (await response.json()) as { base64?: string; contentType?: string | null };
+    if (!base64) {
+      return null;
+    }
+
+    const arrayBuffer = base64ToArrayBuffer(base64);
+    const fallbackUrl = source.url || source.path || "";
+    return { arrayBuffer, extension: getExtension(contentType || null, fallbackUrl) };
+  } catch (error) {
+    console.warn("Nie udało się pobrać pliku archiwum przez API", error);
+    return null;
+  }
 }
 
 async function fetchStoragePath(path: string) {
@@ -183,6 +223,10 @@ async function downloadArchiveAsset(source: { url?: string; path?: string | null
 
   if (source.url) {
     try {
+      const apiResult = await fetchArchiveFile({ url: source.url, path: source.path });
+      if (apiResult) {
+        return apiResult;
+      }
       const { arrayBuffer, contentType, resolvedUrl } = await fetchAsArrayBuffer(source.url);
       return { arrayBuffer, extension: getExtension(contentType, resolvedUrl) };
     } catch (error) {
@@ -194,6 +238,10 @@ async function downloadArchiveAsset(source: { url?: string; path?: string | null
     const storageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
     if (storageBucket) {
       try {
+        const apiResult = await fetchArchiveFile({ path: source.path, url: source.url });
+        if (apiResult) {
+          return apiResult;
+        }
         const encodedPath = encodeURIComponent(source.path);
         const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o/${encodedPath}?alt=media`;
         const headers: HeadersInit = {};
@@ -221,6 +269,10 @@ async function downloadArchiveAsset(source: { url?: string; path?: string | null
     }
 
     try {
+      const apiResult = await fetchArchiveFile({ path: source.path, url: source.url });
+      if (apiResult) {
+        return apiResult;
+      }
       return await fetchStoragePath(source.path);
     } catch (restError) {
       lastError = restError;
