@@ -7,6 +7,8 @@ import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
 import { db } from "@/lib/firebase";
+import { ensureReportFonts } from "@/lib/reportFonts";
+import { REPORT_LOGO_PNG } from "@/lib/reportAssets";
 import { TEMPLATES, Template } from "@/lib/templates";
 import {
   addDoc,
@@ -77,6 +79,13 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
 
 function splitLines(text: string): string[] {
   return text.split(/\r?\n/).map((line) => line.trimEnd());
+}
+
+function normalizePdfLine(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/\s([.,;:!?])/g, "$1")
+    .trim();
 }
 
 function extractFromTextContent(content?: string | null) {
@@ -515,43 +524,125 @@ export default function ArchivePage() {
       );
 
       const doc = new jsPDF({ unit: "pt", format: "a4" });
+      ensureReportFonts(doc);
+      doc.setLineHeightFactor(1.4);
+
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 50;
-      let cursorY = margin;
+      const margin = 56;
+      const contentWidth = pageWidth - margin * 2;
+      const headerHeight = 96;
+      const firstPageTop = headerHeight + 64;
+      const subsequentTop = margin + 30;
+      const logoSize = 52;
+      const logoPadding = margin;
+      const backgroundColor = { r: 248, g: 246, b: 242 };
+      const logoDataUri = `data:image/png;base64,${REPORT_LOGO_PNG}`;
+      const wrappedTypeSummaryLines = typeSummaryLines
+        .map((line) => normalizePdfLine(line))
+        .map((line) => doc.splitTextToSize(line, contentWidth - 44));
+      const wrappedTypeSummaryCount = wrappedTypeSummaryLines.reduce(
+        (sum, lines) => sum + lines.length,
+        0
+      );
+      const hasTypeSummary = wrappedTypeSummaryCount > 0;
 
-      doc.setFontSize(18);
-      doc.text("Raport archiwum", margin, cursorY);
-      cursorY += 26;
+      const renderPageDecorations = (isFirstPage: boolean) => {
+        doc.setFillColor(backgroundColor.r, backgroundColor.g, backgroundColor.b);
+        doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-      doc.setFontSize(12);
-      doc.text(`Wygenerował: ${login || "—"}`, margin, cursorY);
-      cursorY += 18;
-      doc.text(`Data wygenerowania: ${now.toLocaleString("pl-PL")}`, margin, cursorY);
-      cursorY += 18;
-      doc.text(`Liczba dokumentów: ${totalDocuments}`, margin, cursorY);
-      cursorY += 20;
+        doc.setFillColor(17, 24, 39);
+        if (isFirstPage) {
+          doc.rect(0, 0, pageWidth, headerHeight, "F");
 
-      if (typeSummaryLines.length > 0) {
-        doc.setFontSize(12);
-        doc.text("Zestawienie typów dokumentów:", margin, cursorY);
-        cursorY += 18;
-        doc.setFontSize(11);
-        typeSummaryLines.forEach((line) => {
-          doc.text(`• ${line}`, margin + 12, cursorY);
-          cursorY += 16;
-        });
+          doc.addImage(logoDataUri, "PNG", logoPadding, logoPadding - 18, logoSize, logoSize);
+
+          doc.setTextColor(255, 255, 255);
+          doc.setFontSize(20);
+          doc.text("Raport archiwum", logoPadding + logoSize + 18, logoPadding + 6);
+          doc.setFontSize(11);
+          doc.text("Jednostka: LSPD 77RP", logoPadding + logoSize + 18, logoPadding + 26);
+          doc.text(`Wygenerowano: ${now.toLocaleString("pl-PL")}`, pageWidth - margin, logoPadding + 6, {
+            align: "right",
+          });
+          doc.text(`Liczba dokumentów: ${totalDocuments}`, pageWidth - margin, logoPadding + 26, {
+            align: "right",
+          });
+        } else {
+          const secondaryHeaderHeight = 56;
+          doc.rect(0, 0, pageWidth, secondaryHeaderHeight, "F");
+          doc.setTextColor(255, 255, 255);
+          doc.setFontSize(12);
+          doc.text("Raport archiwum — kontynuacja", margin, 32);
+          doc.setFontSize(10);
+          doc.text(now.toLocaleString("pl-PL"), pageWidth - margin, 32, { align: "right" });
+        }
+
+        doc.setTextColor(55, 65, 81);
+      };
+
+      renderPageDecorations(true);
+      let cursorY = firstPageTop;
+
+      const summaryBaseLines = 3;
+      const summaryLineHeight = 16;
+      const typeSectionOffset = hasTypeSummary
+        ? 8 + wrappedTypeSummaryCount * summaryLineHeight
+        : summaryLineHeight;
+      const summaryBoxHeight = 40 + summaryBaseLines * summaryLineHeight + typeSectionOffset;
+      let summaryBoxTop = cursorY - 20;
+      if (summaryBoxTop + summaryBoxHeight > pageHeight - margin) {
+        doc.addPage();
+        renderPageDecorations(false);
+        cursorY = subsequentTop;
+        summaryBoxTop = cursorY - 20;
       }
 
-      cursorY += 10;
-      doc.setFontSize(12);
-      doc.text("Szczegóły dokumentów:", margin, cursorY);
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(margin, summaryBoxTop, contentWidth, summaryBoxHeight, 12, 12, "F");
+      doc.setDrawColor(214, 211, 209);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(margin, summaryBoxTop, contentWidth, summaryBoxHeight, 12, 12, "S");
+
+      let summaryCursor = cursorY;
+      doc.setFontSize(13);
+      doc.text("Podsumowanie", margin + 16, summaryCursor);
+      summaryCursor += 20;
+      doc.setFontSize(11);
+      doc.text(`Wygenerował: ${login || "—"}`, margin + 16, summaryCursor);
+      summaryCursor += summaryLineHeight;
+      doc.text(`Data wygenerowania: ${now.toLocaleString("pl-PL")}`, margin + 16, summaryCursor);
+      summaryCursor += summaryLineHeight;
+      doc.text(`Liczba dokumentów: ${totalDocuments}`, margin + 16, summaryCursor);
+      summaryCursor += summaryLineHeight;
+
+      if (hasTypeSummary) {
+        doc.text("Zestawienie typów dokumentów:", margin + 16, summaryCursor + 4);
+        summaryCursor += summaryLineHeight + 4;
+        wrappedTypeSummaryLines.forEach((lines) => {
+          lines.forEach((wrappedLine, lineIndex) => {
+            const prefix = lineIndex === 0 ? "• " : "  ";
+            doc.text(`${prefix}${wrappedLine}`, margin + 28, summaryCursor);
+            summaryCursor += summaryLineHeight;
+          });
+        });
+      } else {
+        doc.text("Brak dodatkowego zestawienia typów dokumentów.", margin + 16, summaryCursor);
+        summaryCursor += summaryLineHeight;
+      }
+
+      cursorY = summaryBoxTop + summaryBoxHeight + 32;
+      doc.setDrawColor(55, 65, 81);
+      doc.setLineWidth(0.5);
+      doc.setFontSize(13);
+      doc.text("Szczegóły dokumentów", margin, cursorY);
       cursorY += 24;
 
       const ensureSpace = (requiredHeight: number) => {
         if (cursorY + requiredHeight > pageHeight - margin) {
           doc.addPage();
-          cursorY = margin;
+          renderPageDecorations(false);
+          cursorY = subsequentTop;
         }
       };
 
@@ -579,7 +670,7 @@ export default function ArchivePage() {
 
         infoLines.forEach((line) => {
           ensureSpace(16);
-          doc.text(line, margin, cursorY);
+          doc.text(normalizePdfLine(line), margin, cursorY);
           cursorY += 14;
         });
 
@@ -602,13 +693,13 @@ export default function ArchivePage() {
 
           section.lines.forEach((line) => {
             const content = line ?? "";
-            const trimmed = content.trim();
-            if (!trimmed) {
+            const normalized = normalizePdfLine(content);
+            if (!normalized) {
               ensureSpace(12);
               cursorY += 12;
               return;
             }
-            const wrapped = doc.splitTextToSize(content, pageWidth - margin * 2 - 12);
+            const wrapped = doc.splitTextToSize(normalized, contentWidth - 12);
             wrapped.forEach((wrappedLine) => {
               ensureSpace(14);
               doc.text(wrappedLine, margin + 12, cursorY);
