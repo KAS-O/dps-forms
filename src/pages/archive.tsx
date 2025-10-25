@@ -8,6 +8,7 @@ import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
 import { db } from "@/lib/firebase";
 import { TEMPLATES, Template } from "@/lib/templates";
+import { NOTO_SANS_REGULAR_BASE64 } from "@/lib/fonts";
 import {
   addDoc,
   collection,
@@ -515,16 +516,99 @@ export default function ArchivePage() {
       );
 
       const doc = new jsPDF({ unit: "pt", format: "a4" });
+      doc.addFileToVFS("NotoSans-Regular.ttf", NOTO_SANS_REGULAR_BASE64);
+      doc.addFont("NotoSans-Regular.ttf", "NotoSans", "normal");
+      doc.setFont("NotoSans", "normal");
+      doc.setLineHeightFactor(1.35);
+      doc.setTextColor(30, 41, 59);
+
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 50;
-      let cursorY = margin;
+      const margin = 56;
+      const firstPageOffset = 40;
+      const otherPageOffset = 32;
+
+      let logoDataUrl: string | null = null;
+      try {
+        const logoResponse = await fetch("/logo.png");
+        if (logoResponse.ok) {
+          const logoBuffer = await logoResponse.arrayBuffer();
+          const logoType = logoResponse.headers.get("content-type") || "image/png";
+          logoDataUrl = `data:${logoType};base64,${arrayBufferToBase64(logoBuffer)}`;
+        }
+      } catch (error) {
+        console.warn("Nie udało się wczytać logo do raportu", error);
+      }
+
+      const applyPageDecorations = (isFirstPage: boolean) => {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+        if (isFirstPage) {
+          const headerBoxHeight = 150;
+          doc.setFillColor(255, 255, 255);
+          doc.roundedRect(
+            margin - 26,
+            margin - 36,
+            pageWidth - (margin - 26) * 2,
+            headerBoxHeight,
+            12,
+            12,
+            "F"
+          );
+          doc.setDrawColor(226, 232, 240);
+          doc.roundedRect(
+            margin - 26,
+            margin - 36,
+            pageWidth - (margin - 26) * 2,
+            headerBoxHeight,
+            12,
+            12,
+            "S"
+          );
+
+          if (logoDataUrl) {
+            const logoSize = 58;
+            doc.addImage(
+              logoDataUrl,
+              "PNG",
+              pageWidth - margin - logoSize + 8,
+              margin - 24,
+              logoSize,
+              logoSize,
+              undefined,
+              "FAST"
+            );
+          }
+        } else if (logoDataUrl) {
+          const logoSize = 40;
+          doc.addImage(
+            logoDataUrl,
+            "PNG",
+            pageWidth - margin - logoSize,
+            margin - logoSize + 10,
+            logoSize,
+            logoSize,
+            undefined,
+            "FAST"
+          );
+        }
+
+        doc.setDrawColor(226, 232, 240);
+        doc.setTextColor(30, 41, 59);
+        doc.setFont("NotoSans", "normal");
+      };
+
+      applyPageDecorations(true);
+      let cursorY = margin + firstPageOffset;
 
       doc.setFontSize(18);
+      doc.setTextColor(30, 41, 59);
       doc.text("Raport archiwum", margin, cursorY);
       cursorY += 26;
 
       doc.setFontSize(12);
+      doc.setTextColor(71, 85, 105);
       doc.text(`Wygenerował: ${login || "—"}`, margin, cursorY);
       cursorY += 18;
       doc.text(`Data wygenerowania: ${now.toLocaleString("pl-PL")}`, margin, cursorY);
@@ -534,16 +618,23 @@ export default function ArchivePage() {
 
       if (typeSummaryLines.length > 0) {
         doc.setFontSize(12);
+        doc.setTextColor(30, 41, 59);
         doc.text("Zestawienie typów dokumentów:", margin, cursorY);
         cursorY += 18;
         doc.setFontSize(11);
+        doc.setTextColor(71, 85, 105);
         typeSummaryLines.forEach((line) => {
           doc.text(`• ${line}`, margin + 12, cursorY);
           cursorY += 16;
         });
       }
 
-      cursorY += 10;
+      doc.setTextColor(30, 41, 59);
+      cursorY += 6;
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.8);
+      doc.line(margin, cursorY, pageWidth - margin, cursorY);
+      cursorY += 22;
       doc.setFontSize(12);
       doc.text("Szczegóły dokumentów:", margin, cursorY);
       cursorY += 24;
@@ -551,7 +642,8 @@ export default function ArchivePage() {
       const ensureSpace = (requiredHeight: number) => {
         if (cursorY + requiredHeight > pageHeight - margin) {
           doc.addPage();
-          cursorY = margin;
+          applyPageDecorations(false);
+          cursorY = margin + otherPageOffset;
         }
       };
 
@@ -563,12 +655,37 @@ export default function ArchivePage() {
           ? `Folder pojazdu: ${item.vehicleFolderRegistration}`
           : null;
 
+        doc.setTextColor(30, 41, 59);
+        const documentTitle = item.templateName || item.templateSlug || "Dokument";
+        const titleBoxHeight = 30;
+        ensureSpace(titleBoxHeight + 8);
+        doc.setFillColor(241, 245, 249);
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(
+          margin - 14,
+          cursorY - 10,
+          pageWidth - margin * 2 + 28,
+          titleBoxHeight,
+          8,
+          8,
+          "F"
+        );
+        doc.roundedRect(
+          margin - 14,
+          cursorY - 10,
+          pageWidth - margin * 2 + 28,
+          titleBoxHeight,
+          8,
+          8,
+          "S"
+        );
         doc.setFontSize(14);
-        ensureSpace(24);
-        doc.text(item.templateName || item.templateSlug || "Dokument", margin, cursorY);
-        cursorY += 18;
+        doc.setTextColor(30, 41, 59);
+        doc.text(documentTitle, margin, cursorY + 10);
+        cursorY += titleBoxHeight - 4;
 
         doc.setFontSize(11);
+        doc.setTextColor(71, 85, 105);
         const infoLines = [
           `Autor (login): ${item.userLogin || "—"}`,
           `Funkcjonariusze: ${officers}`,
@@ -595,15 +712,16 @@ export default function ArchivePage() {
           if (section.title) {
             ensureSpace(18);
             doc.setFontSize(12);
+            doc.setTextColor(30, 41, 59);
             doc.text(section.title, margin, cursorY);
             cursorY += 16;
             doc.setFontSize(11);
+            doc.setTextColor(71, 85, 105);
           }
 
           section.lines.forEach((line) => {
             const content = line ?? "";
-            const trimmed = content.trim();
-            if (!trimmed) {
+            if (!content || content.trim().length === 0) {
               ensureSpace(12);
               cursorY += 12;
               return;
