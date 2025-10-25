@@ -54,6 +54,19 @@ const EXTRA_VALUE_LABELS: Record<string, string> = {
   teczkaPojazdu: "Teczka pojazdu",
 };
 
+const FINE_FIELD_KEYS = new Map<string, string[]>([
+  ["Bloczek mandatowy", ["kwota"]],
+  ["bloczek-mandatowy", ["kwota"]],
+  ["Kontrola LSEB", ["grzywna"]],
+  ["kontrola-lseb", ["grzywna"]],
+  ["Protokół aresztowania", ["grzywna"]],
+  ["protokol-aresztowania", ["grzywna"]],
+  ["Raport z założenia blokady", ["kara"]],
+  ["raport-zalozenia-blokady", ["kara"]],
+  ["Protokół zajęcia pojazdu", ["grzywna"]],
+  ["protokol-zajecia-pojazdu", ["grzywna"]],
+]);
+
 function ensureArray(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is string => typeof item === "string" && item.length > 0);
@@ -159,6 +172,46 @@ function formatFieldValue(raw: unknown): string {
   return String(raw);
 }
 
+function parseNumericValue(raw: unknown): number | null {
+  if (raw == null) return null;
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) ? raw : null;
+  }
+  if (typeof raw === "string") {
+    const normalized = raw.replace(/[^0-9,.-]/g, "").replace(/,/g, ".");
+    if (!normalized) return null;
+    const value = Number(normalized);
+    return Number.isFinite(value) ? value : null;
+  }
+  return null;
+}
+
+function formatCurrency(amount: number): string {
+  const safe = Number.isFinite(amount) ? amount : 0;
+  try {
+    return safe.toLocaleString("pl-PL", { style: "currency", currency: "USD" });
+  } catch (error) {
+    return `${safe.toFixed(2)} USD`;
+  }
+}
+
+function getFineFieldKeys(item: Archive): string[] {
+  const keys = new Set<string>();
+  if (item.templateSlug) {
+    const slugFields = FINE_FIELD_KEYS.get(item.templateSlug);
+    if (slugFields) {
+      slugFields.forEach((field) => keys.add(field));
+    }
+  }
+  if (item.templateName) {
+    const nameFields = FINE_FIELD_KEYS.get(item.templateName);
+    if (nameFields) {
+      nameFields.forEach((field) => keys.add(field));
+    }
+  }
+  return Array.from(keys);
+}
+
 function buildFieldLinesFromValues(
   values: Record<string, unknown> | null | undefined,
   template?: Template
@@ -186,7 +239,6 @@ function buildFieldLinesFromValues(
 
 function buildFallbackMetaLines(item: Archive): string[] {
   const lines: string[] = [];
-  lines.push(`Dokument: ${item.templateName || "—"}`);
   const officersText = (item.officers || []).join(", ");
   lines.push(`Funkcjonariusze: ${officersText || "—"}`);
   if (item.vehicleFolderRegistration) {
@@ -207,8 +259,9 @@ function buildArchiveTextSections(item: Archive): ArchiveTextSection[] {
   if (!metaLines.length) {
     metaLines = buildFallbackMetaLines(item).filter((line) => line.trim().length > 0);
   }
-  if (metaLines.length) {
-    sections.push({ title: "Metryka", lines: metaLines });
+  const sanitizedMetaLines = metaLines.filter((line) => !/^dokument\s*:/i.test(line.trim()));
+  if (sanitizedMetaLines.length) {
+    sections.push({ title: "Metryka", lines: sanitizedMetaLines });
   }
 
   if (item.textPages && item.textPages.length) {
@@ -514,15 +567,27 @@ export default function ArchivePage() {
         .replace(/[:.]/g, "-")}.pdf`;
       const totalDocuments = selectedItems.length;
       const typeCounts = new Map<string, number>();
+      let totalFineAmount = 0;
 
       selectedItems.forEach((item) => {
         const key = item.templateName || item.templateSlug || "Nieznany dokument";
         typeCounts.set(key, (typeCounts.get(key) ?? 0) + 1);
+
+        const fineKeys = getFineFieldKeys(item);
+        if (!fineKeys.length) return;
+        const valuesRecord = (item.values ?? {}) as Record<string, unknown>;
+        fineKeys.forEach((fieldKey) => {
+          const amount = parseNumericValue(valuesRecord[fieldKey]);
+          if (amount != null) {
+            totalFineAmount += amount;
+          }
+        });
       });
 
       const typeSummaryLines = Array.from(typeCounts.entries()).map(
         ([type, count]) => `${count}× ${type}`
       );
+      const formattedFineTotal = formatCurrency(totalFineAmount);
 
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       ensureReportFonts(doc);
@@ -599,7 +664,7 @@ export default function ArchivePage() {
       renderPageDecorations(true);
       let cursorY = firstPageTop;
 
-      const summaryBaseLines = 3;
+      const summaryBaseLines = 4;
       const summaryLineHeight = 16;
       const typeSectionOffset = hasTypeSummary
         ? 8 + wrappedTypeSummaryCount * summaryLineHeight
@@ -632,7 +697,9 @@ export default function ArchivePage() {
       summaryCursor += summaryLineHeight;
       doc.text(`Data wygenerowania: ${now.toLocaleString("pl-PL")}`, margin + 16, summaryCursor);
       summaryCursor += summaryLineHeight;
-      doc.text(`Liczba dokumentów: ${totalDocuments}`, margin + 16, summaryCursor);
+      doc.text(`Dokumenty wygenerowane: ${totalDocuments}`, margin + 16, summaryCursor);
+      summaryCursor += summaryLineHeight;
+      doc.text(`Łączna kwota mandatów/grzywien: ${formattedFineTotal}`, margin + 16, summaryCursor);
       summaryCursor += summaryLineHeight;
 
       if (hasTypeSummary) {
@@ -671,6 +738,15 @@ export default function ArchivePage() {
       const blockSpacing = 28;
       const blockInnerWidth = contentWidth - blockPaddingX * 2;
       const blockTextWidth = blockInnerWidth - blockContentIndent;
+      const blockHeaderLineHeight = 16;
+      const blockTitleLineHeight = 22;
+      const infoLineHeight = 16;
+      const sectionIntroSpacing = 12;
+      const sectionTitleLineHeight = 18;
+      const sectionSpacing = 14;
+      const spacerLineHeight = 14;
+      const textLineHeight = 16;
+      const noDataLineHeight = 18;
 
       selectedItems.forEach((item, index) => {
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate || null;
@@ -708,25 +784,25 @@ export default function ArchivePage() {
 
         const blockContentHeight = (() => {
           let height = 0;
-          height += 14; // "Dokument X z Y"
-          height += 18; // Tytuł dokumentu
-          height += infoLines.length * 14;
-          height += 10; // odstęp przed sekcjami
+          height += blockHeaderLineHeight;
+          height += blockTitleLineHeight;
+          height += infoLines.length * infoLineHeight;
+          height += sectionIntroSpacing;
           if (!preparedSections.length) {
-            height += 18; // informacja o braku danych
+            height += noDataLineHeight;
           } else {
             preparedSections.forEach((section) => {
               if (section.title) {
-                height += 16;
+                height += sectionTitleLineHeight;
               }
               section.lines.forEach((line) => {
                 if (line.type === "spacer") {
-                  height += 12;
+                  height += spacerLineHeight;
                 } else {
-                  height += line.lines.length * 14;
+                  height += line.lines.length * textLineHeight;
                 }
               });
-              height += 10; // odstęp po sekcji
+              height += sectionSpacing;
             });
           }
           return height;
@@ -751,7 +827,7 @@ export default function ArchivePage() {
           margin + blockPaddingX,
           blockCursorY
         );
-        blockCursorY += 14;
+        blockCursorY += blockHeaderLineHeight;
 
         doc.setFontSize(14);
         doc.setTextColor(31, 41, 55);
@@ -760,17 +836,17 @@ export default function ArchivePage() {
           margin + blockPaddingX,
           blockCursorY
         );
-        blockCursorY += 18;
+        blockCursorY += blockTitleLineHeight;
 
         doc.setFontSize(11);
         doc.setTextColor(75, 85, 99);
         infoLines.forEach((line) => {
           doc.text(normalizePdfLine(line), margin + blockPaddingX, blockCursorY);
-          blockCursorY += 14;
+          blockCursorY += infoLineHeight;
         });
 
         doc.setTextColor(55, 65, 81);
-        blockCursorY += 10;
+        blockCursorY += sectionIntroSpacing;
 
         if (!preparedSections.length) {
           doc.text(
@@ -778,19 +854,19 @@ export default function ArchivePage() {
             margin + blockPaddingX,
             blockCursorY
           );
-          blockCursorY += 18;
+          blockCursorY += noDataLineHeight;
         } else {
           preparedSections.forEach((section) => {
             if (section.title) {
               doc.setFontSize(12);
               doc.text(section.title, margin + blockPaddingX, blockCursorY);
-              blockCursorY += 16;
+              blockCursorY += sectionTitleLineHeight;
               doc.setFontSize(11);
             }
 
             section.lines.forEach((line) => {
               if (line.type === "spacer") {
-                blockCursorY += 12;
+                blockCursorY += spacerLineHeight;
                 return;
               }
               line.lines.forEach((wrappedLine) => {
@@ -799,11 +875,11 @@ export default function ArchivePage() {
                   margin + blockPaddingX + blockContentIndent,
                   blockCursorY
                 );
-                blockCursorY += 14;
+                blockCursorY += textLineHeight;
               });
             });
 
-            blockCursorY += 10;
+            blockCursorY += sectionSpacing;
           });
         }
 
