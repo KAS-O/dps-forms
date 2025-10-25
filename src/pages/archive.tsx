@@ -529,12 +529,30 @@ export default function ArchivePage() {
 
       await Promise.all(workers);
 
+      const fileNameCounts = new Map<string, number>();
+      const makeUniqueFileName = (fileName: string) => {
+        const dotIndex = fileName.lastIndexOf(".");
+        const base = dotIndex === -1 ? fileName : fileName.slice(0, dotIndex);
+        const extension = dotIndex === -1 ? "" : fileName.slice(dotIndex);
+        const currentCount = fileNameCounts.get(base) ?? 0;
+        fileNameCounts.set(base, currentCount + 1);
+        if (currentCount === 0) {
+          return `${base}${extension}`;
+        }
+        return `${base}-${currentCount + 1}${extension}`;
+      };
+
       let addedFiles = 0;
       results.forEach((result) => {
         if (!result) return;
-        zip.file(result.fileName, result.arrayBuffer);
+        const uniqueName = makeUniqueFileName(result.fileName);
+        zip.file(uniqueName, result.arrayBuffer);
         addedFiles += 1;
       });
+
+      if (addedFiles === 0) {
+        throw new Error("Nie udało się przygotować pliku do pobrania.");
+      }
 
       const content = await zip.generateAsync({ type: "blob" });
       const blobUrl = URL.createObjectURL(content);
@@ -544,7 +562,9 @@ export default function ArchivePage() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
+      setTimeout(() => {
+        URL.revokeObjectURL(blobUrl);
+      }, 2000);
       
       setSelectedIds([]);
       setSelectionMode(false);
