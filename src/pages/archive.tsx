@@ -300,7 +300,7 @@ function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
 }
 
 export default function ArchivePage() {
-  const { role, login } = useProfile();
+  const { role, login, fullName } = useProfile();
   const { alert, confirm } = useDialog();
   const { logActivity, session } = useSessionActivity();
   const [items, setItems] = useState<Archive[]>([]);
@@ -509,7 +509,9 @@ export default function ArchivePage() {
       }
 
       const now = new Date();
-      const documentName = `raport-archiwum-${now.toISOString().replace(/[:.]/g, "-")}.pdf`;
+      const documentName = `raport-czynnosci-sluzbowych-${now
+        .toISOString()
+        .replace(/[:.]/g, "-")}.pdf`;
       const totalDocuments = selectedItems.length;
       const typeCounts = new Map<string, number>();
 
@@ -537,6 +539,12 @@ export default function ArchivePage() {
       const logoPadding = margin;
       const backgroundColor = { r: 248, g: 246, b: 242 };
       const logoDataUri = `data:image/png;base64,${REPORT_LOGO_PNG}`;
+      const confidentialityNotice =
+        "Dokument stanowi raport z czynności służbowych funkcjonariuszy LSPD, obejmujących okres wskazany w szczegółach dokumentu. Raport jest objęty klauzulą poufności i przeznaczony wyłącznie do użytku wewnętrznego Los Santos Police Department. Udostępnianie lub modyfikowanie bez upoważnienia jest zabronione. Dokument został wygenerowany za pośrednictwem Panelu Dokumentów LSPD.";
+      const confidentialityNoticeLines = doc.splitTextToSize(
+        confidentialityNotice,
+        contentWidth
+      );
       const wrappedTypeSummaryLines = typeSummaryLines
         .map((line) => normalizePdfLine(line))
         .map((line) => doc.splitTextToSize(line, contentWidth - 44));
@@ -558,7 +566,11 @@ export default function ArchivePage() {
 
           doc.setTextColor(255, 255, 255);
           doc.setFontSize(20);
-          doc.text("Raport archiwum", logoPadding + logoSize + 18, logoPadding + 6);
+          doc.text(
+            "Raport Czynności Służbowych",
+            logoPadding + logoSize + 18,
+            logoPadding + 6
+          );
           doc.setFontSize(11);
           doc.text("Jednostka: LSPD", logoPadding + logoSize + 18, logoPadding + 26);
           doc.text(`Wygenerowano: ${now.toLocaleString("pl-PL")}`, pageWidth - margin, logoPadding + 6, {
@@ -567,12 +579,16 @@ export default function ArchivePage() {
           doc.text(`Liczba dokumentów: ${totalDocuments}`, pageWidth - margin, logoPadding + 26, {
             align: "right",
           });
+
+          doc.setFontSize(8);
+          doc.setTextColor(226, 232, 240);
+          doc.text(confidentialityNoticeLines, margin, headerHeight - 18);
         } else {
           const secondaryHeaderHeight = 56;
           doc.rect(0, 0, pageWidth, secondaryHeaderHeight, "F");
           doc.setTextColor(255, 255, 255);
           doc.setFontSize(12);
-          doc.text("Raport archiwum — kontynuacja", margin, 32);
+          doc.text("Raport Czynności Służbowych — kontynuacja", margin, 32);
           doc.setFontSize(10);
           doc.text(now.toLocaleString("pl-PL"), pageWidth - margin, 32, { align: "right" });
         }
@@ -608,7 +624,11 @@ export default function ArchivePage() {
       doc.text("Podsumowanie", margin + 16, summaryCursor);
       summaryCursor += 20;
       doc.setFontSize(11);
-      doc.text(`Wygenerował: ${login || "—"}`, margin + 16, summaryCursor);
+      doc.text(
+        `Wygenerował: ${fullName || login || "—"}`,
+        margin + 16,
+        summaryCursor
+      );
       summaryCursor += summaryLineHeight;
       doc.text(`Data wygenerowania: ${now.toLocaleString("pl-PL")}`, margin + 16, summaryCursor);
       summaryCursor += summaryLineHeight;
@@ -645,6 +665,13 @@ export default function ArchivePage() {
         }
       };
 
+      const blockPaddingX = 24;
+      const blockPaddingY = 20;
+      const blockContentIndent = 14;
+      const blockSpacing = 28;
+      const blockInnerWidth = contentWidth - blockPaddingX * 2;
+      const blockTextWidth = blockInnerWidth - blockContentIndent;
+
       selectedItems.forEach((item, index) => {
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate || null;
         const officers = (item.officers || []).join(", ") || "—";
@@ -667,77 +694,129 @@ export default function ArchivePage() {
         if (dossier) infoLines.push(dossier);
         if (vehicleRegistration) infoLines.push(vehicleRegistration);
 
-        const minimumDocumentBlockHeight = 48 + infoLines.length * 14;
-        ensureSpace(minimumDocumentBlockHeight);
+        const preparedSections = sections.map((section) => ({
+          title: section.title,
+          lines: section.lines.map((line) => {
+            const normalized = normalizePdfLine(line ?? "");
+            if (!normalized) {
+              return { type: "spacer" as const };
+            }
+            const wrapped = doc.splitTextToSize(normalized, blockTextWidth);
+            return { type: "text" as const, lines: wrapped };
+          }),
+        }));
 
-        if (index > 0 && cursorY > subsequentTop + 1) {
-          doc.setDrawColor(214, 211, 209);
-          doc.setLineWidth(0.6);
-          doc.line(margin, cursorY, pageWidth - margin, cursorY);
-          cursorY += 18;
-        }
+        const blockContentHeight = (() => {
+          let height = 0;
+          height += 14; // "Dokument X z Y"
+          height += 18; // Tytuł dokumentu
+          height += infoLines.length * 14;
+          height += 10; // odstęp przed sekcjami
+          if (!preparedSections.length) {
+            height += 18; // informacja o braku danych
+          } else {
+            preparedSections.forEach((section) => {
+              if (section.title) {
+                height += 16;
+              }
+              section.lines.forEach((line) => {
+                if (line.type === "spacer") {
+                  height += 12;
+                } else {
+                  height += line.lines.length * 14;
+                }
+              });
+              height += 10; // odstęp po sekcji
+            });
+          }
+          return height;
+        })();
+
+        const totalBlockHeight = blockContentHeight + blockPaddingY * 2;
+        ensureSpace(totalBlockHeight);
+
+        const blockTop = cursorY;
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(margin, blockTop, contentWidth, totalBlockHeight, 12, 12, "F");
+        doc.setDrawColor(214, 211, 209);
+        doc.setLineWidth(0.8);
+        doc.roundedRect(margin, blockTop, contentWidth, totalBlockHeight, 12, 12, "S");
+
+        let blockCursorY = blockTop + blockPaddingY;
 
         doc.setFontSize(10);
         doc.setTextColor(107, 114, 128);
-        doc.text(`Dokument ${index + 1} z ${totalDocuments}`, margin, cursorY);
-        cursorY += 14;
+        doc.text(
+          `Dokument ${index + 1} z ${totalDocuments}`,
+          margin + blockPaddingX,
+          blockCursorY
+        );
+        blockCursorY += 14;
 
         doc.setFontSize(14);
-        doc.setTextColor(55, 65, 81);
-        doc.text(item.templateName || item.templateSlug || "Dokument", margin, cursorY);
-        cursorY += 18;
+        doc.setTextColor(31, 41, 55);
+        doc.text(
+          item.templateName || item.templateSlug || "Dokument",
+          margin + blockPaddingX,
+          blockCursorY
+        );
+        blockCursorY += 18;
 
         doc.setFontSize(11);
         doc.setTextColor(75, 85, 99);
         infoLines.forEach((line) => {
-          ensureSpace(16);
-          doc.text(normalizePdfLine(line), margin, cursorY);
-          cursorY += 14;
+          doc.text(normalizePdfLine(line), margin + blockPaddingX, blockCursorY);
+          blockCursorY += 14;
         });
 
         doc.setTextColor(55, 65, 81);
-        cursorY += 8;
+        blockCursorY += 10;
 
-        if (!sections.length) {
-          ensureSpace(16);
-          doc.text("(Brak danych tekstowych w archiwum)", margin, cursorY);
-          cursorY += 18;
-          if (index < selectedItems.length - 1) {
-            cursorY += 12;
-          }
-          return;
+        if (!preparedSections.length) {
+          doc.text(
+            "(Brak danych tekstowych w archiwum)",
+            margin + blockPaddingX,
+            blockCursorY
+          );
+          blockCursorY += 18;
+        } else {
+          preparedSections.forEach((section) => {
+            if (section.title) {
+              doc.setFontSize(12);
+              doc.text(section.title, margin + blockPaddingX, blockCursorY);
+              blockCursorY += 16;
+              doc.setFontSize(11);
+            }
+
+            section.lines.forEach((line) => {
+              if (line.type === "spacer") {
+                blockCursorY += 12;
+                return;
+              }
+              line.lines.forEach((wrappedLine) => {
+                doc.text(
+                  wrappedLine,
+                  margin + blockPaddingX + blockContentIndent,
+                  blockCursorY
+                );
+                blockCursorY += 14;
+              });
+            });
+
+            blockCursorY += 10;
+          });
         }
 
-        sections.forEach((section) => {
-          if (section.title) {
-            ensureSpace(18);
-            doc.setFontSize(12);
-            doc.text(section.title, margin, cursorY);
-            cursorY += 16;
-            doc.setFontSize(11);
-          }
-
-          section.lines.forEach((line) => {
-            const content = line ?? "";
-            const normalized = normalizePdfLine(content);
-            if (!normalized) {
-              ensureSpace(12);
-              cursorY += 12;
-              return;
-            }
-            const wrapped = doc.splitTextToSize(normalized, contentWidth - 12);
-            wrapped.forEach((wrappedLine) => {
-              ensureSpace(14);
-              doc.text(wrappedLine, margin + 12, cursorY);
-              cursorY += 14;
-            });
-          });
-
-          cursorY += 10;
-        });
+        cursorY = blockTop + totalBlockHeight;
 
         if (index < selectedItems.length - 1) {
-          cursorY += 12;
+          if (cursorY + blockSpacing > pageHeight - margin) {
+            doc.addPage();
+            renderPageDecorations(false);
+            cursorY = subsequentTop;
+          } else {
+            cursorY += blockSpacing;
+          }
         }
       });
 
@@ -755,7 +834,7 @@ export default function ArchivePage() {
           filename: documentName,
           fileBase64: pdfBase64,
           metadata: {
-            generatedBy: login || "—",
+            generatedBy: fullName || login || "—",
             generatedAt: now.toISOString(),
             generatedAtDisplay: now.toLocaleString("pl-PL"),
             totalDocuments,
@@ -789,7 +868,7 @@ export default function ArchivePage() {
     } finally {
       setCreatingReport(false);
     }
-  }, [alert, items, login, selectedIds, selectionMode]);
+  }, [alert, fullName, items, login, selectedIds, selectionMode]);
 
   const selectedCount = selectedIds.length;
 
