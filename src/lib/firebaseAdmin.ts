@@ -5,6 +5,7 @@ import admin from "firebase-admin";
 import { App, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 type ServiceAccount = {
   project_id?: string;
@@ -137,3 +138,11 @@ export const adminAuth = app ? getAuth(app) : null;
 export const adminDb = app ? admin.firestore(app) : null;
 export const adminFieldValue: typeof FieldValue | null = app ? FieldValue : null;
 export const adminTimestamp: typeof Timestamp | null = app ? Timestamp : null;
+
+const storageBucketName =
+  process.env.FIREBASE_ADMIN_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+
+const storage = app ? getStorage(app) : null;
+
+export const adminStorage = storage;
+export const adminStorageBucket = storageBucketName && storage ? storage.bucket(storageBucketName) : null;
