@@ -47,6 +47,8 @@ const ROLE_NAMES: Record<Role, string> = {
   rookie: "Rookie",
 };
 
+const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
+
 const ANNOUNCEMENT_WINDOWS: { value: string; label: string; ms: number | null }[] = [
   { value: "30m", label: "30 minut", ms: 30 * 60 * 1000 },
   { value: "1h", label: "1 godzina", ms: 60 * 60 * 1000 },
@@ -352,12 +354,16 @@ export default function Admin() {
       setErr("Login jest wymagany.");
       return;
     }
+    if (!LOGIN_PATTERN.test(loginValue)) {
+      setErr("Login może zawierać jedynie małe litery, cyfry, kropki, myślniki i podkreślniki.");
+      return;
+    }
     if (editorState.mode === "create" && !passwordValue) {
       setErr("Hasło jest wymagane przy tworzeniu nowego konta.");
       return;
     }
-    if (passwordValue && passwordValue.length < 1) {
-      setErr("Hasło musi mieć co najmniej 1 znak.");
+    if (passwordValue && passwordValue.length < 6) {
+      setErr("Hasło musi mieć co najmniej 6 znaków.");
       return;
     }
 
@@ -1164,6 +1170,9 @@ export default function Admin() {
                   />
                   <span className="text-sm text-white/70">@{loginDomain}</span>
                 </div>
+                <p className="mt-1 text-xs text-white/60">
+                  Dozwolone znaki: małe litery, cyfry, kropki, myślniki i podkreślniki.
+                </p>
               </div>
 
               <div>
@@ -1206,13 +1215,14 @@ export default function Admin() {
                 </label>
                 <input
                   type="password"
-                   className="input bg-white text-black placeholder:text-slate-500"
+                  className="input bg-white text-black placeholder:text-slate-500"
                   value={editorState.password || ""}
                   placeholder={editorState.mode === "create" ? "Wprowadź hasło" : "Pozostaw puste aby nie zmieniać"}
                   onChange={(e) =>
                     setEditorState((prev) => (prev ? { ...prev, password: e.target.value } : prev))
                   }
                 />
+                <p className="mt-1 text-xs text-white/60">Hasło musi mieć co najmniej 6 znaków.</p>
               </div>
             </div>
             
