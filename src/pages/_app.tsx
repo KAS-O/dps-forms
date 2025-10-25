@@ -2,14 +2,12 @@ import "@/styles/globals.css";
 import type { AppProps } from "next/app";
 import { DialogProvider } from "@/components/DialogProvider";
 import { ActivityLoggerProvider } from "@/components/ActivityLogger";
-import { UnderlightGlow } from "@/components/UnderlightGlow";
 
 export default function App({ Component, pageProps }: AppProps) {
   return (
     <DialogProvider>
-     <ActivityLoggerProvider>
+      <ActivityLoggerProvider>
         <div className="min-h-screen flex flex-col relative bg-[#02060f] text-white">
-          <UnderlightGlow />
           <div className="relative z-10 flex-1 flex flex-col">
             <Component {...pageProps} />
           </div>
