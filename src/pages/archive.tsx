@@ -300,7 +300,7 @@ function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
 }
 
 export default function ArchivePage() {
-  const { role, login } = useProfile();
+  const { role, login, fullName } = useProfile();
   const { alert, confirm } = useDialog();
   const { logActivity, session } = useSessionActivity();
   const [items, setItems] = useState<Archive[]>([]);
@@ -558,7 +558,7 @@ export default function ArchivePage() {
 
           doc.setTextColor(255, 255, 255);
           doc.setFontSize(20);
-          doc.text("Raport archiwum", logoPadding + logoSize + 18, logoPadding + 6);
+          doc.text("Raport Czynności Służbowych", logoPadding + logoSize + 18, logoPadding + 6);
           doc.setFontSize(11);
           doc.text("Jednostka: LSPD", logoPadding + logoSize + 18, logoPadding + 26);
           doc.text(`Wygenerowano: ${now.toLocaleString("pl-PL")}`, pageWidth - margin, logoPadding + 6, {
@@ -572,7 +572,7 @@ export default function ArchivePage() {
           doc.rect(0, 0, pageWidth, secondaryHeaderHeight, "F");
           doc.setTextColor(255, 255, 255);
           doc.setFontSize(12);
-          doc.text("Raport archiwum — kontynuacja", margin, 32);
+          doc.text("Raport Czynności Służbowych — kontynuacja", margin, 32);
           doc.setFontSize(10);
           doc.text(now.toLocaleString("pl-PL"), pageWidth - margin, 32, { align: "right" });
         }
@@ -581,7 +581,17 @@ export default function ArchivePage() {
       };
 
       renderPageDecorations(true);
-      let cursorY = firstPageTop;
+      const confidentialityNotice =
+        "Dokument stanowi raport z czynności służbowych funkcjonariuszy LSPD, obejmujących okres wskazany w szczegółach dokumentu. Raport jest objęty klauzulą poufności i przeznaczony wyłącznie do użytku wewnętrznego Los Santos Police Department. Udostępnianie lub modyfikowanie bez upoważnienia jest zabronione. Dokument został wygenerowany za pośrednictwem Panelu Dokumentów LSPD.";
+      doc.setFontSize(9);
+      doc.setTextColor(107, 114, 128);
+      const confidentialityLines = doc.splitTextToSize(confidentialityNotice, contentWidth);
+      const confidentialityTop = headerHeight + 32;
+      doc.text(confidentialityLines, margin, confidentialityTop);
+
+      const confidentialityHeight = confidentialityLines.length * 11;
+      let cursorY = Math.max(firstPageTop, confidentialityTop + confidentialityHeight + 20);
+      doc.setTextColor(55, 65, 81);
 
       const summaryBaseLines = 3;
       const summaryLineHeight = 16;
@@ -608,7 +618,7 @@ export default function ArchivePage() {
       doc.text("Podsumowanie", margin + 16, summaryCursor);
       summaryCursor += 20;
       doc.setFontSize(11);
-      doc.text(`Wygenerował: ${login || "—"}`, margin + 16, summaryCursor);
+      doc.text(`Wygenerował: ${fullName || login || "—"}`, margin + 16, summaryCursor);
       summaryCursor += summaryLineHeight;
       doc.text(`Data wygenerowania: ${now.toLocaleString("pl-PL")}`, margin + 16, summaryCursor);
       summaryCursor += summaryLineHeight;
@@ -637,14 +647,6 @@ export default function ArchivePage() {
       doc.text("Szczegóły dokumentów", margin, cursorY);
       cursorY += 24;
 
-      const ensureSpace = (requiredHeight: number) => {
-        if (cursorY + requiredHeight > pageHeight - margin) {
-          doc.addPage();
-          renderPageDecorations(false);
-          cursorY = subsequentTop;
-        }
-      };
-
       selectedItems.forEach((item, index) => {
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate || null;
         const officers = (item.officers || []).join(", ") || "—";
@@ -667,31 +669,74 @@ export default function ArchivePage() {
         if (dossier) infoLines.push(dossier);
         if (vehicleRegistration) infoLines.push(vehicleRegistration);
 
-        const minimumDocumentBlockHeight = 48 + infoLines.length * 14;
-        ensureSpace(minimumDocumentBlockHeight);
+        const blockPadding = 18;
+        const innerLeft = margin + blockPadding;
+        const innerWidth = contentWidth - blockPadding * 2;
 
-        if (index > 0 && cursorY > subsequentTop + 1) {
-          doc.setDrawColor(214, 211, 209);
-          doc.setLineWidth(0.6);
-          doc.line(margin, cursorY, pageWidth - margin, cursorY);
-          cursorY += 18;
+        const measureBlockHeight = () => {
+          let height = blockPadding;
+          height += 14; // dokument label
+          height += 18; // document title
+          height += infoLines.length * 14;
+          height += 8;
+
+          if (!sections.length) {
+            height += 18;
+          } else {
+            sections.forEach((section) => {
+              if (section.title) {
+                height += 16;
+              }
+
+              section.lines.forEach((line) => {
+                const content = line ?? "";
+                const normalized = normalizePdfLine(content);
+                if (!normalized) {
+                  height += 12;
+                  return;
+                }
+                const wrapped = doc.splitTextToSize(normalized, innerWidth - 12);
+                height += wrapped.length * 14;
+              });
+
+              height += 10;
+            });
+          }
+
+          height += blockPadding;
+          return height;
+        };
+
+        const blockHeight = measureBlockHeight();
+        let availableHeight = pageHeight - margin - cursorY;
+        if (blockHeight > availableHeight) {
+          doc.addPage();
+          renderPageDecorations(false);
+          cursorY = subsequentTop;
+          availableHeight = pageHeight - margin - cursorY;
         }
+
+        if (index > 0) {
+          cursorY += 12;
+        }
+
+        const blockTop = cursorY;
+        cursorY += blockPadding;
 
         doc.setFontSize(10);
         doc.setTextColor(107, 114, 128);
-        doc.text(`Dokument ${index + 1} z ${totalDocuments}`, margin, cursorY);
+        doc.text(`Dokument ${index + 1} z ${totalDocuments}`, innerLeft, cursorY);
         cursorY += 14;
 
         doc.setFontSize(14);
         doc.setTextColor(55, 65, 81);
-        doc.text(item.templateName || item.templateSlug || "Dokument", margin, cursorY);
+        doc.text(item.templateName || item.templateSlug || "Dokument", innerLeft, cursorY);
         cursorY += 18;
 
         doc.setFontSize(11);
         doc.setTextColor(75, 85, 99);
         infoLines.forEach((line) => {
-          ensureSpace(16);
-          doc.text(normalizePdfLine(line), margin, cursorY);
+          doc.text(normalizePdfLine(line), innerLeft, cursorY);
           cursorY += 14;
         });
 
@@ -699,46 +744,45 @@ export default function ArchivePage() {
         cursorY += 8;
 
         if (!sections.length) {
-          ensureSpace(16);
-          doc.text("(Brak danych tekstowych w archiwum)", margin, cursorY);
+          doc.text("(Brak danych tekstowych w archiwum)", innerLeft, cursorY);
           cursorY += 18;
-          if (index < selectedItems.length - 1) {
-            cursorY += 12;
-          }
-          return;
-        }
-
-        sections.forEach((section) => {
-          if (section.title) {
-            ensureSpace(18);
-            doc.setFontSize(12);
-            doc.text(section.title, margin, cursorY);
-            cursorY += 16;
-            doc.setFontSize(11);
-          }
-
-          section.lines.forEach((line) => {
-            const content = line ?? "";
-            const normalized = normalizePdfLine(content);
-            if (!normalized) {
-              ensureSpace(12);
-              cursorY += 12;
-              return;
+        } else {
+          sections.forEach((section) => {
+            if (section.title) {
+              doc.setFontSize(12);
+              doc.text(section.title, innerLeft, cursorY);
+              cursorY += 16;
+              doc.setFontSize(11);
             }
-            const wrapped = doc.splitTextToSize(normalized, contentWidth - 12);
-            wrapped.forEach((wrappedLine) => {
-              ensureSpace(14);
-              doc.text(wrappedLine, margin + 12, cursorY);
-              cursorY += 14;
+
+            section.lines.forEach((line) => {
+              const content = line ?? "";
+              const normalized = normalizePdfLine(content);
+              if (!normalized) {
+                cursorY += 12;
+                return;
+              }
+              const wrapped = doc.splitTextToSize(normalized, innerWidth - 12);
+              wrapped.forEach((wrappedLine) => {
+                doc.text(wrappedLine, innerLeft + 12, cursorY);
+                cursorY += 14;
+              });
             });
+
+            cursorY += 10;
           });
-
-          cursorY += 10;
-        });
-
-        if (index < selectedItems.length - 1) {
-          cursorY += 12;
         }
+
+        cursorY += blockPadding;
+        const blockBottom = cursorY;
+        const renderedBlockHeight = blockBottom - blockTop;
+
+        doc.setDrawColor(214, 211, 209);
+        doc.setLineWidth(0.8);
+        doc.roundedRect(margin, blockTop, contentWidth, renderedBlockHeight, 12, 12, "S");
+
+        doc.setDrawColor(55, 65, 81);
+        doc.setLineWidth(0.5);
       });
 
       const arrayBuffer = doc.output("arraybuffer");
@@ -755,7 +799,7 @@ export default function ArchivePage() {
           filename: documentName,
           fileBase64: pdfBase64,
           metadata: {
-            generatedBy: login || "—",
+            generatedBy: fullName || login || "—",
             generatedAt: now.toISOString(),
             generatedAtDisplay: now.toLocaleString("pl-PL"),
             totalDocuments,
@@ -789,7 +833,7 @@ export default function ArchivePage() {
     } finally {
       setCreatingReport(false);
     }
-  }, [alert, items, login, selectedIds, selectionMode]);
+  }, [alert, fullName, items, login, selectedIds, selectionMode]);
 
   const selectedCount = selectedIds.length;
 
