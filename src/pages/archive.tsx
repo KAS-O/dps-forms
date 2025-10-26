@@ -150,6 +150,48 @@ function normalizePdfLine(text: string): string {
     .trim();
 }
 
+let cachedLogoDataUrl: string | null = null;
+let logoLoadPromise: Promise<string | null> | null = null;
+
+async function loadLogoDataUrl(): Promise<string | null> {
+  if (cachedLogoDataUrl) {
+    return cachedLogoDataUrl;
+  }
+  if (logoLoadPromise) {
+    return logoLoadPromise;
+  }
+  const promise = (async () => {
+    try {
+      const response = await fetch("/logo.png");
+      if (!response.ok) {
+        throw new Error(`Nie udało się pobrać logo raportu (status ${response.status}).`);
+      }
+      const blob = await response.blob();
+      return await new Promise<string | null>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Nie udało się odczytać pliku logo."));
+        reader.onload = () => {
+          resolve(typeof reader.result === "string" ? reader.result : null);
+        };
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.warn("Nie udało się wczytać logo raportu", error);
+      return null;
+    }
+  })();
+  logoLoadPromise = promise;
+  try {
+    const result = await promise;
+    if (result) {
+      cachedLogoDataUrl = result;
+    }
+    return result;
+  } finally {
+    logoLoadPromise = null;
+  }
+}
+
 function extractFromTextContent(content?: string | null) {
   if (!content) {
     return { metaLines: [] as string[], contentLines: [] as string[] };
@@ -592,6 +634,8 @@ export default function ArchivePage() {
         ([type, count]) => `${count}× ${type}`
       );
 
+      const logoDataUrl = await loadLogoDataUrl();
+
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       ensureReportFonts(doc);
       doc.setLineHeightFactor(1.4);
@@ -613,6 +657,16 @@ export default function ArchivePage() {
       const marginBottom = 56;
       const contentWidth = pageWidth - marginX * 2;
       const nowDisplay = now.toLocaleString("pl-PL");
+      const headerBarHeight = 96;
+      const headerAccentHeight = 6;
+      const summaryBoxPaddingX = 28;
+      const summaryBoxPaddingY = 24;
+      const summarySectionSpacing = bodyLineHeight;
+      const confidentialityBoxPaddingX = 18;
+      const confidentialityBoxPaddingY = 14;
+      const summaryInnerWidth = contentWidth - summaryBoxPaddingX * 2;
+      const confidentialityTextWidth =
+        summaryInnerWidth - confidentialityBoxPaddingX * 2;
 
       const confidentialityNotice =
         "Dokument stanowi raport z czynności służbowych funkcjonariuszy LSPD, obejmujących okres wskazany w szczegółach dokumentu. Raport jest objęty klauzulą poufności i przeznaczony wyłącznie do użytku wewnętrznego Los Santos Police Department. Udostępnianie lub modyfikowanie bez upoważnienia jest zabronione. Dokument został wygenerowany za pośrednictwem Panelu Dokumentów LSPD.";
@@ -620,7 +674,7 @@ export default function ArchivePage() {
       const wrappedTypeSummaryLines = typeSummaryLines
         .map((line) => normalizePdfLine(line))
         .filter((line) => line.length > 0)
-        .map((line) => doc.splitTextToSize(line, contentWidth - 32));
+        .map((line) => doc.splitTextToSize(line, summaryInnerWidth - 32));
       const totalTypeSummaryLines = wrappedTypeSummaryLines.reduce(
         (sum, lines) => sum + lines.length,
         0
@@ -632,7 +686,10 @@ export default function ArchivePage() {
           ? `Uwzględnione dokumenty: ${totalDocuments} z ${requestedDocuments} (brakujących: ${missingDocuments})`
           : `Uwzględnione dokumenty: ${totalDocuments} z ${requestedDocuments}`;
 
-      const confidentialityLines = doc.splitTextToSize(confidentialityNotice, contentWidth);
+      const confidentialityLines = doc.splitTextToSize(
+        confidentialityNotice,
+        confidentialityTextWidth
+      );
 
       const summaryLines = [
         `Wygenerował: ${fullName || login || "—"}`,
@@ -642,39 +699,63 @@ export default function ArchivePage() {
         processedLine,
       ];
 
-      const summaryHeight =
-        summaryTitleLineHeight +
-        summaryLines.length * bodyLineHeight +
-        (hasTypeSummary
-          ? bodyLineHeight + totalTypeSummaryLines * bodyLineHeight
-          : bodyLineHeight) +
-        bodyLineHeight +
-        confidentialityLines.length * noteLineHeight;
+      const summaryBaseContentHeight =
+        summaryTitleLineHeight + summaryLines.length * bodyLineHeight;
+      const typeSummaryIntroHeight = bodyLineHeight;
+      const typeSummaryLinesHeight = hasTypeSummary
+        ? totalTypeSummaryLines * bodyLineHeight
+        : bodyLineHeight;
+      const confidentialityBoxHeight =
+        confidentialityBoxPaddingY * 2 + confidentialityLines.length * noteLineHeight;
+      const summaryBoxHeight =
+        summaryBoxPaddingY * 2 +
+        summaryBaseContentHeight +
+        summarySectionSpacing +
+        typeSummaryIntroHeight +
+        typeSummaryLinesHeight +
+        summarySectionSpacing +
+        confidentialityBoxHeight;
 
       const drawPageHeader = (isFirstPage: boolean) => {
-        const headerTop = 48;
-        doc.setFontSize(10);
-        doc.setTextColor(100, 116, 139);
-        doc.text("Los Santos Police Department", marginX, headerTop);
-        doc.text(nowDisplay, pageWidth - marginX, headerTop, { align: "right" });
-        doc.setDrawColor(203, 213, 225);
-        doc.setLineWidth(0.6);
-        doc.line(marginX, headerTop + 10, pageWidth - marginX, headerTop + 10);
+        doc.setFillColor(15, 23, 42);
+        doc.rect(0, 0, pageWidth, headerBarHeight, "F");
+        doc.setFillColor(37, 99, 235);
+        doc.rect(0, headerBarHeight - headerAccentHeight, pageWidth, headerAccentHeight, "F");
 
-        let startY = headerTop + 28;
+        if (logoDataUrl) {
+          const logoHeight = 40;
+          const logoWidth = 120;
+          doc.addImage(logoDataUrl, "PNG", marginX, 24, logoWidth, logoHeight);
+        } else {
+          doc.setFontSize(16);
+          doc.setTextColor(226, 232, 240);
+          doc.text("LSPD", marginX, 48);
+        }
+
+        doc.setFontSize(10);
+        doc.setTextColor(148, 163, 184);
+        doc.text("Panel Dokumentów LSPD", marginX, headerBarHeight - 18);
+
+        doc.setFontSize(11);
+        doc.setTextColor(226, 232, 240);
+        doc.text("Los Santos Police Department", pageWidth - marginX, 34, { align: "right" });
+        doc.setFontSize(10);
+        doc.text(nowDisplay, pageWidth - marginX, 52, { align: "right" });
+
+        let startY = headerBarHeight + 36;
         if (isFirstPage) {
           doc.setFontSize(18);
-          doc.setTextColor(30, 41, 59);
+          doc.setTextColor(15, 23, 42);
           doc.text("Raport Czynności Służbowych", marginX, startY);
           startY += mainTitleLineHeight;
           doc.setFontSize(12);
-          doc.setTextColor(55, 65, 81);
+          doc.setTextColor(71, 85, 105);
           doc.text("Jednostka: LSPD", marginX, startY);
           startY += sectionTitleLineHeight;
         }
 
         doc.setTextColor(30, 41, 59);
-        return isFirstPage ? startY + 12 : headerTop + 28;
+        return isFirstPage ? startY + 20 : headerBarHeight + 32;
       };
 
       let cursorY = drawPageHeader(true);
@@ -686,42 +767,90 @@ export default function ArchivePage() {
         }
       };
 
-      ensureSpace(summaryHeight + bodyLineHeight);
+      ensureSpace(summaryBoxHeight + bodyLineHeight);
+      const summaryBoxLeft = marginX;
+      const summaryBoxTop = cursorY;
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(148, 163, 184);
+      doc.setLineWidth(1.2);
+      doc.roundedRect(summaryBoxLeft, summaryBoxTop, contentWidth, summaryBoxHeight, 16, 16, "FD");
+
+      let summaryCursorY = summaryBoxTop + summaryBoxPaddingY;
+      const summaryTextX = summaryBoxLeft + summaryBoxPaddingX;
+
       doc.setFontSize(15);
-      doc.text("Podsumowanie", marginX, cursorY);
-      cursorY += summaryTitleLineHeight;
+      doc.setTextColor(15, 23, 42);
+      doc.text("Podsumowanie", summaryTextX, summaryCursorY);
+      summaryCursorY += summaryTitleLineHeight;
 
       doc.setFontSize(11);
+      doc.setTextColor(51, 65, 85);
       summaryLines.forEach((line) => {
-        doc.text(line, marginX, cursorY);
-        cursorY += bodyLineHeight;
+        doc.text(line, summaryTextX, summaryCursorY);
+        summaryCursorY += bodyLineHeight;
       });
 
+      summaryCursorY += summarySectionSpacing;
+
+      doc.setFontSize(11);
+      doc.setTextColor(30, 41, 59);
+      doc.text("Zestawienie typów dokumentów:", summaryTextX, summaryCursorY);
+      summaryCursorY += typeSummaryIntroHeight;
+
       if (hasTypeSummary) {
-        doc.text("Zestawienie typów dokumentów:", marginX, cursorY);
-        cursorY += bodyLineHeight;
+        const summaryListX = summaryTextX + 14;
+        doc.setTextColor(71, 85, 105);
         wrappedTypeSummaryLines.forEach((lines) => {
           lines.forEach((wrappedLine, index) => {
             const prefix = index === 0 ? "• " : "  ";
-            doc.text(`${prefix}${wrappedLine}`, marginX + 12, cursorY);
-            cursorY += bodyLineHeight;
+            doc.text(`${prefix}${wrappedLine}`, summaryListX, summaryCursorY);
+            summaryCursorY += bodyLineHeight;
           });
         });
       } else {
-        doc.text("Brak dodatkowego zestawienia typów dokumentów.", marginX, cursorY);
-        cursorY += bodyLineHeight;
+        doc.setTextColor(100, 116, 139);
+        doc.text(
+          "Brak dodatkowego zestawienia typów dokumentów.",
+          summaryTextX,
+          summaryCursorY
+        );
+        summaryCursorY += bodyLineHeight;
       }
 
-      cursorY += bodyLineHeight;
+      summaryCursorY += summarySectionSpacing;
+
+      const confidentialityBoxLeft = summaryTextX;
+      const confidentialityBoxTop = summaryCursorY;
+      const confidentialityBoxWidth = summaryInnerWidth;
+      doc.setFillColor(226, 232, 240);
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(1);
+      doc.roundedRect(
+        confidentialityBoxLeft,
+        confidentialityBoxTop,
+        confidentialityBoxWidth,
+        confidentialityBoxHeight,
+        12,
+        12,
+        "FD"
+      );
+
+      const confidentialityTextXPos =
+        confidentialityBoxLeft + confidentialityBoxPaddingX;
+      let confidentialityCursorY =
+        confidentialityBoxTop + confidentialityBoxPaddingY + noteLineHeight;
       doc.setFontSize(9);
-      doc.setTextColor(100, 116, 139);
+      doc.setTextColor(71, 85, 105);
       confidentialityLines.forEach((line) => {
-        doc.text(line, marginX, cursorY);
-        cursorY += noteLineHeight;
+        doc.text(line, confidentialityTextXPos, confidentialityCursorY);
+        confidentialityCursorY += noteLineHeight;
       });
+
+      cursorY = summaryBoxTop + summaryBoxHeight + bodyLineHeight;
+      doc.setLineWidth(0.8);
+      doc.setDrawColor(214, 211, 209);
       doc.setTextColor(30, 41, 59);
 
-      cursorY += bodyLineHeight;
       ensureSpace(detailHeadingLineHeight + bodyLineHeight);
       doc.setFontSize(13);
       doc.text("Szczegóły dokumentów", marginX, cursorY);
