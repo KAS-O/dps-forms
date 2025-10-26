@@ -24,6 +24,7 @@ export type Template = {
     amountField: string;
     amountLabel: string;
   };
+  signaturePrefix?: string;
 };
 
 export const TEMPLATES: Template[] = [
@@ -32,6 +33,7 @@ export const TEMPLATES: Template[] = [
     slug: "kontrola-lseb",
     name: "Kontrola LSEB",
     description: "Kontrola sanitarna / BHP / Ochrona prawa pracy",
+    signaturePrefix: "LSEB-K",
     fields: [
       {
         key: "typ",
@@ -57,6 +59,7 @@ export const TEMPLATES: Template[] = [
   {
     slug: "bloczek-mandatowy",
     name: "Bloczek mandatowy",
+    signaturePrefix: "LSPD-BM",
     fields: [
       { key: "data", label: "Data", type: "date", required: true },
       { key: "sprawca", label: "Sprawca (imię i nazwisko)", type: "text", required: true },
@@ -72,13 +75,28 @@ export const TEMPLATES: Template[] = [
   // Wniosek o ukaranie (bez kwoty — to nie „finanse”)
   {
     slug: "wniosek-o-ukaranie",
-    name: "Wniosek o ukaranie do sądu",
+    name: "Wniosek o wszczęcie postępowania przygotowawczego",
+    signaturePrefix: "LSPD-WUS",
     fields: [
       { key: "data", label: "Data", type: "date", required: true },
-      { key: "obwiniony", label: "Obwiniony (imię i nazwisko)", type: "text", required: true },
-      { key: "cid", label: "CID", type: "text" },
-      { key: "czyn", label: "Zarzucany czyn", type: "textarea", required: true },
-      { key: "dowody", label: "Dowody", type: "textarea" },
+      { key: "stopien", label: "Stopień", type: "text", required: true },
+      { key: "numerOdznaki", label: "Numer odznaki", type: "text", required: true },
+      { key: "obwiniony", label: "Osoba (imię i nazwisko)", type: "text", required: true },
+      { key: "cid", label: "CID obywatela", type: "text", required: true },
+      { key: "nazwaArt", label: "Nazwa artykułu", type: "text", required: true },
+      { key: "dataZdarzenia", label: "Data zdarzenia", type: "date", required: true },
+      { key: "miejsceZdarzenia", label: "Miejsce zdarzenia", type: "text", required: true },
+      {
+        key: "opisCzynu",
+        label: "Opis czynu",
+        type: "textarea",
+        required: true,
+      },
+      {
+        key: "zalaczniki",
+        label: "Opis załączonych rzeczy",
+        type: "textarea",
+      },
     ],
   },
 
@@ -86,6 +104,7 @@ export const TEMPLATES: Template[] = [
   {
     slug: "zgloszenie-kradziezy",
     name: "Zgłoszenie kradzieży",
+    signaturePrefix: "LSPD-ZK",
     fields: [
       { key: "data", label: "Data", type: "date", required: true },
       { key: "zglaszajacy", label: "Zgłaszający (imię i nazwisko)", type: "text", required: true },
@@ -101,6 +120,7 @@ export const TEMPLATES: Template[] = [
   {
     slug: "protokol-aresztowania",
     name: "Protokół aresztowania",
+    signaturePrefix: "LSPD-PA",
     fields: [
       { key: "data", label: "Data", type: "date", required: true },
       { key: "godzina", label: "Godzina", type: "text", required: true },
@@ -138,6 +158,7 @@ export const TEMPLATES: Template[] = [
     slug: "swiadczenie-spoleczne",
     name: "Wypłata świadczeń socjalnych",
     requiresDossier: true,
+    signaturePrefix: "LSPD-WS",
     fields: [
       { key: "data", label: "Data", type: "date", required: true },
       { key: "godzina", label: "Godzina", type: "text", required: true },
@@ -166,6 +187,7 @@ export const TEMPLATES: Template[] = [
     slug: "raport-zalozenia-blokady",
     name: "Raport z założenia blokady",
     requiresVehicleFolder: true,
+    signaturePrefix: "LSPD-RB",
     vehicleNoteConfig: {
       amountField: "kara",
       amountLabel: "Kara do wydania przy zdjęciu blokady (USD)",
@@ -196,6 +218,7 @@ export const TEMPLATES: Template[] = [
     slug: "protokol-zajecia-pojazdu",
     name: "Protokół zajęcia pojazdu",
     requiresVehicleFolder: true,
+    signaturePrefix: "LSPD-PZP",
     vehicleNoteConfig: {
       amountField: "grzywna",
       amountLabel: "Grzywna do wydania przy odbiorze pojazdu (USD)",
