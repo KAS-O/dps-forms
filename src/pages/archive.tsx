@@ -649,6 +649,7 @@ export default function ArchivePage() {
       const summaryBoxPaddingY = 22;
       const summaryBulletIndent = 12;
       const summaryTitleSpacing = Math.round(bodyLineHeight * 0.6);
+      const summaryContentOffset = summaryTitleSpacing + bodyLineHeight;
       const summaryTextWidth = contentWidth - summaryBoxPaddingX * 2;
       const typeSummaryTextWidth = summaryTextWidth - summaryBulletIndent;
 
@@ -680,7 +681,7 @@ export default function ArchivePage() {
         ? bodyLineHeight + totalTypeSummaryLines * bodyLineHeight
         : bodyLineHeight;
       const summaryInnerHeight =
-        summaryTitleLineHeight + summaryTitleSpacing + summaryLinesHeight + typeSummaryHeight;
+        summaryTitleLineHeight + summaryContentOffset + summaryLinesHeight + typeSummaryHeight;
       const summaryBoxHeight = summaryInnerHeight + summaryBoxPaddingY * 2;
 
       const confidentialityBoxPaddingX = 18;
@@ -755,7 +756,7 @@ export default function ArchivePage() {
       doc.setTextColor(15, 23, 42);
       doc.text("Podsumowanie", summaryContentLeft, summaryTitleY);
 
-      let summaryCursorY = summaryTitleY + summaryTitleSpacing;
+      let summaryCursorY = summaryTitleY + summaryContentOffset;
       doc.setFontSize(11);
       doc.setTextColor(30, 41, 59);
       summaryLines.forEach((line) => {
