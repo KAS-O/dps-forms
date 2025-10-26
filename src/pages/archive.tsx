@@ -593,43 +593,59 @@ export default function ArchivePage() {
         ([type, count]) => `${count}× ${type}`
       );
 
+
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       ensureReportFonts(doc);
-      doc.setLineHeightFactor(1.6);
-
-      const computeLineHeight = (fontSize: number) => Math.round(fontSize * 1.5);
-      const captionLineHeight = computeLineHeight(10);
-      const bodyLineHeight = computeLineHeight(11);
-      const sectionTitleLineHeight = computeLineHeight(12);
-      const summaryHeadingLineHeight = computeLineHeight(13);
-      const titleLineHeight = computeLineHeight(14);
-      const spacerHeight = Math.round(bodyLineHeight * 0.75);
+      doc.setLineHeightFactor(1.5);
 
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = 56;
       const contentWidth = pageWidth - margin * 2;
-      const headerHeight = 160;
-      const firstPageTop = headerHeight + 64;
-      const subsequentTop = margin + 30;
-      const logoSize = 52;
-      const backgroundColor = { r: 248, g: 246, b: 242 };
+      const headerHeight = 150;
+      const firstPageTop = headerHeight + 52;
+      const subsequentTop = margin + 32;
+      const logoSize = 56;
+      const backgroundColor = { r: 247, g: 245, b: 240 };
       const logoDataUri = `data:image/png;base64,${REPORT_LOGO_PNG}`;
       const confidentialityNotice =
-        "Dokument stanowi raport z czynności służbowych funkcjonariuszy LSPD, obejmujących okres wskazany w szczegółach dokumentu. Raport jest objęty klauzulą poufności i przeznaczony wyłącznie do użytku wewnętrznego Los Santos Police Department. Udostępnianie lub modyfikowanie bez upoważnienia jest zabronione. Dokument został wygenerowany za pośrednictwem Panelu Dokumentów LSPD.";
-      const wrappedTypeSummaryLines = typeSummaryLines
-        .map((line) => normalizePdfLine(line))
-        .map((line) => doc.splitTextToSize(line, contentWidth - 44));
-      const wrappedTypeSummaryCount = wrappedTypeSummaryLines.reduce(
-        (sum, lines) => sum + lines.length,
-        0
-      );
-      const hasTypeSummary = wrappedTypeSummaryCount > 0;
+        "Raport zawiera informacje poufne. Dokument przeznaczony jest wyłącznie do użytku wewnętrznego Los Santos Police Department.";
       const totalFineDisplay = formatCurrency(totalFinesAmount);
       const processedLine =
         missingDocuments > 0
-          ? `Uwzględnione dokumenty: ${totalDocuments} z ${requestedDocuments} (brakujących: ${missingDocuments})`
-          : `Uwzględnione dokumenty: ${totalDocuments} z ${requestedDocuments}`;
+          ? `Uwzględniono ${totalDocuments} z ${requestedDocuments} dokumentów (brakujących: ${missingDocuments}).`
+          : `Uwzględniono ${totalDocuments} z ${requestedDocuments} dokumentów.`;
+
+      type TextColor = { r: number; g: number; b: number };
+      type TextEntry = {
+        fontSize: number;
+        color: TextColor;
+        lines: string[];
+        spacingBefore?: number;
+        spacingAfter?: number;
+        indent?: number;
+        align?: "left" | "right";
+        height: number;
+      };
+
+      const colors = {
+        title: { r: 15, g: 23, b: 42 },
+        heading: { r: 30, g: 41, b: 59 },
+        body: { r: 55, g: 65, b: 81 },
+        muted: { r: 107, g: 114, b: 128 },
+        accent: { r: 6, g: 78, b: 59 },
+      } satisfies Record<string, TextColor>;
+
+      const wrapText = (text: string, maxWidth: number, fontSize: number) => {
+        doc.setFontSize(fontSize);
+        const normalized = normalizePdfLine(text);
+        return normalized ? doc.splitTextToSize(normalized, maxWidth) : [];
+      };
+
+      const measureEntry = (lines: string[], fontSize: number) => {
+        doc.setFontSize(fontSize);
+        return doc.getTextDimensions(lines.length ? lines : [""]).h;
+      };
 
       const renderPageDecorations = (isFirstPage: boolean) => {
         doc.setFillColor(backgroundColor.r, backgroundColor.g, backgroundColor.b);
@@ -639,146 +655,173 @@ export default function ArchivePage() {
         if (isFirstPage) {
           doc.rect(0, 0, pageWidth, headerHeight, "F");
 
-          const subtleNoticeWidth = Math.min(220, contentWidth);
-          const noticeStartY = 32;
-          doc.setFontSize(6);
+          const headerContentWidth = contentWidth;
+          const noticeWidth = Math.min(240, headerContentWidth * 0.45);
+          const noticeY = 32;
+          doc.setFontSize(7);
           doc.setTextColor(148, 163, 184);
-          const topNoticeLines = doc.splitTextToSize(confidentialityNotice, subtleNoticeWidth);
-          doc.text(topNoticeLines, margin, noticeStartY);
-          const noticeHeight = doc.getTextDimensions(topNoticeLines).h;
+          const noticeLines = doc.splitTextToSize(confidentialityNotice, noticeWidth);
+          doc.text(noticeLines, margin, noticeY);
+          const noticeHeight = doc.getTextDimensions(noticeLines).h;
 
-          const logoTop = noticeStartY + noticeHeight + 16;
-          const logoLeft = margin;
-          const headerContentStart = logoLeft + logoSize + 24;
-          const headerInnerWidth = pageWidth - margin - headerContentStart;
-          const rightColumnWidth = 200;
+          const logoY = noticeY + noticeHeight + 18;
+          doc.addImage(logoDataUri, "PNG", margin, logoY, logoSize, logoSize);
 
-          doc.addImage(logoDataUri, "PNG", logoLeft, logoTop, logoSize, logoSize);
+          const headerRightX = pageWidth - margin;
+          const headerInfoWidth = 220;
 
           doc.setTextColor(255, 255, 255);
-
-          doc.setFontSize(10);
-          const rightColumnX = pageWidth - margin;
-          const infoTop = noticeStartY + 4;
-          const generatedInfoLines = doc.splitTextToSize(
-            `Wygenerowano: ${now.toLocaleString("pl-PL")}`,
-            rightColumnWidth
-          );
-          doc.text(generatedInfoLines, rightColumnX, infoTop, { align: "right" });
-          const generatedInfoHeight = doc.getTextDimensions(generatedInfoLines).h;
-          const documentsInfoLines = doc.splitTextToSize(
-            `Liczba dokumentów: ${totalDocuments}`,
-            rightColumnWidth
-          );
-          doc.text(documentsInfoLines, rightColumnX, infoTop + generatedInfoHeight + 6, {
-            align: "right",
-          });
-
-          doc.setFontSize(20);
-          const headerTitleLines = doc.splitTextToSize(
-            "Raport Czynności Służbowych",
-            Math.max(160, headerInnerWidth - rightColumnWidth)
-          );
-          const headerTitleY = logoTop + 8;
-          doc.text(headerTitleLines, headerContentStart, headerTitleY);
-          const headerTitleHeight = doc.getTextDimensions(headerTitleLines).h;
-
           doc.setFontSize(11);
-          const leftColumnBaseY = headerTitleY + headerTitleHeight + 16;
-          doc.text("Jednostka: LSPD", headerContentStart, leftColumnBaseY);
+          const titleLines = doc.splitTextToSize("Raport czynności służbowych", headerContentWidth - logoSize - 48);
+          const titleX = margin + logoSize + 28;
+          const titleY = logoY + 6;
+          doc.text(titleLines, titleX, titleY);
+          const titleHeight = doc.getTextDimensions(titleLines).h;
+
+          doc.setFontSize(9);
+          const generatedLines = doc.splitTextToSize(
+            `Wygenerowano: ${now.toLocaleString("pl-PL")}`,
+            headerInfoWidth
+          );
+          const documentsLines = doc.splitTextToSize(
+            `Dokumenty w raporcie: ${totalDocuments}`,
+            headerInfoWidth
+          );
+          const finesLines = doc.splitTextToSize(`Suma kar: ${totalFineDisplay}`, headerInfoWidth);
+
+          const infoStartY = titleY + titleHeight + 10;
+          doc.text(generatedLines, titleX, infoStartY);
+          const generatedHeight = doc.getTextDimensions(generatedLines).h;
+          doc.text(documentsLines, titleX, infoStartY + generatedHeight + 4);
+          const documentsHeight = doc.getTextDimensions(documentsLines).h;
+          doc.text(finesLines, titleX, infoStartY + generatedHeight + documentsHeight + 8);
+
+          doc.setFontSize(9);
+          doc.text(now.toLocaleString("pl-PL"), headerRightX, noticeY + 6, { align: "right" });
         } else {
-          const secondaryHeaderHeight = 56;
-          doc.rect(0, 0, pageWidth, secondaryHeaderHeight, "F");
+          const barHeight = 60;
+          doc.rect(0, 0, pageWidth, barHeight, "F");
           doc.setTextColor(255, 255, 255);
-          doc.setFontSize(12);
-          doc.text("Raport Czynności Służbowych — kontynuacja", margin, 32);
-          doc.setFontSize(10);
-          doc.text(now.toLocaleString("pl-PL"), pageWidth - margin, 32, { align: "right" });
+          doc.setFontSize(11);
+          doc.text("Raport czynności służbowych — kontynuacja", margin, 34);
+          doc.setFontSize(9);
+          doc.text(now.toLocaleString("pl-PL"), pageWidth - margin, 34, { align: "right" });
         }
 
-        doc.setTextColor(55, 65, 81);
+        doc.setTextColor(colors.body.r, colors.body.g, colors.body.b);
+      };
+
+      const ensureSpace = (requiredHeight: number, currentY: number) => {
+        if (currentY + requiredHeight > pageHeight - margin) {
+          doc.addPage();
+          renderPageDecorations(false);
+          return subsequentTop;
+        }
+        return currentY;
       };
 
       renderPageDecorations(true);
       let cursorY = firstPageTop;
 
-      const summaryBaseLines = 5;
-      const summaryLineHeight = bodyLineHeight;
-      const typeSectionOffset = hasTypeSummary
-        ? summaryLineHeight * (1 + wrappedTypeSummaryCount)
-        : summaryLineHeight;
-      const summaryBoxHeight =
-        40 + summaryHeadingLineHeight + summaryBaseLines * summaryLineHeight + typeSectionOffset;
+      const summaryPadding = 28;
+      const summaryInnerWidth = contentWidth - summaryPadding * 2;
+      const summaryEntries: TextEntry[] = [];
+
+      const addSummaryEntry = (
+        text: string,
+        fontSize: number,
+        color: TextColor,
+        options: { spacingBefore?: number; spacingAfter?: number; align?: "left" | "right"; indent?: number } = {}
+      ) => {
+        const lines = wrapText(text, summaryInnerWidth - (options.indent ?? 0), fontSize);
+        const height = measureEntry(lines, fontSize);
+        summaryEntries.push({
+          fontSize,
+          color,
+          lines,
+          spacingBefore: options.spacingBefore,
+          spacingAfter: options.spacingAfter,
+          align: options.align,
+          indent: options.indent,
+          height,
+        });
+      };
+
+      addSummaryEntry("Podsumowanie", 14, colors.heading);
+      addSummaryEntry(`Wygenerował: ${fullName || login || "—"}`, 11, colors.body, { spacingBefore: 10 });
+      addSummaryEntry(`Data wygenerowania: ${now.toLocaleString("pl-PL")}`, 11, colors.body, {
+        spacingBefore: 4,
+      });
+      addSummaryEntry(`Łączna liczba dokumentów: ${totalDocuments}`, 11, colors.body, { spacingBefore: 4 });
+      addSummaryEntry(`Łączna kwota grzywien/mandatów: ${totalFineDisplay}`, 11, colors.body, {
+        spacingBefore: 4,
+      });
+      addSummaryEntry(processedLine, 11, colors.body, { spacingBefore: 6 });
+
+      if (typeSummaryLines.length) {
+        addSummaryEntry("Zestawienie typów dokumentów:", 11, colors.heading, { spacingBefore: 12 });
+        typeSummaryLines.forEach((line) => {
+          addSummaryEntry(`• ${normalizePdfLine(line)}`, 10, colors.body, {
+            spacingBefore: 2,
+            indent: 10,
+          });
+        });
+      } else {
+        addSummaryEntry("Brak dodatkowego zestawienia typów dokumentów.", 10, colors.muted, {
+          spacingBefore: 10,
+        });
+      }
+
+      const summaryContentHeight = summaryEntries.reduce((acc, entry) => {
+        return acc + (entry.spacingBefore ?? 0) + entry.height + (entry.spacingAfter ?? 0);
+      }, 0);
+      const summaryBoxHeight = summaryContentHeight + summaryPadding * 2;
+
       let summaryBoxTop = cursorY - 20;
-      if (summaryBoxTop + summaryBoxHeight > pageHeight - margin) {
-        doc.addPage();
-        renderPageDecorations(false);
-        cursorY = subsequentTop;
+      cursorY = ensureSpace(summaryBoxHeight, cursorY);
+      if (cursorY !== summaryBoxTop + 20) {
         summaryBoxTop = cursorY - 20;
       }
 
       doc.setFillColor(255, 255, 255);
-      doc.roundedRect(margin, summaryBoxTop, contentWidth, summaryBoxHeight, 12, 12, "F");
+      doc.roundedRect(margin, summaryBoxTop, contentWidth, summaryBoxHeight, 14, 14, "F");
       doc.setDrawColor(214, 211, 209);
       doc.setLineWidth(0.8);
-      doc.roundedRect(margin, summaryBoxTop, contentWidth, summaryBoxHeight, 12, 12, "S");
+      doc.roundedRect(margin, summaryBoxTop, contentWidth, summaryBoxHeight, 14, 14, "S");
 
-      let summaryCursor = cursorY;
-      doc.setFontSize(13);
-      doc.text("Podsumowanie", margin + 16, summaryCursor);
-      summaryCursor += summaryHeadingLineHeight;
-      doc.setFontSize(11);
-      doc.text(
-        `Wygenerował: ${fullName || login || "—"}`,
-        margin + 16,
-        summaryCursor
-      );
-      summaryCursor += summaryLineHeight;
-      doc.text(`Data wygenerowania: ${now.toLocaleString("pl-PL")}`, margin + 16, summaryCursor);
-      summaryCursor += summaryLineHeight;
-      doc.text(`Łączna liczba dokumentów w raporcie: ${totalDocuments}`, margin + 16, summaryCursor);
-      summaryCursor += summaryLineHeight;
-      doc.text(`Łączna kwota grzywien/mandatów: ${totalFineDisplay}`, margin + 16, summaryCursor);
-      summaryCursor += summaryLineHeight;
-      doc.text(processedLine, margin + 16, summaryCursor);
-      summaryCursor += summaryLineHeight;
-
-      if (hasTypeSummary) {
-        doc.text("Zestawienie typów dokumentów:", margin + 16, summaryCursor);
-        summaryCursor += summaryLineHeight;
-        wrappedTypeSummaryLines.forEach((lines) => {
-          lines.forEach((wrappedLine, lineIndex) => {
-            const prefix = lineIndex === 0 ? "• " : "  ";
-            doc.text(`${prefix}${wrappedLine}`, margin + 28, summaryCursor);
-            summaryCursor += summaryLineHeight;
+      let summaryCursorY = summaryBoxTop + summaryPadding;
+      summaryEntries.forEach((entry) => {
+        summaryCursorY += entry.spacingBefore ?? 0;
+        doc.setFontSize(entry.fontSize);
+        doc.setTextColor(entry.color.r, entry.color.g, entry.color.b);
+        const baseX = margin + summaryPadding + (entry.indent ?? 0);
+        if (entry.align === "right") {
+          doc.text(entry.lines, margin + contentWidth - summaryPadding, summaryCursorY, {
+            align: "right",
           });
-        });
-      } else {
-        doc.text("Brak dodatkowego zestawienia typów dokumentów.", margin + 16, summaryCursor);
-        summaryCursor += summaryLineHeight;
-      }
+        } else {
+          doc.text(entry.lines, baseX, summaryCursorY);
+        }
+        summaryCursorY += entry.height + (entry.spacingAfter ?? 0);
+      });
 
       cursorY = summaryBoxTop + summaryBoxHeight + 32;
-      doc.setDrawColor(55, 65, 81);
+      doc.setDrawColor(colors.body.r, colors.body.g, colors.body.b);
       doc.setLineWidth(0.5);
       doc.setFontSize(13);
+      doc.setTextColor(colors.heading.r, colors.heading.g, colors.heading.b);
       doc.text("Szczegóły dokumentów", margin, cursorY);
-      cursorY += 24;
+      cursorY += 26;
 
-      const ensureSpace = (requiredHeight: number) => {
-        if (cursorY + requiredHeight > pageHeight - margin) {
-          doc.addPage();
-          renderPageDecorations(false);
-          cursorY = subsequentTop;
-        }
-      };
-
-      const blockPaddingX = 24;
-      const blockPaddingY = 20;
-      const blockContentIndent = 14;
-      const blockSpacing = 28;
+      const blockPaddingX = 28;
+      const blockPaddingY = 24;
       const blockInnerWidth = contentWidth - blockPaddingX * 2;
-      const blockTextWidth = blockInnerWidth - blockContentIndent;
+      const blockTextWidth = blockInnerWidth - 16;
+      const blockSpacing = 26;
+
+      type BlockEntry =
+        | { kind: "text"; entry: TextEntry }
+        | { kind: "spacer"; height: number };
 
       selectedItems.forEach((item, index) => {
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate || null;
@@ -802,48 +845,101 @@ export default function ArchivePage() {
         if (dossier) infoLines.push(dossier);
         if (vehicleRegistration) infoLines.push(vehicleRegistration);
 
-        const preparedSections = sections.map((section) => ({
+        const blockEntries: BlockEntry[] = [];
+        const addBlockEntry = (
+          text: string,
+          fontSize: number,
+          color: TextColor,
+          options: { spacingBefore?: number; spacingAfter?: number; indent?: number } = {}
+        ) => {
+          const lines = wrapText(text, blockTextWidth - (options.indent ?? 0), fontSize);
+          const height = measureEntry(lines, fontSize);
+          blockEntries.push({
+            kind: "text",
+            entry: {
+              fontSize,
+              color,
+              lines,
+              spacingBefore: options.spacingBefore,
+              spacingAfter: options.spacingAfter,
+              indent: options.indent,
+              height,
+            },
+          });
+        };
+        const addBlockSpacer = (height: number) => {
+          blockEntries.push({ kind: "spacer", height });
+        };
+
+        addBlockEntry(`Dokument ${index + 1} z ${totalDocuments}`, 9, colors.muted);
+        addBlockEntry(item.templateName || item.templateSlug || "Dokument", 14, colors.heading, {
+          spacingBefore: 6,
+        });
+
+        infoLines.forEach((line, infoIndex) => {
+          addBlockEntry(line, 11, colors.body, {
+            spacingBefore: infoIndex === 0 ? 8 : 4,
+          });
+        });
+
+        addBlockSpacer(10);
+
+        const cleanedSections = sections.map((section) => ({
           title: section.title,
           lines: section.lines
             .filter((line) => !DOCUMENT_LINE_PATTERN.test(line ?? ""))
-            .map((line) => {
-            const normalized = normalizePdfLine(line ?? "");
-            if (!normalized) {
-              return { type: "spacer" as const };
-            }
-            const wrapped = doc.splitTextToSize(normalized, blockTextWidth);
-            return { type: "text" as const, lines: wrapped };
-          }),
+            .map((line) => normalizePdfLine(line ?? "")),
         }));
 
-        const blockContentHeight = (() => {
-          let height = 0;
-          height += captionLineHeight; // "Dokument X z Y"
-          height += titleLineHeight; // Tytuł dokumentu
-          height += infoLines.length * bodyLineHeight;
-          height += spacerHeight; // odstęp przed sekcjami
-          if (!preparedSections.length) {
-            height += bodyLineHeight; // informacja o braku danych
-          } else {
-            preparedSections.forEach((section) => {
-              if (section.title) {
-                height += sectionTitleLineHeight;
-              }
-              section.lines.forEach((line) => {
-                if (line.type === "spacer") {
-                  height += spacerHeight;
-                } else {
-                  height += line.lines.length * bodyLineHeight;
-                }
+        if (!cleanedSections.length) {
+          addBlockEntry("(Brak danych tekstowych w archiwum)", 11, colors.muted, {
+            spacingBefore: 4,
+          });
+        } else {
+          cleanedSections.forEach((section, sectionIndex) => {
+            if (sectionIndex > 0) {
+              addBlockSpacer(8);
+            }
+
+            if (section.title) {
+              addBlockEntry(section.title, 12, colors.heading, { spacingBefore: 4 });
+            }
+
+            if (!section.lines.length) {
+              addBlockEntry("(Brak treści)", 10, colors.muted, {
+                spacingBefore: section.title ? 4 : 2,
+                indent: 12,
               });
-              height += spacerHeight; // odstęp po sekcji
+            }
+
+            section.lines.forEach((line) => {
+              if (!line) {
+                addBlockSpacer(6);
+                return;
+              }
+
+              addBlockEntry(line, 11, colors.body, {
+                spacingBefore: 4,
+                indent: 12,
+              });
             });
+          });
+        }
+
+        const blockContentHeight = blockEntries.reduce((acc, entry) => {
+          if (entry.kind === "spacer") {
+            return acc + entry.height;
           }
-          return height;
-        })();
+          return (
+            acc +
+            (entry.entry.spacingBefore ?? 0) +
+            entry.entry.height +
+            (entry.entry.spacingAfter ?? 0)
+          );
+        }, 0);
 
         const totalBlockHeight = blockContentHeight + blockPaddingY * 2;
-        ensureSpace(totalBlockHeight);
+        cursorY = ensureSpace(totalBlockHeight, cursorY);
 
         const blockTop = cursorY;
         doc.setFillColor(255, 255, 255);
@@ -853,83 +949,26 @@ export default function ArchivePage() {
         doc.roundedRect(margin, blockTop, contentWidth, totalBlockHeight, 12, 12, "S");
 
         let blockCursorY = blockTop + blockPaddingY;
+        blockEntries.forEach((entry) => {
+          if (entry.kind === "spacer") {
+            blockCursorY += entry.height;
+            return;
+          }
 
-        doc.setFontSize(10);
-        doc.setTextColor(107, 114, 128);
-        doc.text(
-          `Dokument ${index + 1} z ${totalDocuments}`,
-          margin + blockPaddingX,
-          blockCursorY
-        );
-        blockCursorY += captionLineHeight;
-
-        doc.setFontSize(14);
-        doc.setTextColor(31, 41, 55);
-        doc.text(
-          item.templateName || item.templateSlug || "Dokument",
-          margin + blockPaddingX,
-          blockCursorY
-        );
-        blockCursorY += titleLineHeight;
-
-        doc.setFontSize(11);
-        doc.setTextColor(75, 85, 99);
-        infoLines.forEach((line) => {
-          doc.text(normalizePdfLine(line), margin + blockPaddingX, blockCursorY);
-          blockCursorY += bodyLineHeight;
+          blockCursorY += entry.entry.spacingBefore ?? 0;
+          doc.setFontSize(entry.entry.fontSize);
+          doc.setTextColor(entry.entry.color.r, entry.entry.color.g, entry.entry.color.b);
+          const textX = margin + blockPaddingX + (entry.entry.indent ?? 0);
+          doc.text(entry.entry.lines, textX, blockCursorY);
+          blockCursorY += entry.entry.height + (entry.entry.spacingAfter ?? 0);
         });
 
-        doc.setTextColor(55, 65, 81);
-        blockCursorY += 10;
-
-        if (!preparedSections.length) {
-          doc.text(
-            "(Brak danych tekstowych w archiwum)",
-            margin + blockPaddingX,
-            blockCursorY
-          );
-          blockCursorY += bodyLineHeight;
-        } else {
-          preparedSections.forEach((section) => {
-            if (section.title) {
-              doc.setFontSize(12);
-              doc.text(section.title, margin + blockPaddingX, blockCursorY);
-              blockCursorY += sectionTitleLineHeight;
-              doc.setFontSize(11);
-            }
-
-            section.lines.forEach((line) => {
-              if (line.type === "spacer") {
-                blockCursorY += spacerHeight;
-                return;
-              }
-              line.lines.forEach((wrappedLine) => {
-                doc.text(
-                  wrappedLine,
-                  margin + blockPaddingX + blockContentIndent,
-                  blockCursorY
-                );
-                blockCursorY += bodyLineHeight;
-              });
-            });
-
-            blockCursorY += spacerHeight;
-          });
-        }
-
         cursorY = blockTop + totalBlockHeight;
-
         if (index < selectedItems.length - 1) {
-          if (cursorY + blockSpacing > pageHeight - margin) {
-            doc.addPage();
-            renderPageDecorations(false);
-            cursorY = subsequentTop;
-          } else {
-            cursorY += blockSpacing;
-          }
+          cursorY += blockSpacing;
+          cursorY = ensureSpace(0, cursorY);
         }
       });
-
       const arrayBuffer = doc.output("arraybuffer");
       if (!(arrayBuffer instanceof ArrayBuffer)) {
         throw new Error("Nie udało się wygenerować pliku PDF.");
