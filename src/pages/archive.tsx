@@ -51,6 +51,7 @@ const VALUE_SKIP_KEYS = new Set(["funkcjonariusze", "liczbaStron"]);
 
 const EXTRA_VALUE_LABELS: Record<string, string> = {
   teczkaPojazdu: "Teczka pojazdu",
+  sygnatura: "Sygnatura",
 };
 
 const DOCUMENT_LINE_PATTERN = /^dokument\s*:/i;

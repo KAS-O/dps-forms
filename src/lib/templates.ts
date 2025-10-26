@@ -69,16 +69,21 @@ export const TEMPLATES: Template[] = [
     ],
   },
 
-  // Wniosek o ukaranie (bez kwoty — to nie „finanse”)
+  // Wniosek o wszczęcie postępowania przygotowawczego
   {
     slug: "wniosek-o-ukaranie",
-    name: "Wniosek o ukaranie do sądu",
+    name: "Wniosek o wszczęcie postępowania przygotowawczego",
     fields: [
       { key: "data", label: "Data", type: "date", required: true },
-      { key: "obwiniony", label: "Obwiniony (imię i nazwisko)", type: "text", required: true },
-      { key: "cid", label: "CID", type: "text" },
-      { key: "czyn", label: "Zarzucany czyn", type: "textarea", required: true },
-      { key: "dowody", label: "Dowody", type: "textarea" },
+      { key: "stopien", label: "Stopień", type: "text", required: true },
+      { key: "numerOdznaki", label: "Numer odznaki", type: "text", required: true },
+      { key: "obywatel", label: "Obywatel (imię i nazwisko)", type: "text", required: true },
+      { key: "cid", label: "CID obywatela", type: "text", required: true },
+      { key: "nazwaArt", label: "Nazwa artykułu", type: "text", required: true },
+      { key: "dataZdarzenia", label: "Data zdarzenia", type: "date", required: true },
+      { key: "miejsceZdarzenia", label: "Miejsce zdarzenia", type: "text", required: true },
+      { key: "opisCzynu", label: "Opis czynu", type: "textarea", required: true },
+      { key: "zalaczniki", label: "Opis załączonych rzeczy", type: "textarea" },
     ],
   },
 
