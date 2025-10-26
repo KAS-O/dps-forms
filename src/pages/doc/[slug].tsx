@@ -2,16 +2,7 @@ import { useRouter } from "next/router";
 import Head from "next/head";
 import AuthGate from "@/components/AuthGate";
 import { TEMPLATES, Template } from "@/lib/templates";
-import {
-  FormEvent,
-  forwardRef,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { auth, db, storage } from "@/lib/firebase";
 import {
   addDoc,
@@ -47,27 +38,34 @@ type FieldRender = {
   signature: string;
 };
 
-const FieldBlock = forwardRef<HTMLDivElement, { field: FieldRender }>(({ field }, ref) => {
+const compressMultilineText = (value: string): string => {
+  if (!value) return "";
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join("\n");
+};
+
+const FieldBlock = ({ field }: { field: FieldRender }) => {
+  const valueText = compressMultilineText(field.textValue);
+  const noteText = field.note ? compressMultilineText(field.note) : "";
+
   return (
-    <div
-      ref={ref}
-      className="grid grid-cols-[160px_minmax(0,1fr)] items-start gap-2 text-[11px] leading-[1.35]"
-    >
-      <div className="font-semibold leading-tight">
+    <div className="text-[11px] leading-tight">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-700">
         {field.label}
         {field.required ? " *" : ""}
       </div>
-      <div className="whitespace-pre-wrap break-words">
-        {field.textValue}
-        {field.note && (
-          <div className="mt-1 text-[10px] leading-tight text-gray-600">{field.note}</div>
-        )}
-      </div>
+      <div className="whitespace-pre-line break-words">{valueText || "—"}</div>
+      {noteText ? (
+        <div className="mt-0.5 text-[10px] text-gray-600 whitespace-pre-line break-words">
+          {noteText}
+        </div>
+      ) : null}
     </div>
   );
-});
-
-FieldBlock.displayName = "FieldBlock";
+};
 
 const DOCUMENT_COUNTERS_COLLECTION = "documentCounters";
 
@@ -177,11 +175,7 @@ export default function DocPage() {
   const [ok, setOk] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const { logActivity, session } = useSessionActivity();
-  const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const measurementRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const fieldsContainerRef = useRef<HTMLDivElement | null>(null);
-  const [contentHeight, setContentHeight] = useState(0);
-  const [contentWidth, setContentWidth] = useState(0);
+  const previewRef = useRef<HTMLDivElement | null>(null);
 
   // teczki
   const [dossiers, setDossiers] = useState<any[]>([]);
@@ -274,6 +268,8 @@ export default function DocPage() {
 
       if (!displayText) {
         displayText = "—";
+      } else {
+        displayText = compressMultilineText(displayText) || "—";
       }
 
       return {
@@ -286,8 +282,6 @@ export default function DocPage() {
       };
     });
   }, [nextPayoutDate, template, values]);
-
-  const fieldsSignature = useMemo(() => previewFields.map((f) => `${f.id}:${f.signature}`).join("|"), [previewFields]);
 
   const isWniosekTemplate = template?.slug === "wniosek-o-ukaranie";
 
@@ -314,88 +308,9 @@ export default function DocPage() {
     [wniosekContentInput]
   );
 
-  const [pages, setPages] = useState<FieldRender[][]>(() => [previewFields]);
-
-  useEffect(() => {
-    setPages([previewFields]);
-  }, [fieldsSignature, previewFields]);
-
   useEffect(() => {
     setSignature("");
   }, [template?.slug]);
-
-  pageRefs.current = pageRefs.current.slice(0, pages.length);
-  measurementRefs.current = measurementRefs.current.slice(0, previewFields.length);
-
-  const setFirstPageFieldsRef = useCallback((el: HTMLDivElement | null) => {
-    fieldsContainerRef.current = el;
-  }, []);
-
-  useLayoutEffect(() => {
-    const container = fieldsContainerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const height = Math.round(rect.height);
-    const width = Math.round(rect.width);
-    if (height && height !== contentHeight) {
-      setContentHeight(height);
-    }
-    if (width && width !== contentWidth) {
-      setContentWidth(width);
-    }
-  }, [pages.length, fieldsSignature, contentHeight, contentWidth]);
-
-  useLayoutEffect(() => {
-    if (isWniosekTemplate) {
-      setPages((prev) => {
-        if (prev.length === 1 && prev[0] === previewFields) {
-          return prev;
-        }
-        return [previewFields];
-      });
-      return;
-    }
-
-    if (!contentHeight) return;
-    const heights = previewFields.map((_, idx) => measurementRefs.current[idx]?.offsetHeight ?? 0);
-    if (!heights.some((height) => height > 0)) return;
-
-    const newPages: FieldRender[][] = [];
-    let current: FieldRender[] = [];
-    let currentHeight = 0;
-
-    heights.forEach((height, idx) => {
-      const field = previewFields[idx];
-      if (currentHeight + height > contentHeight && current.length > 0) {
-        newPages.push(current);
-        current = [];
-        currentHeight = 0;
-      }
-      current.push(field);
-      currentHeight += height;
-    });
-
-    if (current.length) {
-      newPages.push(current);
-    }
-    if (newPages.length === 0) {
-      newPages.push([]);
-    }
-
-    const isSame =
-      newPages.length === pages.length &&
-      newPages.every((page, pageIdx) => {
-        const existing = pages[pageIdx];
-        if (!existing || existing.length !== page.length) return false;
-        return page.every((field, fieldIdx) => existing[fieldIdx]?.id === field.id);
-      });
-
-    if (!isSame) {
-      setPages(newPages);
-    }
-  }, [contentHeight, previewFields, pages, fieldsSignature, isWniosekTemplate]);
-
-  const measurementWidth = contentWidth || 760;
 
   const ensureSignature = useCallback(async (): Promise<string> => {
     if (!template?.signaturePrefix) {
@@ -586,14 +501,12 @@ export default function DocPage() {
       const signatureForText = docSignature || signature || "";
       await waitForNextFrame();
 
-      const nodes = pageRefs.current.filter((node): node is HTMLDivElement => !!node);
-      if (!nodes.length) throw new Error("Brak podglądu do zrzutu.");
+      const node = previewRef.current;
+      if (!node) throw new Error("Brak podglądu do zrzutu.");
 
       const html2canvas = (await import("html2canvas")).default;
-      const canvases = await Promise.all(
-        nodes.map((node) => html2canvas(node, { scale: 2, useCORS: true, backgroundColor: "#ffffff" }))
-      );
-      const dataUrls = canvases.map((canvas) => canvas.toDataURL("image/png"));
+      const canvas = await html2canvas(node, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+      const dataUrls = [canvas.toDataURL("image/png")];
       if (!dataUrls.length) throw new Error("Nie udało się wygenerować obrazu dokumentu.");
 
       const baseFilename = `${template.slug}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}`;
@@ -648,15 +561,13 @@ export default function DocPage() {
         return field.note ? [base, `  ${field.note}`] : [base];
       });
 
-      const defaultTextPagesRaw = pages.map((pageFields) =>
-        pageFields
-          .flatMap((field) => {
-            const base = `${field.label}: ${field.textValue || "—"}`;
-            return field.note ? [base, `  ${field.note}`] : [base];
-          })
-          .join("\n")
-      );
-      let textPages = defaultTextPagesRaw.filter((page) => page.trim().length > 0);
+      const defaultTextContent = previewFields
+        .flatMap((field) => {
+          const base = `${field.label}: ${field.textValue || "—"}`;
+          return field.note ? [base, `  ${field.note}`] : [base];
+        })
+        .join("\n");
+      let textPages = defaultTextContent.trim().length > 0 ? [defaultTextContent] : [];
 
       if (isWniosekTemplate) {
         const wniosekLinesForStorage = buildWniosekTextLines({
@@ -829,24 +740,6 @@ export default function DocPage() {
   return (
     <AuthGate>
       <>
-        <div
-          className="fixed pointer-events-none opacity-0 -z-50"
-          style={{ width: `${measurementWidth}px`, left: "-10000px", top: "-10000px" }}
-          aria-hidden="true"
-        >
-          <div className="doc-fields text-[11px] leading-[1.35]">
-            {previewFields.map((field, idx) => (
-              <FieldBlock
-                key={`measure-${field.id}-${idx}`}
-                field={field}
-                ref={(el) => {
-                  measurementRefs.current[idx] = el;
-                }}
-              />
-            ))}
-          </div>
-        </div>
-
         <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-8">
           <Head><title>LSPD 77RP — {template.name}</title></Head>
 
@@ -1016,133 +909,100 @@ export default function DocPage() {
           <div className="card p-6">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Podgląd dokumentu (obraz + zapis tekstowy)</h2>
-              <span className="text-xs text-beige-700">
-                A4 • wysoka jakość • {pages.length} {pages.length === 1 ? "strona" : "strony"}
-              </span>
+              <span className="text-xs text-beige-700">Ciągły podgląd • wysoka jakość</span>
             </div>
 
-            <div className="flex flex-col gap-6">
-              {pages.map((pageFields, pageIndex) => (
+            <div className="flex flex-col">
+              <div
+                ref={previewRef}
+                className={`bg-white text-black mx-auto max-w-full border border-beige-300 shadow-sm doc-page ${
+                  isWniosekTemplate ? "w-[820px] p-4 text-[11px]" : "w-[900px] p-5 text-[11px]"
+                }`}
+              >
                 <div
-                  key={`doc-page-${pageIndex}`}
-                  ref={(el) => {
-                    pageRefs.current[pageIndex] = el;
-                  }}
-                  className={`bg-white text-black mx-auto max-w-full border border-beige-300 shadow-sm doc-page ${
-                    isWniosekTemplate
-                      ? "w-[820px] min-h-[1080px] p-4 text-[11px]"
-                      : "w-[900px] min-h-[1230px] p-5 text-[11px]"
+                  className={`flex items-center ${
+                    isWniosekTemplate ? "gap-2 mb-2.5" : "gap-2.5 mb-3"
                   }`}
                 >
-                  <div
-                    className={`flex items-center ${
-                      isWniosekTemplate ? "gap-2 mb-2.5" : "gap-2.5 mb-3"
-                    }`}
-                  >
-                    <img
-                      src="/logo.png"
-                      alt="LSPD"
-                      width={isWniosekTemplate ? 90 : 140}
-                      className="floating"
-                    />
-                    <div className={isWniosekTemplate ? "space-y-1" : undefined}>
-                      <div
-                        className={`${
-                          isWniosekTemplate
-                            ? "text-lg font-bold leading-tight"
-                            : "text-xl font-bold"
-                        }`}
-                      >
-                        Los Santos Police Department
-                      </div>
-                      <div
-                        className={`${
-                          isWniosekTemplate
-                            ? "text-[11px] uppercase tracking-[0.16em] text-gray-600"
-                            : "text-sm text-gray-600"
-                        }`}
-                      >
-                        {template.name}
-                      </div>
-                    </div>
-                  </div>
-                  <hr className={`border-beige-300 ${isWniosekTemplate ? "mb-2" : "mb-3"}`} />
-
-                  {pageIndex === 0 && template.signaturePrefix && !isWniosekTemplate && (
-                    <div className="mb-2.5 text-[11px] leading-tight">
-                      <span className="font-semibold">Sygnatura:</span> {signature || "—"}
-                    </div>
-                  )}
-
-                  <div
-                    className={`${
-                      isWniosekTemplate
-                        ? "mb-2 text-[11px]"
-                        : "mb-3 text-[11px]"
-                    } whitespace-pre-wrap break-words`}
-                  >
-                    <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ") || "—"}
-                  </div>
-
-                  {requiresVehicleFolder && (
-                    <div className="mb-3 text-[11px] whitespace-pre-wrap break-words">
-                      <span className="font-semibold">Teczka pojazdu:</span>{" "}
-                      {selectedVehicle ? (
-                        <>
-                          {selectedVehicle.registration || "—"}
-                          {selectedVehicle.brand ? ` • ${selectedVehicle.brand}` : ""}
-                          {selectedVehicle.color ? ` • Kolor: ${selectedVehicle.color}` : ""}
-                          {selectedVehicle.ownerName ? ` • Właściciel: ${selectedVehicle.ownerName}` : ""}
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </div>
-                  )}
-                  
-                  {isWniosekTemplate ? (
+                  <img src="/logo.png" alt="LSPD" width={isWniosekTemplate ? 90 : 140} className="floating" />
+                  <div className={isWniosekTemplate ? "space-y-1" : undefined}>
                     <div
-                      className="doc-fields text-[11px] leading-[1.3]"
-                      ref={pageIndex === 0 ? setFirstPageFieldsRef : undefined}
+                      className={`${
+                        isWniosekTemplate ? "text-lg font-bold leading-tight" : "text-xl font-bold"
+                      }`}
                     >
-                      {pageIndex === 0
-                        ? wniosekPreviewLines.map((line, idx) => {
-                            const key = `wniosek-line-${idx}`;
-                            if (!line.trim()) {
-                              return <div key={key} className="h-1" />;
-                            }
-                            return (
-                              <p
-                                key={key}
-                                className="whitespace-pre-wrap break-words"
-                                style={{ textAlign: line.length > 80 ? "justify" : "left" }}
-                              >
-                                {line}
-                              </p>
-                            );
-                          })
-                        : null}
+                      Los Santos Police Department
                     </div>
-                  ) : (
                     <div
-                      className="doc-fields text-[11px] leading-[1.35]"
-                      ref={pageIndex === 0 ? setFirstPageFieldsRef : undefined}
+                      className={`${
+                        isWniosekTemplate
+                          ? "text-[11px] uppercase tracking-[0.16em] text-gray-600"
+                          : "text-sm text-gray-600"
+                      }`}
                     >
-                      {pageFields.map((field, fieldIndex) => (
-                        <FieldBlock key={`${pageIndex}-${field.id}-${fieldIndex}`} field={field} />
-                      ))}
+                      {template.name}
                     </div>
-                  )}
-
-                  <div
-                    className={`${
-                      isWniosekTemplate ? "mt-5 text-[10px]" : "mt-6 text-[11px]"
-                    } text-gray-600`}
-                  >
-                    Wygenerowano w panelu LSPD • {new Date().toLocaleString()} • Strona {pageIndex + 1}/{pages.length}
                   </div>
                 </div>
-              ))}
+                <hr className={`border-beige-300 ${isWniosekTemplate ? "mb-2" : "mb-3"}`} />
+
+                {template.signaturePrefix && !isWniosekTemplate && (
+                  <div className="mb-2.5 text-[11px] leading-tight">
+                    <span className="font-semibold">Sygnatura:</span> {signature || "—"}
+                  </div>
+                )}
+
+                <div
+                  className={`${
+                    isWniosekTemplate ? "mb-2 text-[11px]" : "mb-3 text-[11px]"
+                  } whitespace-pre-wrap break-words`}
+                >
+                  <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ") || "—"}
+                </div>
+
+                {requiresVehicleFolder && (
+                  <div className="mb-3 text-[11px] whitespace-pre-wrap break-words">
+                    <span className="font-semibold">Teczka pojazdu:</span>{" "}
+                    {selectedVehicle ? (
+                      <>
+                        {selectedVehicle.registration || "—"}
+                        {selectedVehicle.brand ? ` • ${selectedVehicle.brand}` : ""}
+                        {selectedVehicle.color ? ` • Kolor: ${selectedVehicle.color}` : ""}
+                        {selectedVehicle.ownerName ? ` • Właściciel: ${selectedVehicle.ownerName}` : ""}
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </div>
+                )}
+
+                {isWniosekTemplate ? (
+                  <div className="doc-fields text-[11px] leading-[1.3]">
+                    {wniosekPreviewLines
+                      .map((line) => line.trim())
+                      .filter((line) => line.length > 0)
+                      .map((line, idx) => (
+                        <p
+                          key={`wniosek-line-${idx}`}
+                          className="whitespace-pre-wrap break-words"
+                          style={{ textAlign: line.length > 80 ? "justify" : "left" }}
+                        >
+                          {line}
+                        </p>
+                      ))}
+                  </div>
+                ) : (
+                  <div className="doc-fields text-[11px] leading-[1.3]">
+                    {previewFields.map((field) => (
+                      <FieldBlock key={`${field.id}-${field.signature}`} field={field} />
+                    ))}
+                  </div>
+                )}
+
+                <div className={`${isWniosekTemplate ? "mt-5 text-[10px]" : "mt-6 text-[11px]"} text-gray-600`}>
+                  Wygenerowano w panelu LSPD • {new Date().toLocaleString()}
+                </div>
+              </div>
             </div>
           </div>
         </div>
