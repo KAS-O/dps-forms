@@ -595,190 +595,140 @@ export default function ArchivePage() {
 
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       ensureReportFonts(doc);
-      doc.setLineHeightFactor(1.6);
-
-      const computeLineHeight = (fontSize: number) => Math.round(fontSize * 1.5);
-      const captionLineHeight = computeLineHeight(10);
-      const bodyLineHeight = computeLineHeight(11);
-      const sectionTitleLineHeight = computeLineHeight(12);
-      const summaryHeadingLineHeight = computeLineHeight(13);
-      const titleLineHeight = computeLineHeight(14);
-      const spacerHeight = Math.round(bodyLineHeight * 0.75);
+      doc.setLineHeightFactor(1.45);
 
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 56;
-      const contentWidth = pageWidth - margin * 2;
-      const headerHeight = 160;
-      const firstPageTop = headerHeight + 64;
-      const subsequentTop = margin + 30;
+      const marginX = 56;
+      const marginBottom = 64;
+      const headerHeight = 88;
+      const marginTop = 28;
+      const contentWidth = pageWidth - marginX * 2;
+      const sectionContentWidth = contentWidth - 24;
       const logoSize = 52;
-      const backgroundColor = { r: 248, g: 246, b: 242 };
       const logoDataUri = `data:image/png;base64,${REPORT_LOGO_PNG}`;
       const confidentialityNotice =
         "Dokument stanowi raport z czynności służbowych funkcjonariuszy LSPD, obejmujących okres wskazany w szczegółach dokumentu. Raport jest objęty klauzulą poufności i przeznaczony wyłącznie do użytku wewnętrznego Los Santos Police Department. Udostępnianie lub modyfikowanie bez upoważnienia jest zabronione. Dokument został wygenerowany za pośrednictwem Panelu Dokumentów LSPD.";
-      const wrappedTypeSummaryLines = typeSummaryLines
-        .map((line) => normalizePdfLine(line))
-        .map((line) => doc.splitTextToSize(line, contentWidth - 44));
-      const wrappedTypeSummaryCount = wrappedTypeSummaryLines.reduce(
-        (sum, lines) => sum + lines.length,
-        0
-      );
-      const hasTypeSummary = wrappedTypeSummaryCount > 0;
       const totalFineDisplay = formatCurrency(totalFinesAmount);
       const processedLine =
         missingDocuments > 0
           ? `Uwzględnione dokumenty: ${totalDocuments} z ${requestedDocuments} (brakujących: ${missingDocuments})`
           : `Uwzględnione dokumenty: ${totalDocuments} z ${requestedDocuments}`;
 
-      const renderPageDecorations = (isFirstPage: boolean) => {
-        doc.setFillColor(backgroundColor.r, backgroundColor.g, backgroundColor.b);
-        doc.rect(0, 0, pageWidth, pageHeight, "F");
+      let cursorY = 0;
 
+      const renderHeader = (isFirstPage: boolean) => {
         doc.setFillColor(17, 24, 39);
+        doc.rect(0, 0, pageWidth, headerHeight, "F");
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(18);
+        doc.text(
+          isFirstPage ? "Raport Czynności Służbowych" : "Raport Czynności Służbowych — kontynuacja",
+          marginX,
+          headerHeight / 2 + 8
+        );
+
+        doc.setFontSize(10);
+        const timestamp = now.toLocaleString("pl-PL");
+        doc.text(timestamp, pageWidth - marginX, headerHeight / 2 + 8, { align: "right" });
+
+        doc.setFontSize(10);
+        doc.text(`Strona ${doc.getNumberOfPages()}`, pageWidth - marginX, headerHeight - 18, { align: "right" });
+
         if (isFirstPage) {
-          doc.rect(0, 0, pageWidth, headerHeight, "F");
-
-          const subtleNoticeWidth = Math.min(220, contentWidth);
-          const noticeStartY = 32;
-          doc.setFontSize(6);
-          doc.setTextColor(148, 163, 184);
-          const topNoticeLines = doc.splitTextToSize(confidentialityNotice, subtleNoticeWidth);
-          doc.text(topNoticeLines, margin, noticeStartY);
-          const noticeHeight = doc.getTextDimensions(topNoticeLines).h;
-
-          const logoTop = noticeStartY + noticeHeight + 16;
-          const logoLeft = margin;
-          const headerContentStart = logoLeft + logoSize + 24;
-          const headerInnerWidth = pageWidth - margin - headerContentStart;
-          const rightColumnWidth = 200;
-
-          doc.addImage(logoDataUri, "PNG", logoLeft, logoTop, logoSize, logoSize);
-
-          doc.setTextColor(255, 255, 255);
-
-          doc.setFontSize(10);
-          const rightColumnX = pageWidth - margin;
-          const infoTop = noticeStartY + 4;
-          const generatedInfoLines = doc.splitTextToSize(
-            `Wygenerowano: ${now.toLocaleString("pl-PL")}`,
-            rightColumnWidth
-          );
-          doc.text(generatedInfoLines, rightColumnX, infoTop, { align: "right" });
-          const generatedInfoHeight = doc.getTextDimensions(generatedInfoLines).h;
-          const documentsInfoLines = doc.splitTextToSize(
-            `Liczba dokumentów: ${totalDocuments}`,
-            rightColumnWidth
-          );
-          doc.text(documentsInfoLines, rightColumnX, infoTop + generatedInfoHeight + 6, {
-            align: "right",
-          });
-
-          doc.setFontSize(20);
-          const headerTitleLines = doc.splitTextToSize(
-            "Raport Czynności Służbowych",
-            Math.max(160, headerInnerWidth - rightColumnWidth)
-          );
-          const headerTitleY = logoTop + 8;
-          doc.text(headerTitleLines, headerContentStart, headerTitleY);
-          const headerTitleHeight = doc.getTextDimensions(headerTitleLines).h;
-
+          doc.addImage(logoDataUri, "PNG", pageWidth - marginX - logoSize, headerHeight - logoSize - 16, logoSize, logoSize);
           doc.setFontSize(11);
-          const leftColumnBaseY = headerTitleY + headerTitleHeight + 16;
-          doc.text("Jednostka: LSPD", headerContentStart, leftColumnBaseY);
-        } else {
-          const secondaryHeaderHeight = 56;
-          doc.rect(0, 0, pageWidth, secondaryHeaderHeight, "F");
-          doc.setTextColor(255, 255, 255);
-          doc.setFontSize(12);
-          doc.text("Raport Czynności Służbowych — kontynuacja", margin, 32);
-          doc.setFontSize(10);
-          doc.text(now.toLocaleString("pl-PL"), pageWidth - margin, 32, { align: "right" });
+          doc.text("Jednostka: LSPD", marginX, headerHeight - 18);
         }
 
         doc.setTextColor(55, 65, 81);
       };
 
-      renderPageDecorations(true);
-      let cursorY = firstPageTop;
-
-      const summaryBaseLines = 5;
-      const summaryLineHeight = bodyLineHeight;
-      const typeSectionOffset = hasTypeSummary
-        ? summaryLineHeight * (1 + wrappedTypeSummaryCount)
-        : summaryLineHeight;
-      const summaryBoxHeight =
-        40 + summaryHeadingLineHeight + summaryBaseLines * summaryLineHeight + typeSectionOffset;
-      let summaryBoxTop = cursorY - 20;
-      if (summaryBoxTop + summaryBoxHeight > pageHeight - margin) {
-        doc.addPage();
-        renderPageDecorations(false);
-        cursorY = subsequentTop;
-        summaryBoxTop = cursorY - 20;
-      }
-
-      doc.setFillColor(255, 255, 255);
-      doc.roundedRect(margin, summaryBoxTop, contentWidth, summaryBoxHeight, 12, 12, "F");
-      doc.setDrawColor(214, 211, 209);
-      doc.setLineWidth(0.8);
-      doc.roundedRect(margin, summaryBoxTop, contentWidth, summaryBoxHeight, 12, 12, "S");
-
-      let summaryCursor = cursorY;
-      doc.setFontSize(13);
-      doc.text("Podsumowanie", margin + 16, summaryCursor);
-      summaryCursor += summaryHeadingLineHeight;
-      doc.setFontSize(11);
-      doc.text(
-        `Wygenerował: ${fullName || login || "—"}`,
-        margin + 16,
-        summaryCursor
-      );
-      summaryCursor += summaryLineHeight;
-      doc.text(`Data wygenerowania: ${now.toLocaleString("pl-PL")}`, margin + 16, summaryCursor);
-      summaryCursor += summaryLineHeight;
-      doc.text(`Łączna liczba dokumentów w raporcie: ${totalDocuments}`, margin + 16, summaryCursor);
-      summaryCursor += summaryLineHeight;
-      doc.text(`Łączna kwota grzywien/mandatów: ${totalFineDisplay}`, margin + 16, summaryCursor);
-      summaryCursor += summaryLineHeight;
-      doc.text(processedLine, margin + 16, summaryCursor);
-      summaryCursor += summaryLineHeight;
-
-      if (hasTypeSummary) {
-        doc.text("Zestawienie typów dokumentów:", margin + 16, summaryCursor);
-        summaryCursor += summaryLineHeight;
-        wrappedTypeSummaryLines.forEach((lines) => {
-          lines.forEach((wrappedLine, lineIndex) => {
-            const prefix = lineIndex === 0 ? "• " : "  ";
-            doc.text(`${prefix}${wrappedLine}`, margin + 28, summaryCursor);
-            summaryCursor += summaryLineHeight;
-          });
-        });
-      } else {
-        doc.text("Brak dodatkowego zestawienia typów dokumentów.", margin + 16, summaryCursor);
-        summaryCursor += summaryLineHeight;
-      }
-
-      cursorY = summaryBoxTop + summaryBoxHeight + 32;
-      doc.setDrawColor(55, 65, 81);
-      doc.setLineWidth(0.5);
-      doc.setFontSize(13);
-      doc.text("Szczegóły dokumentów", margin, cursorY);
-      cursorY += 24;
-
       const ensureSpace = (requiredHeight: number) => {
-        if (cursorY + requiredHeight > pageHeight - margin) {
+        if (cursorY + requiredHeight > pageHeight - marginBottom) {
           doc.addPage();
-          renderPageDecorations(false);
-          cursorY = subsequentTop;
+          renderHeader(false);
+          cursorY = headerHeight + marginTop;
         }
       };
 
-      const blockPaddingX = 24;
-      const blockPaddingY = 20;
-      const blockContentIndent = 14;
-      const blockSpacing = 28;
-      const blockInnerWidth = contentWidth - blockPaddingX * 2;
-      const blockTextWidth = blockInnerWidth - blockContentIndent;
+      const addGap = (gap: number) => {
+        if (gap <= 0) return;
+        ensureSpace(gap);
+        cursorY += gap;
+      };
+
+      const writeParagraph = (
+        text: string,
+        fontSize: number,
+        options?: { indent?: number; maxWidth?: number; gapAfter?: number }
+      ) => {
+        doc.setFontSize(fontSize);
+        const indent = options?.indent ?? 0;
+        const availableWidth = Math.max(48, (options?.maxWidth ?? contentWidth) - indent);
+        const lines = doc.splitTextToSize(text, availableWidth);
+        const height = doc.getTextDimensions(lines).h;
+        ensureSpace(height + (options?.gapAfter ?? 0));
+        doc.text(lines, marginX + indent, cursorY);
+        cursorY += height;
+        if (options?.gapAfter) {
+          cursorY += options.gapAfter;
+        }
+      };
+
+      const writeLines = (
+        lines: string[],
+        fontSize: number,
+        options?: { indent?: number; gapAfter?: number }
+      ) => {
+        doc.setFontSize(fontSize);
+        const height = doc.getTextDimensions(lines).h;
+        ensureSpace(height + (options?.gapAfter ?? 0));
+        doc.text(lines, marginX + (options?.indent ?? 0), cursorY);
+        cursorY += height;
+        if (options?.gapAfter) {
+          cursorY += options.gapAfter;
+        }
+      };
+
+      renderHeader(true);
+      cursorY = headerHeight + marginTop;
+
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      const confidentialityLines = doc.splitTextToSize(confidentialityNotice, contentWidth);
+      const confidentialityHeight = doc.getTextDimensions(confidentialityLines).h;
+      ensureSpace(confidentialityHeight + 16);
+      doc.text(confidentialityLines, marginX, cursorY);
+      cursorY += confidentialityHeight + 16;
+
+      doc.setTextColor(55, 65, 81);
+      writeParagraph("Podsumowanie", 15, { gapAfter: 10 });
+      writeParagraph(`Wygenerował: ${fullName || login || "—"}`, 11, { gapAfter: 6 });
+      writeParagraph(`Data wygenerowania: ${now.toLocaleString("pl-PL")}`, 11, { gapAfter: 6 });
+      writeParagraph(`Łączna liczba dokumentów w raporcie: ${totalDocuments}`, 11, { gapAfter: 6 });
+      writeParagraph(`Łączna kwota grzywien/mandatów: ${totalFineDisplay}`, 11, { gapAfter: 6 });
+      writeParagraph(processedLine, 11, { gapAfter: 10 });
+
+      if (typeSummaryLines.length) {
+        writeParagraph("Zestawienie typów dokumentów:", 11, { gapAfter: 6 });
+        typeSummaryLines.forEach((line) => {
+          writeParagraph(`• ${normalizePdfLine(line)}`, 11, {
+            indent: 12,
+            gapAfter: 4,
+          });
+        });
+      } else {
+        writeParagraph("Brak dodatkowego zestawienia typów dokumentów.", 11, { gapAfter: 6 });
+      }
+
+      addGap(12);
+      doc.setDrawColor(209, 213, 219);
+      doc.setLineWidth(0.8);
+      doc.line(marginX, cursorY, pageWidth - marginX, cursorY);
+      addGap(18);
+      writeParagraph("Szczegóły dokumentów", 15, { gapAfter: 12 });
 
       selectedItems.forEach((item, index) => {
         const createdAt = item.createdAt?.toDate?.() || item.createdAtDate || null;
@@ -802,131 +752,54 @@ export default function ArchivePage() {
         if (dossier) infoLines.push(dossier);
         if (vehicleRegistration) infoLines.push(vehicleRegistration);
 
+        writeParagraph(`Dokument ${index + 1} z ${totalDocuments}`, 11, { gapAfter: 4 });
+        writeParagraph(item.templateName || item.templateSlug || "Dokument", 14, { gapAfter: 6 });
+        infoLines.forEach((line) => {
+          writeParagraph(normalizePdfLine(line), 11, { gapAfter: 4 });
+        });
+
+        addGap(6);
+
         const preparedSections = sections.map((section) => ({
           title: section.title,
           lines: section.lines
             .filter((line) => !DOCUMENT_LINE_PATTERN.test(line ?? ""))
             .map((line) => {
-            const normalized = normalizePdfLine(line ?? "");
-            if (!normalized) {
-              return { type: "spacer" as const };
-            }
-            const wrapped = doc.splitTextToSize(normalized, blockTextWidth);
-            return { type: "text" as const, lines: wrapped };
-          }),
+              const normalized = normalizePdfLine(line ?? "");
+              if (!normalized) {
+                return { type: "spacer" as const };
+              }
+              const wrapped = doc.splitTextToSize(normalized, sectionContentWidth);
+              return { type: "text" as const, lines: wrapped };
+            }),
         }));
 
-        const blockContentHeight = (() => {
-          let height = 0;
-          height += captionLineHeight; // "Dokument X z Y"
-          height += titleLineHeight; // Tytuł dokumentu
-          height += infoLines.length * bodyLineHeight;
-          height += spacerHeight; // odstęp przed sekcjami
-          if (!preparedSections.length) {
-            height += bodyLineHeight; // informacja o braku danych
-          } else {
-            preparedSections.forEach((section) => {
-              if (section.title) {
-                height += sectionTitleLineHeight;
-              }
-              section.lines.forEach((line) => {
-                if (line.type === "spacer") {
-                  height += spacerHeight;
-                } else {
-                  height += line.lines.length * bodyLineHeight;
-                }
-              });
-              height += spacerHeight; // odstęp po sekcji
-            });
-          }
-          return height;
-        })();
-
-        const totalBlockHeight = blockContentHeight + blockPaddingY * 2;
-        ensureSpace(totalBlockHeight);
-
-        const blockTop = cursorY;
-        doc.setFillColor(255, 255, 255);
-        doc.roundedRect(margin, blockTop, contentWidth, totalBlockHeight, 12, 12, "F");
-        doc.setDrawColor(214, 211, 209);
-        doc.setLineWidth(0.8);
-        doc.roundedRect(margin, blockTop, contentWidth, totalBlockHeight, 12, 12, "S");
-
-        let blockCursorY = blockTop + blockPaddingY;
-
-        doc.setFontSize(10);
-        doc.setTextColor(107, 114, 128);
-        doc.text(
-          `Dokument ${index + 1} z ${totalDocuments}`,
-          margin + blockPaddingX,
-          blockCursorY
-        );
-        blockCursorY += captionLineHeight;
-
-        doc.setFontSize(14);
-        doc.setTextColor(31, 41, 55);
-        doc.text(
-          item.templateName || item.templateSlug || "Dokument",
-          margin + blockPaddingX,
-          blockCursorY
-        );
-        blockCursorY += titleLineHeight;
-
-        doc.setFontSize(11);
-        doc.setTextColor(75, 85, 99);
-        infoLines.forEach((line) => {
-          doc.text(normalizePdfLine(line), margin + blockPaddingX, blockCursorY);
-          blockCursorY += bodyLineHeight;
-        });
-
-        doc.setTextColor(55, 65, 81);
-        blockCursorY += 10;
-
         if (!preparedSections.length) {
-          doc.text(
-            "(Brak danych tekstowych w archiwum)",
-            margin + blockPaddingX,
-            blockCursorY
-          );
-          blockCursorY += bodyLineHeight;
+          writeParagraph("(Brak danych tekstowych w archiwum)", 11, { indent: 12, gapAfter: 10 });
         } else {
           preparedSections.forEach((section) => {
             if (section.title) {
-              doc.setFontSize(12);
-              doc.text(section.title, margin + blockPaddingX, blockCursorY);
-              blockCursorY += sectionTitleLineHeight;
-              doc.setFontSize(11);
+              writeParagraph(section.title, 12, { indent: 8, gapAfter: 4 });
             }
 
             section.lines.forEach((line) => {
               if (line.type === "spacer") {
-                blockCursorY += spacerHeight;
+                addGap(6);
                 return;
               }
-              line.lines.forEach((wrappedLine) => {
-                doc.text(
-                  wrappedLine,
-                  margin + blockPaddingX + blockContentIndent,
-                  blockCursorY
-                );
-                blockCursorY += bodyLineHeight;
-              });
+              writeLines(line.lines, 11, { indent: 16, gapAfter: 4 });
             });
 
-            blockCursorY += spacerHeight;
+            addGap(8);
           });
         }
 
-        cursorY = blockTop + totalBlockHeight;
-
         if (index < selectedItems.length - 1) {
-          if (cursorY + blockSpacing > pageHeight - margin) {
-            doc.addPage();
-            renderPageDecorations(false);
-            cursorY = subsequentTop;
-          } else {
-            cursorY += blockSpacing;
-          }
+          addGap(12);
+          doc.setDrawColor(229, 231, 235);
+          doc.setLineWidth(0.6);
+          doc.line(marginX, cursorY, pageWidth - marginX, cursorY);
+          addGap(18);
         }
       });
 
