@@ -138,7 +138,6 @@ const buildWniosekTextLines = (input: WniosekTextInput): string[] => {
   }
 
   return [
-    "Wniosek o wszczęcie postępowania przygotowawczego",
     `Sygnatura: ${signature}`,
     `Data: ${formattedDate}`,
     "Jednostka: Los Santos Police Department",
@@ -1030,16 +1029,37 @@ export default function DocPage() {
                   ref={(el) => {
                     pageRefs.current[pageIndex] = el;
                   }}
-                  className="bg-white text-black mx-auto w-[900px] max-w-full aspect-[210/297] p-8 border border-beige-300 shadow-sm doc-page"
+                  className={`bg-white text-black mx-auto w-[900px] max-w-full aspect-[210/297] border border-beige-300 shadow-sm doc-page ${
+                    isWniosekTemplate ? "p-4" : "p-8"
+                  }`}
                 >
-                  <div className="flex items-center gap-3 mb-4">
-                    <img src="/logo.png" alt="LSPD" width={140} className="floating" />
+                  <div
+                    className={`flex items-center ${isWniosekTemplate ? "gap-2 mb-3" : "gap-3 mb-4"}`}
+                  >
+                    <img
+                      src="/logo.png"
+                      alt="LSPD"
+                      width={isWniosekTemplate ? 110 : 140}
+                      className="floating"
+                    />
                     <div>
-                      <div className="text-xl font-bold">Los Santos Police Department</div>
-                      <div className="text-sm text-gray-600">{template.name}</div>
+                      <div
+                        className={`${
+                          isWniosekTemplate ? "text-lg" : "text-xl"
+                        } font-bold leading-tight`}
+                      >
+                        Los Santos Police Department
+                      </div>
+                      <div
+                        className={`${
+                          isWniosekTemplate ? "text-[11px]" : "text-sm"
+                        } text-gray-600 leading-tight`}
+                      >
+                        {template.name}
+                      </div>
                     </div>
                   </div>
-                  <hr className="border-beige-300 mb-4" />
+                  <hr className={`border-beige-300 ${isWniosekTemplate ? "mb-3" : "mb-4"}`} />
 
                   {pageIndex === 0 && template.signaturePrefix && !isWniosekTemplate && (
                     <div className="mb-3 text-[12px]">
@@ -1047,7 +1067,7 @@ export default function DocPage() {
                     </div>
                   )}
 
-                  <div className="mb-4 text-[12px]">
+                  <div className={`${isWniosekTemplate ? "mb-3 text-[11px]" : "mb-4 text-[12px]"}`}>
                     <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ") || "—"}
                   </div>
 
@@ -1069,21 +1089,14 @@ export default function DocPage() {
                   
                   {isWniosekTemplate ? (
                     <div
-                      className="space-y-3 text-[12px] leading-6 doc-fields"
+                      className="doc-fields space-y-[6px] text-[11px] leading-[1.35]"
                       ref={pageIndex === 0 ? setFirstPageFieldsRef : undefined}
                     >
                       {pageIndex === 0
                         ? wniosekPreviewLines.map((line, idx) => {
                             const key = `wniosek-line-${idx}`;
                             if (!line.trim()) {
-                              return <div key={key} className="h-3" />;
-                            }
-                            if (idx === 0) {
-                              return (
-                                <div key={key} className="text-[14px] font-semibold uppercase tracking-wide">
-                                  {line}
-                                </div>
-                              );
+                              return <div key={key} className="h-[6px]" />;
                             }
                             return (
                               <p key={key} className="whitespace-pre-wrap">
@@ -1104,7 +1117,11 @@ export default function DocPage() {
                     </div>
                   )}
 
-                  <div className="mt-8 text-sm text-gray-600">
+                  <div
+                    className={`${
+                      isWniosekTemplate ? "mt-6 text-[11px]" : "mt-8 text-sm"
+                    } text-gray-600`}
+                  >
                     Wygenerowano w panelu LSPD • {new Date().toLocaleString()} • Strona {pageIndex + 1}/{pages.length}
                   </div>
                 </div>
