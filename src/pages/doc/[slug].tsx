@@ -22,11 +22,23 @@ import {
   orderBy,
   doc,
   getDoc,
+  runTransaction,
 } from "firebase/firestore";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { useSessionActivity } from "@/components/ActivityLogger";
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
+
+const SIGNATURE_PREFIXES: Record<string, string> = {
+  "kontrola-lseb": "LSEB-K",
+  "bloczek-mandatowy": "LSPD-BM",
+  "wniosek-o-ukaranie": "LSPD-WUS",
+  "zgloszenie-kradziezy": "LSPD-ZK",
+  "protokol-aresztowania": "LSPD-PA",
+  "swiadczenie-spoleczne": "LSPD-WS",
+  "raport-zalozenia-blokady": "LSPD-RB",
+  "protokol-zajecia-pojazdu": "LSPD-PZP",
+};
 
 type Person = { id: string; fullName?: string; login?: string };
 
@@ -37,9 +49,28 @@ type FieldRender = {
   textValue: string;
   note?: string;
   signature: string;
+  layout?: "default" | "fullWidth";
 };
 
 const FieldBlock = forwardRef<HTMLDivElement, { field: FieldRender }>(({ field }, ref) => {
+  const layout = field.layout ?? "default";
+  if (layout === "fullWidth") {
+    return (
+      <div ref={ref} className="grid gap-1">
+        {field.label ? (
+          <div className="font-semibold">
+            {field.label}
+            {field.required ? " *" : ""}
+          </div>
+        ) : null}
+        <div className="whitespace-pre-wrap break-words">
+          {field.textValue}
+          {field.note && <div className="text-[11px] text-gray-600">{field.note}</div>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div ref={ref} className="grid grid-cols-[220px_1fr] gap-3">
       <div className="font-semibold">
@@ -86,12 +117,30 @@ export default function DocPage() {
   const [profiles, setProfiles] = useState<Person[]>([]);
   const [currentUid, setCurrentUid] = useState<string>("");
   const [selectedUids, setSelectedUids] = useState<string[]>([]); // zawsze zawiera currentUid
+  const signaturePrefix = template ? SIGNATURE_PREFIXES[template.slug] : undefined;
+  const signatureRefValue = useRef<string | null>(null);
+  const [signature, setSignature] = useState<string | null>(null);
+  const [signatureError, setSignatureError] = useState<string | null>(null);
+  const [allocatingSignature, setAllocatingSignature] = useState(false);
 
-  const uidToName = (uid: string) => {
-    const p = profiles.find((x) => x.id === uid);
-    return p?.fullName || p?.login || uid;
-  };
+  const uidToName = useCallback(
+    (uid: string) => {
+      const p = profiles.find((x) => x.id === uid);
+      return p?.fullName || p?.login || uid;
+    },
+    [profiles]
+  );
   const selectedNames = selectedUids.map(uidToName);
+  const mainOfficerName = useMemo(() => {
+    if (currentUid) {
+      const primary = uidToName(currentUid);
+      if (primary) return primary;
+    }
+    if (selectedNames.length > 0) {
+      return selectedNames[0];
+    }
+    return "";
+  }, [currentUid, selectedNames, uidToName]);
   const requiresDossier = !!template?.requiresDossier;
   const requiresVehicleFolder = !!template?.requiresVehicleFolder;
   const vehicleNoteConfig = template?.vehicleNoteConfig;
@@ -114,7 +163,57 @@ export default function DocPage() {
       );
     });
   }, [requiresVehicleFolder, vehicleFolders, vehicleSearch]);
+
+  const ensureSignature = useCallback(async () => {
+    if (!template || !signaturePrefix) {
+      return null;
+    }
+    if (signatureRefValue.current) {
+      return signatureRefValue.current;
+    }
+    setAllocatingSignature(true);
+    setSignatureError(null);
+    try {
+      const year = new Date().getFullYear();
+      const counterRef = doc(db, "docCounters", `${template.slug}-${year}`);
+      const nextNumber = await runTransaction(db, async (transaction) => {
+        const snapshot = await transaction.get(counterRef);
+        const data = snapshot.data() as { value?: number | string } | undefined;
+        const rawValue = data?.value;
+        const parsedValue =
+          typeof rawValue === "number"
+            ? (Number.isFinite(rawValue) ? rawValue : 0)
+            : Number.parseInt(typeof rawValue === "string" ? rawValue : "0", 10) || 0;
+        const nextValue = parsedValue + 1;
+        transaction.set(
+          counterRef,
+          {
+            value: nextValue,
+            updatedAt: serverTimestamp(),
+            templateSlug: template.slug,
+            templateName: template.name,
+            year,
+          },
+          { merge: true }
+        );
+        return nextValue;
+      });
+      const padded = String(nextNumber).padStart(4, "0");
+      const newSignature = `${signaturePrefix}/${year}/${padded}`;
+      signatureRefValue.current = newSignature;
+      setSignature(newSignature);
+      return newSignature;
+    } catch (error: any) {
+      const message = error?.message ? String(error.message) : "Nie udało się nadać sygnatury.";
+      setSignatureError(message);
+      throw error;
+    } finally {
+      setAllocatingSignature(false);
+    }
+  }, [signaturePrefix, template]);
   
+  const isWniosekTemplate = template?.slug === "wniosek-o-ukaranie";
+
   const nextPayoutDate = useMemo(() => {
     if (!requiresDossier) return "";
     const dniRaw = values["dni"];
@@ -127,8 +226,90 @@ export default function DocPage() {
     return base.toLocaleDateString();
   }, [requiresDossier, values]);
 
+  const wniosekLetter = useMemo(() => {
+    if (!isWniosekTemplate) {
+      return { lines: [] as string[], text: "" };
+    }
+
+    const ensureValue = (value: string | undefined, placeholder: string) => {
+      if (typeof value !== "string") return placeholder;
+      if (!value.trim()) return placeholder;
+      return value;
+    };
+
+    const formatDateValue = (value: string | undefined, placeholder: string) => {
+      if (typeof value !== "string") return placeholder;
+      const trimmed = value.trim();
+      if (!trimmed) return placeholder;
+      const match = trimmed.match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})$/);
+      if (match) {
+        const [, year, month, day] = match;
+        return `${day}/${month}/${year}`;
+      }
+      return trimmed;
+    };
+
+    const officerRank = ensureValue(values["stopien"], "[stopień]");
+    const badgeNumber = ensureValue(values["numerOdznaki"], "[numer odznaki]");
+    const citizenName = ensureValue(values["obywatel"], "[imię i nazwisko]");
+    const citizenCid = ensureValue(values["cid"], "[CID obywatela]");
+    const articleName = ensureValue(values["nazwaArt"], "[Nazwa art.]");
+    const eventDate = formatDateValue(values["dataZdarzenia"], "[data zdarzenia]");
+    const eventPlace = ensureValue(values["miejsceZdarzenia"], "[miejsce zdarzenia]");
+    const actDescription = ensureValue(values["opisCzynu"], "[Opis czynu]");
+    const attachments = ensureValue(values["zalaczniki"], "[Opis załączonych rzeczy]");
+    const documentDate = formatDateValue(values["data"], "[dd/mm/rrrr]");
+    const officerName = mainOfficerName || "*imię i nazwisko funkcjonariusza*";
+    const signatureDisplay = signature ?? "*automatyczna sygnatura*";
+
+    const lines = [
+      "Wniosek o wszczęcie postępowania przygotowawczego",
+      "",
+      `Sygnatura: ${signatureDisplay}`,
+      `Data: ${documentDate}`,
+      "Jednostka: Los Santos Police Department",
+      `Funkcjonariusz sporządzający: ${[officerRank, officerName, badgeNumber].filter(Boolean).join(" ")}`,
+      "",
+      "Na podstawie przeprowadzonych czynności służbowych oraz zgromadzonego materiału dowodowego, Los Santos Police Department składa niniejszy wniosek do Prokuratury Los Santos o wszczęcie postępowania przygotowawczego wobec:",
+      "",
+      `${citizenName}`,
+      `CID: ${citizenCid}`,
+      "",
+      `w związku z uzasadnionym podejrzeniem popełnienia czynu zabronionego określonego w ${articleName}.`,
+      "",
+      `W toku prowadzonych czynności ustalono, że w dniu ${eventDate} na terenie ${eventPlace} ${citizenName} dopuścił/a się czynu polegającego na ${actDescription}.`,
+      "Zgromadzony materiał dowodowy wskazuje na zasadność wszczęcia postępowania przygotowawczego w przedmiotowej sprawie.",
+      "",
+      "W związku z powyższym, Los Santos Police Department wnosi o podjęcie przez Prokuraturę Los Santos dalszych czynności procesowych zmierzających do wyjaśnienia wszystkich okoliczności zdarzenia oraz pociągnięcia sprawcy do odpowiedzialności karnej.",
+      "",
+      "Do wniosku załączono:",
+      `${attachments}`,
+      "",
+      "Z poważaniem,",
+      `${[officerRank, officerName].filter(Boolean).join(" ")}`,
+      "Los Santos Police Department",
+      "Wydział ds. wykroczeń",
+    ];
+
+    return { lines, text: lines.join("\n") };
+  }, [isWniosekTemplate, mainOfficerName, signature, values]);
+
   const previewFields = useMemo<FieldRender[]>(() => {
     if (!template) return [];
+
+    if (isWniosekTemplate) {
+      return [
+        {
+          id: "wniosek-letter",
+          label: "",
+          required: false,
+          textValue: wniosekLetter.text,
+          note: undefined,
+          signature: wniosekLetter.text,
+          layout: "fullWidth",
+        },
+      ];
+    }
 
     return template.fields.map((f) => {
       const rawValue = values[f.key];
@@ -164,7 +345,7 @@ export default function DocPage() {
         signature: `${displayText}|${note}`,
       };
     });
-  }, [nextPayoutDate, template, values]);
+  }, [isWniosekTemplate, nextPayoutDate, template, values, wniosekLetter.text]);
 
   const fieldsSignature = useMemo(() => previewFields.map((f) => `${f.id}:${f.signature}`).join("|"), [previewFields]);
 
@@ -172,7 +353,7 @@ export default function DocPage() {
 
   useEffect(() => {
     setPages([previewFields]);
-  }, [fieldsSignature]);
+  }, [fieldsSignature, previewFields]);
 
   pageRefs.current = pageRefs.current.slice(0, pages.length);
   measurementRefs.current = measurementRefs.current.slice(0, previewFields.length);
@@ -193,7 +374,7 @@ export default function DocPage() {
     if (width && width !== contentWidth) {
       setContentWidth(width);
     }
-  }, [pages.length, fieldsSignature]);
+  }, [pages.length, fieldsSignature, contentHeight, contentWidth]);
 
   useLayoutEffect(() => {
     if (!contentHeight) return;
@@ -236,6 +417,18 @@ export default function DocPage() {
   }, [contentHeight, previewFields, pages, fieldsSignature]);
 
   const measurementWidth = contentWidth || 760;
+
+  useEffect(() => {
+    signatureRefValue.current = null;
+    setSignature(null);
+    setSignatureError(null);
+    setAllocatingSignature(false);
+  }, [template?.slug]);
+
+  useEffect(() => {
+    if (!template || !signaturePrefix) return;
+    ensureSignature().catch(() => undefined);
+  }, [ensureSignature, signaturePrefix, template]);
   
   useEffect(() => {
     (async () => {
@@ -383,6 +576,15 @@ export default function DocPage() {
     }
     setSending(true);
     try {
+      if (signaturePrefix) {
+        const ensuredSignature = await ensureSignature();
+        if (!ensuredSignature) {
+          throw new Error("Nie udało się nadać sygnatury dokumentu.");
+        }
+        await new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        );
+      }
       const nodes = pageRefs.current.filter((node): node is HTMLDivElement => !!node);
       if (!nodes.length) throw new Error("Brak podglądu do zrzutu.");
 
@@ -440,23 +642,41 @@ export default function DocPage() {
           .join(" ") ||
         (dossierId || "");
 
-      const fieldLinesForText = previewFields.flatMap((field) => {
-        const base = `${field.label}: ${field.textValue || "—"}`;
-        return field.note ? [base, `  ${field.note}`] : [base];
-      });
+      const currentSignatureValue = signatureRefValue.current || signature || null;
+      const signatureLine = signaturePrefix
+        ? `Sygnatura: ${currentSignatureValue || "*automatyczna sygnatura*"}`
+        : null;
 
-      const textPagesRaw = pages.map((pageFields) =>
-        pageFields
-          .flatMap((field) => {
+      const baseContentLines = isWniosekTemplate
+        ? [...wniosekLetter.lines]
+        : previewFields.flatMap((field) => {
             const base = `${field.label}: ${field.textValue || "—"}`;
             return field.note ? [base, `  ${field.note}`] : [base];
-          })
-          .join("\n")
-      );
+          });
+
+      const fieldLinesForText = isWniosekTemplate
+        ? baseContentLines
+        : signatureLine
+        ? [signatureLine, "", ...baseContentLines]
+        : baseContentLines;
+
+      const textPagesRaw = isWniosekTemplate
+        ? [wniosekLetter.text]
+        : pages.map((pageFields, pageIndex) => {
+            const lines = pageFields.flatMap((field) => {
+              const base = `${field.label}: ${field.textValue || "—"}`;
+              return field.note ? [base, `  ${field.note}`] : [base];
+            });
+            if (pageIndex === 0 && signatureLine) {
+              lines.unshift(signatureLine);
+            }
+            return lines.join("\n");
+          });
       const textPages = textPagesRaw.filter((page) => page.trim().length > 0);
 
       const documentTextLines = [
         `Dokument: ${template.name}`,
+        signatureLine,
         `Funkcjonariusze: ${officerText}`,
         dossierId ? `Powiązana teczka: ${dossierLabel}` : null,
         vehicleFolderId
@@ -476,6 +696,9 @@ export default function DocPage() {
         valuesOut["dni"] = nextPayoutDate;
       }
       valuesOut["liczbaStron"] = imageUrlsAll.length;
+      if (signaturePrefix && currentSignatureValue) {
+        valuesOut["sygnatura"] = currentSignatureValue;
+      }
       if (requiresVehicleFolder && selectedVehicle) {
         valuesOut["teczkaPojazdu"] = vehicleLabel || selectedVehicle.registration || selectedVehicle.id;
       }
@@ -812,6 +1035,21 @@ export default function DocPage() {
                     </div>
                   </div>
                   <hr className="border-beige-300 mb-4" />
+
+                  {signaturePrefix && (
+                    <div className="mb-4 text-[12px]">
+                      <span className="font-semibold">Sygnatura:</span>{" "}
+                      {signature ? (
+                        signature
+                      ) : signatureError ? (
+                        <span className="text-red-700">Błąd: {signatureError}</span>
+                      ) : allocatingSignature ? (
+                        "Trwa nadawanie sygnatury..."
+                      ) : (
+                        "Zostanie nadana przy wysyłce."
+                      )}
+                    </div>
+                  )}
 
                   <div className="mb-4 text-[12px]">
                     <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ")}
