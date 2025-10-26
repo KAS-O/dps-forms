@@ -49,14 +49,19 @@ type FieldRender = {
 
 const FieldBlock = forwardRef<HTMLDivElement, { field: FieldRender }>(({ field }, ref) => {
   return (
-    <div ref={ref} className="grid grid-cols-[220px_1fr] gap-3">
-      <div className="font-semibold">
+    <div
+      ref={ref}
+      className="grid grid-cols-[160px_minmax(0,1fr)] items-start gap-2 text-[11px] leading-[1.35]"
+    >
+      <div className="font-semibold leading-tight">
         {field.label}
         {field.required ? " *" : ""}
       </div>
       <div className="whitespace-pre-wrap break-words">
         {field.textValue}
-        {field.note && <div className="text-[11px] text-gray-600">{field.note}</div>}
+        {field.note && (
+          <div className="mt-1 text-[10px] leading-tight text-gray-600">{field.note}</div>
+        )}
       </div>
     </div>
   );
@@ -829,7 +834,7 @@ export default function DocPage() {
           style={{ width: `${measurementWidth}px`, left: "-10000px", top: "-10000px" }}
           aria-hidden="true"
         >
-          <div className="doc-fields space-y-3 text-[12px] leading-6">
+          <div className="doc-fields text-[11px] leading-[1.35]">
             {previewFields.map((field, idx) => (
               <FieldBlock
                 key={`measure-${field.id}-${idx}`}
@@ -1023,12 +1028,16 @@ export default function DocPage() {
                   ref={(el) => {
                     pageRefs.current[pageIndex] = el;
                   }}
-                  className={`bg-white text-black mx-auto max-w-full aspect-[210/297] border border-beige-300 shadow-sm doc-page ${
-                    isWniosekTemplate ? "w-[820px] p-5 text-[11px]" : "w-[900px] p-8"
+                  className={`bg-white text-black mx-auto max-w-full border border-beige-300 shadow-sm doc-page ${
+                    isWniosekTemplate
+                      ? "w-[820px] min-h-[1080px] p-4 text-[11px]"
+                      : "w-[900px] min-h-[1230px] p-5 text-[11px]"
                   }`}
                 >
                   <div
-                    className={`flex items-center ${isWniosekTemplate ? "gap-2 mb-3" : "gap-3 mb-4"}`}
+                    className={`flex items-center ${
+                      isWniosekTemplate ? "gap-2 mb-2.5" : "gap-2.5 mb-3"
+                    }`}
                   >
                     <img
                       src="/logo.png"
@@ -1057,24 +1066,26 @@ export default function DocPage() {
                       </div>
                     </div>
                   </div>
-                  <hr className={`border-beige-300 ${isWniosekTemplate ? "mb-2" : "mb-4"}`} />
+                  <hr className={`border-beige-300 ${isWniosekTemplate ? "mb-2" : "mb-3"}`} />
 
                   {pageIndex === 0 && template.signaturePrefix && !isWniosekTemplate && (
-                    <div className="mb-3 text-[12px]">
+                    <div className="mb-2.5 text-[11px] leading-tight">
                       <span className="font-semibold">Sygnatura:</span> {signature || "—"}
                     </div>
                   )}
 
                   <div
                     className={`${
-                      isWniosekTemplate ? "mb-2 text-[11px]" : "mb-4 text-[12px]"
-                    }`}
+                      isWniosekTemplate
+                        ? "mb-2 text-[11px]"
+                        : "mb-3 text-[11px]"
+                    } whitespace-pre-wrap break-words`}
                   >
                     <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ") || "—"}
                   </div>
 
                   {requiresVehicleFolder && (
-                    <div className="mb-4 text-[12px]">
+                    <div className="mb-3 text-[11px] whitespace-pre-wrap break-words">
                       <span className="font-semibold">Teczka pojazdu:</span>{" "}
                       {selectedVehicle ? (
                         <>
@@ -1091,7 +1102,7 @@ export default function DocPage() {
                   
                   {isWniosekTemplate ? (
                     <div
-                      className="space-y-[6px] text-[11px] leading-[1.3] doc-fields"
+                      className="doc-fields text-[11px] leading-[1.3]"
                       ref={pageIndex === 0 ? setFirstPageFieldsRef : undefined}
                     >
                       {pageIndex === 0
@@ -1103,7 +1114,7 @@ export default function DocPage() {
                             return (
                               <p
                                 key={key}
-                                className="whitespace-pre-wrap"
+                                className="whitespace-pre-wrap break-words"
                                 style={{ textAlign: line.length > 80 ? "justify" : "left" }}
                               >
                                 {line}
@@ -1114,7 +1125,7 @@ export default function DocPage() {
                     </div>
                   ) : (
                     <div
-                      className="space-y-3 text-[12px] leading-6 doc-fields"
+                      className="doc-fields text-[11px] leading-[1.35]"
                       ref={pageIndex === 0 ? setFirstPageFieldsRef : undefined}
                     >
                       {pageFields.map((field, fieldIndex) => (
@@ -1125,7 +1136,7 @@ export default function DocPage() {
 
                   <div
                     className={`${
-                      isWniosekTemplate ? "mt-5 text-[10px]" : "mt-8 text-sm"
+                      isWniosekTemplate ? "mt-5 text-[10px]" : "mt-6 text-[11px]"
                     } text-gray-600`}
                   >
                     Wygenerowano w panelu LSPD • {new Date().toLocaleString()} • Strona {pageIndex + 1}/{pages.length}
