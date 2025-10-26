@@ -592,9 +592,37 @@ export default function ArchivePage() {
         ([type, count]) => `${count}× ${type}`
       );
 
+      const loadLogoDataUrl = async (): Promise<string | null> => {
+        try {
+          const response = await fetch("/logo.png");
+          if (!response.ok) {
+            throw new Error("Logo response not ok");
+          }
+          const blob = await response.blob();
+          return await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const result = reader.result;
+              if (typeof result === "string") {
+                resolve(result);
+              } else {
+                reject(new Error("Nie udało się przetworzyć logo."));
+              }
+            };
+            reader.onerror = () => reject(new Error("Nie udało się wczytać logo."));
+            reader.readAsDataURL(blob);
+          });
+        } catch (error) {
+          console.error("Nie udało się wczytać logo do raportu PDF", error);
+          return null;
+        }
+      };
+
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       ensureReportFonts(doc);
       doc.setLineHeightFactor(1.4);
+
+      const logoDataUrl = await loadLogoDataUrl();
 
       const computeLineHeight = (fontSize: number) => Math.round(fontSize * 1.35);
       const captionLineHeight = computeLineHeight(10);
@@ -617,10 +645,17 @@ export default function ArchivePage() {
       const confidentialityNotice =
         "Dokument stanowi raport z czynności służbowych funkcjonariuszy LSPD, obejmujących okres wskazany w szczegółach dokumentu. Raport jest objęty klauzulą poufności i przeznaczony wyłącznie do użytku wewnętrznego Los Santos Police Department. Udostępnianie lub modyfikowanie bez upoważnienia jest zabronione. Dokument został wygenerowany za pośrednictwem Panelu Dokumentów LSPD.";
 
+      const summaryBoxPaddingX = 24;
+      const summaryBoxPaddingY = 22;
+      const summaryBulletIndent = 12;
+      const summaryTitleSpacing = Math.round(bodyLineHeight * 0.6);
+      const summaryTextWidth = contentWidth - summaryBoxPaddingX * 2;
+      const typeSummaryTextWidth = summaryTextWidth - summaryBulletIndent;
+
       const wrappedTypeSummaryLines = typeSummaryLines
         .map((line) => normalizePdfLine(line))
         .filter((line) => line.length > 0)
-        .map((line) => doc.splitTextToSize(line, contentWidth - 32));
+        .map((line) => doc.splitTextToSize(line, typeSummaryTextWidth));
       const totalTypeSummaryLines = wrappedTypeSummaryLines.reduce(
         (sum, lines) => sum + lines.length,
         0
@@ -632,8 +667,6 @@ export default function ArchivePage() {
           ? `Uwzględnione dokumenty: ${totalDocuments} z ${requestedDocuments} (brakujących: ${missingDocuments})`
           : `Uwzględnione dokumenty: ${totalDocuments} z ${requestedDocuments}`;
 
-      const confidentialityLines = doc.splitTextToSize(confidentialityNotice, contentWidth);
-
       const summaryLines = [
         `Wygenerował: ${fullName || login || "—"}`,
         `Data wygenerowania: ${nowDisplay}`,
@@ -642,39 +675,59 @@ export default function ArchivePage() {
         processedLine,
       ];
 
-      const summaryHeight =
-        summaryTitleLineHeight +
-        summaryLines.length * bodyLineHeight +
-        (hasTypeSummary
-          ? bodyLineHeight + totalTypeSummaryLines * bodyLineHeight
-          : bodyLineHeight) +
-        bodyLineHeight +
-        confidentialityLines.length * noteLineHeight;
+      const summaryLinesHeight = summaryLines.length * bodyLineHeight;
+      const typeSummaryHeight = hasTypeSummary
+        ? bodyLineHeight + totalTypeSummaryLines * bodyLineHeight
+        : bodyLineHeight;
+      const summaryInnerHeight =
+        summaryTitleLineHeight + summaryTitleSpacing + summaryLinesHeight + typeSummaryHeight;
+      const summaryBoxHeight = summaryInnerHeight + summaryBoxPaddingY * 2;
+
+      const confidentialityBoxPaddingX = 18;
+      const confidentialityBoxPaddingY = 14;
+      const confidentialityTextWidth = contentWidth - confidentialityBoxPaddingX * 2;
+      const confidentialityLines = doc.splitTextToSize(confidentialityNotice, confidentialityTextWidth);
+      const confidentialityBoxHeight =
+        confidentialityLines.length * noteLineHeight + confidentialityBoxPaddingY * 2;
 
       const drawPageHeader = (isFirstPage: boolean) => {
-        const headerTop = 48;
-        doc.setFontSize(10);
-        doc.setTextColor(100, 116, 139);
-        doc.text("Los Santos Police Department", marginX, headerTop);
-        doc.text(nowDisplay, pageWidth - marginX, headerTop, { align: "right" });
-        doc.setDrawColor(203, 213, 225);
-        doc.setLineWidth(0.6);
-        doc.line(marginX, headerTop + 10, pageWidth - marginX, headerTop + 10);
+        const headerBarHeight = 92;
+        doc.setFillColor(15, 23, 42);
+        doc.rect(0, 0, pageWidth, headerBarHeight, "F");
 
-        let startY = headerTop + 28;
+        const logoHeight = 48;
+        const logoWidth = 48;
+        const logoY = headerBarHeight / 2 - logoHeight / 2;
+        const baseTextLeft = logoDataUrl ? marginX + logoWidth + 16 : marginX;
+        const baseTextTop = logoY + 12;
+
+        if (logoDataUrl) {
+          try {
+            doc.addImage(logoDataUrl, "PNG", marginX, logoY, logoWidth, logoHeight, undefined, "FAST");
+          } catch (error) {
+            console.error("Nie udało się dodać logo do raportu PDF", error);
+          }
+        }
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(11);
+        doc.text("Los Santos Police Department", baseTextLeft, baseTextTop);
+        doc.setFontSize(10);
+        doc.text(nowDisplay, pageWidth - marginX, baseTextTop, { align: "right" });
+
         if (isFirstPage) {
-          doc.setFontSize(18);
-          doc.setTextColor(30, 41, 59);
-          doc.text("Raport Czynności Służbowych", marginX, startY);
-          startY += mainTitleLineHeight;
+          doc.setFontSize(20);
+          doc.text("Raport Czynności Służbowych", baseTextLeft, baseTextTop + 22);
           doc.setFontSize(12);
-          doc.setTextColor(55, 65, 81);
-          doc.text("Jednostka: LSPD", marginX, startY);
-          startY += sectionTitleLineHeight;
+          doc.text("Jednostka: LSPD", baseTextLeft, baseTextTop + 40);
+        } else {
+          doc.setFontSize(13);
+          doc.text("Raport Czynności Służbowych", baseTextLeft, baseTextTop + 20);
         }
 
         doc.setTextColor(30, 41, 59);
-        return isFirstPage ? startY + 12 : headerTop + 28;
+        const contentOffset = isFirstPage ? 40 : 32;
+        return headerBarHeight + contentOffset;
       };
 
       let cursorY = drawPageHeader(true);
@@ -686,42 +739,65 @@ export default function ArchivePage() {
         }
       };
 
-      ensureSpace(summaryHeight + bodyLineHeight);
-      doc.setFontSize(15);
-      doc.text("Podsumowanie", marginX, cursorY);
-      cursorY += summaryTitleLineHeight;
+      ensureSpace(summaryBoxHeight + confidentialityBoxHeight + bodyLineHeight * 2);
 
+      const summaryBoxTop = cursorY;
+      const summaryBoxLeft = marginX;
+      const summaryContentLeft = summaryBoxLeft + summaryBoxPaddingX;
+      const summaryTitleY = summaryBoxTop + summaryBoxPaddingY + summaryTitleLineHeight;
+
+      doc.setFillColor(226, 232, 240);
+      doc.setDrawColor(148, 163, 184);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(summaryBoxLeft, summaryBoxTop, contentWidth, summaryBoxHeight, 14, 14, "FD");
+
+      doc.setFontSize(15);
+      doc.setTextColor(15, 23, 42);
+      doc.text("Podsumowanie", summaryContentLeft, summaryTitleY);
+
+      let summaryCursorY = summaryTitleY + summaryTitleSpacing;
       doc.setFontSize(11);
+      doc.setTextColor(30, 41, 59);
       summaryLines.forEach((line) => {
-        doc.text(line, marginX, cursorY);
-        cursorY += bodyLineHeight;
+        doc.text(line, summaryContentLeft, summaryCursorY);
+        summaryCursorY += bodyLineHeight;
       });
 
       if (hasTypeSummary) {
-        doc.text("Zestawienie typów dokumentów:", marginX, cursorY);
-        cursorY += bodyLineHeight;
+        doc.text("Zestawienie typów dokumentów:", summaryContentLeft, summaryCursorY);
+        summaryCursorY += bodyLineHeight;
         wrappedTypeSummaryLines.forEach((lines) => {
           lines.forEach((wrappedLine, index) => {
             const prefix = index === 0 ? "• " : "  ";
-            doc.text(`${prefix}${wrappedLine}`, marginX + 12, cursorY);
-            cursorY += bodyLineHeight;
+            doc.text(`${prefix}${wrappedLine}`, summaryContentLeft + summaryBulletIndent, summaryCursorY);
+            summaryCursorY += bodyLineHeight;
           });
         });
       } else {
-        doc.text("Brak dodatkowego zestawienia typów dokumentów.", marginX, cursorY);
-        cursorY += bodyLineHeight;
+        doc.text("Brak dodatkowego zestawienia typów dokumentów.", summaryContentLeft, summaryCursorY);
+        summaryCursorY += bodyLineHeight;
       }
 
-      cursorY += bodyLineHeight;
+      cursorY = summaryBoxTop + summaryBoxHeight + bodyLineHeight;
+
+      const confidentialityBoxTop = cursorY;
+      const confidentialityContentLeft = marginX + confidentialityBoxPaddingX;
+
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.6);
+      doc.roundedRect(marginX, confidentialityBoxTop, contentWidth, confidentialityBoxHeight, 12, 12, "FD");
+
+      let noteCursorY = confidentialityBoxTop + confidentialityBoxPaddingY + noteLineHeight;
       doc.setFontSize(9);
-      doc.setTextColor(100, 116, 139);
+      doc.setTextColor(71, 85, 105);
       confidentialityLines.forEach((line) => {
-        doc.text(line, marginX, cursorY);
-        cursorY += noteLineHeight;
+        doc.text(line, confidentialityContentLeft, noteCursorY);
+        noteCursorY += noteLineHeight;
       });
       doc.setTextColor(30, 41, 59);
 
-      cursorY += bodyLineHeight;
+      cursorY = confidentialityBoxTop + confidentialityBoxHeight + bodyLineHeight;
       ensureSpace(detailHeadingLineHeight + bodyLineHeight);
       doc.setFontSize(13);
       doc.text("Szczegóły dokumentów", marginX, cursorY);
@@ -806,7 +882,7 @@ export default function ArchivePage() {
 
         doc.setFillColor(255, 255, 255);
         doc.roundedRect(blockLeft, blockTop, contentWidth, totalBlockHeight, 12, 12, "F");
-        doc.setDrawColor(214, 211, 209);
+        doc.setDrawColor(203, 213, 225);
         doc.setLineWidth(0.8);
         doc.roundedRect(blockLeft, blockTop, contentWidth, totalBlockHeight, 12, 12, "S");
 
