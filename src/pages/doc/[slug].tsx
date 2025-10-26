@@ -22,13 +22,21 @@ import {
   orderBy,
   doc,
   getDoc,
+  runTransaction,
 } from "firebase/firestore";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { useSessionActivity } from "@/components/ActivityLogger";
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
 
-type Person = { id: string; fullName?: string; login?: string };
+type Person = {
+  id: string;
+  fullName?: string;
+  login?: string;
+  rank?: string;
+  badgeNumber?: string | number;
+  badge?: string | number;
+};
 
 type FieldRender = {
   id: string;
@@ -55,6 +63,108 @@ const FieldBlock = forwardRef<HTMLDivElement, { field: FieldRender }>(({ field }
 });
 
 FieldBlock.displayName = "FieldBlock";
+
+const DOCUMENT_COUNTERS_COLLECTION = "documentCounters";
+
+const waitForNextFrame = () =>
+  new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
+const formatDocumentDate = (value: string | undefined): string => {
+  if (!value) return "—";
+  const trimmed = value.trim();
+  if (!trimmed) return "—";
+  const parts = trimmed.split("-");
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    if (year && month && day) {
+      return `${day}/${month}/${year}`;
+    }
+  }
+  return trimmed;
+};
+
+type WniosekTextInput = {
+  signature: string;
+  date: string;
+  citizenName: string;
+  cid: string;
+  articleName: string;
+  eventDate: string;
+  eventLocation: string;
+  description: string;
+  attachments: string;
+  authorRank: string;
+  authorName: string;
+  authorBadge: string;
+};
+
+const buildWniosekTextLines = (input: WniosekTextInput): string[] => {
+  const citizenName = input.citizenName.trim() || "—";
+  const cid = input.cid.trim() || "—";
+  const articleName = input.articleName.trim() || "—";
+  const eventLocation = input.eventLocation.trim() || "—";
+  const signature = input.signature.trim() || "—";
+  const formattedDate = formatDocumentDate(input.date);
+  const formattedEventDate = formatDocumentDate(input.eventDate);
+
+  const badgeValue = input.authorBadge.trim();
+  const rankValue = input.authorRank.trim();
+  const nameValue = input.authorName.trim();
+  const baseOfficerName = [rankValue, nameValue].filter(Boolean).join(" ").trim();
+  const officerLineBase = baseOfficerName || "—";
+  const officerLine = badgeValue
+    ? `${baseOfficerName ? baseOfficerName : "—"} (Odznaka ${badgeValue})`
+    : officerLineBase;
+  const closingOfficerLine = baseOfficerName || "—";
+
+  const descriptionLines = input.description
+    ? input.description
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+    : [];
+  if (!descriptionLines.length) {
+    descriptionLines.push("—");
+  }
+
+  const attachmentsLines = input.attachments
+    ? input.attachments
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+    : [];
+  if (!attachmentsLines.length) {
+    attachmentsLines.push("—");
+  }
+
+  return [
+    "Wniosek o wszczęcie postępowania przygotowawczego",
+    `Sygnatura: ${signature}`,
+    `Data: ${formattedDate}`,
+    "Jednostka: Los Santos Police Department",
+    `Funkcjonariusz sporządzający: ${officerLine}`,
+    "",
+    "Na podstawie przeprowadzonych czynności służbowych oraz zgromadzonego materiału dowodowego, Los Santos Police Department składa niniejszy wniosek do Prokuratury Los Santos o wszczęcie postępowania przygotowawczego wobec:",
+    citizenName,
+    `CID: ${cid}`,
+    "",
+    `w związku z uzasadnionym podejrzeniem popełnienia czynu zabronionego określonego w ${articleName}.`,
+    "",
+    `W toku prowadzonych czynności ustalono, że w dniu ${formattedEventDate} na terenie ${eventLocation} ${citizenName} dopuścił/a się czynu polegającego na:`,
+    ...descriptionLines,
+    "Zgromadzony materiał dowodowy wskazuje na zasadność wszczęcia postępowania przygotowawczego w przedmiotowej sprawie.",
+    "",
+    "W związku z powyższym, Los Santos Police Department wnosi o podjęcie przez Prokuraturę Los Santos dalszych czynności procesowych zmierzających do wyjaśnienia wszystkich okoliczności zdarzenia oraz pociągnięcia sprawcy do odpowiedzialności karnej.",
+    "",
+    "Do wniosku załączono:",
+    ...attachmentsLines,
+    "",
+    "Z poważaniem,",
+    closingOfficerLine,
+    "Los Santos Police Department",
+    "Wydział ds. wykroczeń",
+  ];
+};
 
 function findTemplate(slug: string | string[] | undefined): Template | undefined {
   if (!slug || typeof slug !== "string") return undefined;
@@ -86,6 +196,19 @@ export default function DocPage() {
   const [profiles, setProfiles] = useState<Person[]>([]);
   const [currentUid, setCurrentUid] = useState<string>("");
   const [selectedUids, setSelectedUids] = useState<string[]>([]); // zawsze zawiera currentUid
+  const [signature, setSignature] = useState<string>("");
+
+  const authorDetails = useMemo(() => {
+    const profile = profiles.find((p) => p.id === currentUid);
+    const fullName = (profile?.fullName || "").trim();
+    const login = (profile?.login || "").trim();
+    const rank = typeof profile?.rank === "string" ? profile.rank.trim() : "";
+    const rawBadge = profile?.badgeNumber ?? profile?.badge;
+    const badge = rawBadge != null ? String(rawBadge).trim() : "";
+    return { fullName, login, rank, badge };
+  }, [profiles, currentUid]);
+
+  const authorDisplayName = authorDetails.fullName || authorDetails.login || currentUid || "";
 
   const uidToName = (uid: string) => {
     const p = profiles.find((x) => x.id === uid);
@@ -168,11 +291,40 @@ export default function DocPage() {
 
   const fieldsSignature = useMemo(() => previewFields.map((f) => `${f.id}:${f.signature}`).join("|"), [previewFields]);
 
+  const isWniosekTemplate = template?.slug === "wniosek-o-ukaranie";
+
+  const wniosekContentInput = useMemo(() => {
+    if (!isWniosekTemplate) return null;
+    return {
+      signature: signature,
+      date: values["data"] || "",
+      citizenName: values["obywatel"] || "",
+      cid: values["cid"] || "",
+      articleName: values["artykul"] || "",
+      eventDate: values["dataZdarzenia"] || "",
+      eventLocation: values["miejsceZdarzenia"] || "",
+      description: values["opisCzynu"] || "",
+      attachments: values["zalaczniki"] || "",
+      authorRank: authorDetails.rank,
+      authorName: authorDisplayName,
+      authorBadge: authorDetails.badge,
+    } as WniosekTextInput;
+  }, [authorDetails, authorDisplayName, isWniosekTemplate, signature, values]);
+
+  const wniosekPreviewLines = useMemo(
+    () => (wniosekContentInput ? buildWniosekTextLines(wniosekContentInput) : []),
+    [wniosekContentInput]
+  );
+
   const [pages, setPages] = useState<FieldRender[][]>(() => [previewFields]);
 
   useEffect(() => {
     setPages([previewFields]);
-  }, [fieldsSignature]);
+  }, [fieldsSignature, previewFields]);
+
+  useEffect(() => {
+    setSignature("");
+  }, [template?.slug]);
 
   pageRefs.current = pageRefs.current.slice(0, pages.length);
   measurementRefs.current = measurementRefs.current.slice(0, previewFields.length);
@@ -193,9 +345,19 @@ export default function DocPage() {
     if (width && width !== contentWidth) {
       setContentWidth(width);
     }
-  }, [pages.length, fieldsSignature]);
+  }, [pages.length, fieldsSignature, contentHeight, contentWidth]);
 
   useLayoutEffect(() => {
+    if (isWniosekTemplate) {
+      setPages((prev) => {
+        if (prev.length === 1 && prev[0] === previewFields) {
+          return prev;
+        }
+        return [previewFields];
+      });
+      return;
+    }
+
     if (!contentHeight) return;
     const heights = previewFields.map((_, idx) => measurementRefs.current[idx]?.offsetHeight ?? 0);
     if (!heights.some((height) => height > 0)) return;
@@ -233,9 +395,48 @@ export default function DocPage() {
     if (!isSame) {
       setPages(newPages);
     }
-  }, [contentHeight, previewFields, pages, fieldsSignature]);
+  }, [contentHeight, previewFields, pages, fieldsSignature, isWniosekTemplate]);
 
   const measurementWidth = contentWidth || 760;
+
+  const ensureSignature = useCallback(async (): Promise<string> => {
+    if (!template?.signaturePrefix) {
+      return "";
+    }
+    if (signature) {
+      return signature;
+    }
+    const now = new Date();
+    const year = now.getFullYear().toString();
+    const counterRef = doc(db, DOCUMENT_COUNTERS_COLLECTION, template.slug);
+    const nextNumber = await runTransaction(db, async (tx) => {
+      const snapshot = await tx.get(counterRef);
+      const data = snapshot.exists() ? (snapshot.data() as Record<string, unknown>) : {};
+      const rawValue = data?.[year];
+      let currentValue = 0;
+      if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+        currentValue = rawValue;
+      } else if (typeof rawValue === "string") {
+        const parsed = Number.parseInt(rawValue, 10);
+        if (Number.isFinite(parsed)) {
+          currentValue = parsed;
+        }
+      }
+      const nextValue = currentValue + 1;
+      tx.set(counterRef, { [year]: nextValue }, { merge: true });
+      return nextValue;
+    });
+    const formattedNumber = nextNumber.toString().padStart(4, "0");
+    const newSignature = `${template.signaturePrefix}/${year}/${formattedNumber}`;
+    setSignature(newSignature);
+    return newSignature;
+  }, [signature, template]);
+
+  useEffect(() => {
+    if (!template?.signaturePrefix) return;
+    if (signature) return;
+    void ensureSignature();
+  }, [ensureSignature, signature, template?.signaturePrefix]);
   
   useEffect(() => {
     (async () => {
@@ -383,6 +584,10 @@ export default function DocPage() {
     }
     setSending(true);
     try {
+      const docSignature = await ensureSignature();
+      const signatureForText = docSignature || signature || "";
+      await waitForNextFrame();
+
       const nodes = pageRefs.current.filter((node): node is HTMLDivElement => !!node);
       if (!nodes.length) throw new Error("Brak podglądu do zrzutu.");
 
@@ -440,12 +645,12 @@ export default function DocPage() {
           .join(" ") ||
         (dossierId || "");
 
-      const fieldLinesForText = previewFields.flatMap((field) => {
+      let fieldLinesForText = previewFields.flatMap((field) => {
         const base = `${field.label}: ${field.textValue || "—"}`;
         return field.note ? [base, `  ${field.note}`] : [base];
       });
 
-      const textPagesRaw = pages.map((pageFields) =>
+      const defaultTextPagesRaw = pages.map((pageFields) =>
         pageFields
           .flatMap((field) => {
             const base = `${field.label}: ${field.textValue || "—"}`;
@@ -453,10 +658,30 @@ export default function DocPage() {
           })
           .join("\n")
       );
-      const textPages = textPagesRaw.filter((page) => page.trim().length > 0);
+      let textPages = defaultTextPagesRaw.filter((page) => page.trim().length > 0);
+
+      if (isWniosekTemplate) {
+        const wniosekLinesForStorage = buildWniosekTextLines({
+          signature: signatureForText,
+          date: values["data"] || "",
+          citizenName: values["obywatel"] || "",
+          cid: values["cid"] || "",
+          articleName: values["artykul"] || "",
+          eventDate: values["dataZdarzenia"] || "",
+          eventLocation: values["miejsceZdarzenia"] || "",
+          description: values["opisCzynu"] || "",
+          attachments: values["zalaczniki"] || "",
+          authorRank: authorDetails.rank,
+          authorName: authorDisplayName,
+          authorBadge: authorDetails.badge,
+        });
+        fieldLinesForText = wniosekLinesForStorage;
+        textPages = [wniosekLinesForStorage.join("\n")];
+      }
 
       const documentTextLines = [
         `Dokument: ${template.name}`,
+        `Sygnatura: ${signatureForText || "—"}`,
         `Funkcjonariusze: ${officerText}`,
         dossierId ? `Powiązana teczka: ${dossierLabel}` : null,
         vehicleFolderId
@@ -471,6 +696,7 @@ export default function DocPage() {
       const valuesOut: Record<string, any> = {
         ...values,
         funkcjonariusze: officerText,
+        signature: signatureForText,
       };
       if (requiresDossier && nextPayoutDate) {
         valuesOut["dni"] = nextPayoutDate;
@@ -502,6 +728,7 @@ export default function DocPage() {
       if (dossierId) {
         const dossierTextLines = [
           `Dokument: ${template.name}`,
+          `Sygnatura: ${signatureForText || "—"}`,
           `Autor: ${userLogin}`,
           "Treść:",
           ...fieldLinesForText,
@@ -521,6 +748,7 @@ export default function DocPage() {
       if (requiresVehicleFolder && vehicleFolderId) {
         const noteLines: string[] = [
           `Dokument: ${template.name}`,
+          `Sygnatura: ${signatureForText || "—"}`,
           `Autor: ${userLogin}`,
           `Link do archiwum: ${primaryImage.url}`,
         ];
@@ -813,8 +1041,14 @@ export default function DocPage() {
                   </div>
                   <hr className="border-beige-300 mb-4" />
 
+                  {pageIndex === 0 && template.signaturePrefix && !isWniosekTemplate && (
+                    <div className="mb-3 text-[12px]">
+                      <span className="font-semibold">Sygnatura:</span> {signature || "—"}
+                    </div>
+                  )}
+
                   <div className="mb-4 text-[12px]">
-                    <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ")}
+                    <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ") || "—"}
                   </div>
 
                   {requiresVehicleFolder && (
@@ -833,14 +1067,42 @@ export default function DocPage() {
                     </div>
                   )}
                   
-              <div
-                    className="space-y-3 text-[12px] leading-6 doc-fields"
-                    ref={pageIndex === 0 ? setFirstPageFieldsRef : undefined}
-                  >
-                    {pageFields.map((field, fieldIndex) => (
-                      <FieldBlock key={`${pageIndex}-${field.id}-${fieldIndex}`} field={field} />
-                    ))}
-                  </div>
+                  {isWniosekTemplate ? (
+                    <div
+                      className="space-y-3 text-[12px] leading-6 doc-fields"
+                      ref={pageIndex === 0 ? setFirstPageFieldsRef : undefined}
+                    >
+                      {pageIndex === 0
+                        ? wniosekPreviewLines.map((line, idx) => {
+                            const key = `wniosek-line-${idx}`;
+                            if (!line.trim()) {
+                              return <div key={key} className="h-3" />;
+                            }
+                            if (idx === 0) {
+                              return (
+                                <div key={key} className="text-[14px] font-semibold uppercase tracking-wide">
+                                  {line}
+                                </div>
+                              );
+                            }
+                            return (
+                              <p key={key} className="whitespace-pre-wrap">
+                                {line}
+                              </p>
+                            );
+                          })
+                        : null}
+                    </div>
+                  ) : (
+                    <div
+                      className="space-y-3 text-[12px] leading-6 doc-fields"
+                      ref={pageIndex === 0 ? setFirstPageFieldsRef : undefined}
+                    >
+                      {pageFields.map((field, fieldIndex) => (
+                        <FieldBlock key={`${pageIndex}-${field.id}-${fieldIndex}`} field={field} />
+                      ))}
+                    </div>
+                  )}
 
                   <div className="mt-8 text-sm text-gray-600">
                     Wygenerowano w panelu LSPD • {new Date().toLocaleString()} • Strona {pageIndex + 1}/{pages.length}
