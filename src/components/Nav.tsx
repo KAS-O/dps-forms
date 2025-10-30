@@ -28,10 +28,12 @@ export default function Nav() {
       tone: "danger",
     });
     if (!ok) return;
-    await logLogout("logout")
+    await logLogout("logout");
     await signOut(auth);
   };
 
+  const linkClassName =
+    "px-3 py-1 rounded-full border border-white/15 bg-white/5 text-beige-50/90 font-medium tracking-tight transition-colors hover:bg-white/12 hover:border-white/40 hover:text-white";
 
   return (
     <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
@@ -43,23 +45,35 @@ export default function Nav() {
           </span>
         </div>
 
-        <div className="flex items-center gap-4 text-sm">
-          <Link href="/dashboard" className="hover:text-beige-800 transition-colors">Dokumenty</Link>
-          <Link href="/dossiers" className="hover:text-beige-800 transition-colors">Teczki</Link>
-          <Link href="/criminal-groups" className="hover:text-beige-800 transition-colors">Grupy przestępcze</Link>
-          <Link href="/vehicle-archive" className="hover:text-beige-800 transition-colors">Archiwum pojazdów</Link>
+        <div className="flex items-center gap-3 text-sm">
+          <Link href="/dashboard" className={linkClassName}>
+            Dokumenty
+          </Link>
+          <Link href="/dossiers" className={linkClassName}>
+            Teczki
+          </Link>
+          <Link href="/criminal-groups" className={linkClassName}>
+            Grupy przestępcze
+          </Link>
+          <Link href="/vehicle-archive" className={linkClassName}>
+            Archiwum pojazdów
+          </Link>
           {can.seeArchive(role) && (
-            <Link href="/archive" className="hover:text-beige-800 transition-colors">Archiwum</Link>
+            <Link href="/archive" className={linkClassName}>
+              Archiwum
+            </Link>
           )}
           {role === "director" && (
-               <Link href="/admin" className="hover:text-beige-800 transition-colors">Panel zarządu</Link>
+            <Link href="/admin" className={linkClassName}>
+              Panel zarządu
+            </Link>
           )}
           <span className="ml-2 px-2 py-1 rounded bg-white/10 text-beige-900">
             {fullName || "—"}{role ? ` • ${roleLabel}` : ""}
           </span>
           <button
             onClick={logout}
-           className="btn h-9 px-5 text-xs font-semibold"
+            className="btn h-9 px-5 text-xs font-semibold"
           >
             Wyloguj
           </button>

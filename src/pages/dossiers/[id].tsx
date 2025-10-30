@@ -78,15 +78,26 @@ const RECORD_LABELS: Record<string, string> = {
 };
 
 const RECORD_COLORS: Record<string, string> = {
-  note: "#7c3aed",
-  weapon: "#ef4444",
-  drug: "#10b981",
-  explosive: "#f97316",
-  member: "#6366f1",
-  vehicle: "#0ea5e9",
+  note: "#6366f1",
+  weapon: "#f97316",
+  drug: "#22c55e",
+  explosive: "#ef4444",
+  member: "#14b8a6",
+  vehicle: "#a855f7",
 };
 
 const CONTROLLED_COLOR = "#fb923c";
+
+const CRIME_USAGE_OPTIONS = [
+  { value: "tak", label: "Tak — broń została użyta w przestępstwie" },
+  { value: "nie", label: "Nie — broń nie została użyta w przestępstwie" },
+  { value: "brak informacji", label: "Brak informacji o wykorzystaniu" },
+];
+
+function describeWeaponCrimeUsage(value: string | undefined): string {
+  const option = CRIME_USAGE_OPTIONS.find((opt) => opt.value === value);
+  return option ? option.label : value || "—";
+}
 
 const ACTIVE_FORM_TITLES: Record<Exclude<ActiveFormType, null>, string> = {
   note: "Dodaj notatkę",
@@ -225,6 +236,7 @@ export default function DossierPage() {
     time: "",
     purchasePrice: "",
     blackMarketValue: "",
+    controlledTransaction: false,
     files: [] as File[],
   });
   const [weaponSaving, setWeaponSaving] = useState(false);
@@ -440,6 +452,7 @@ export default function DossierPage() {
           time: weaponForm.time,
           purchasePrice: weaponForm.purchasePrice,
           blackMarketValue: weaponForm.blackMarketValue,
+          controlledTransaction: weaponForm.controlledTransaction,
           attachments,
           createdAt: serverTimestamp(),
           author: auth.currentUser?.email || "",
@@ -456,6 +469,7 @@ export default function DossierPage() {
         time: "",
         purchasePrice: "",
         blackMarketValue: "",
+        controlledTransaction: false,
         files: [],
       });
       setWeaponFileKey((k) => k + 1);
@@ -757,15 +771,26 @@ export default function DossierPage() {
                 value={weaponForm.source}
                 onChange={(e) => setWeaponForm((prev) => ({ ...prev, source: e.target.value }))}
               />
-              <select
-                className="input"
-                value={weaponForm.crimeUsage}
-                onChange={(e) => setWeaponForm((prev) => ({ ...prev, crimeUsage: e.target.value }))}
-              >
-                <option value="tak">Tak</option>
-                <option value="nie">Nie</option>
-                <option value="brak informacji">Brak informacji</option>
-              </select>
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-semibold text-white/80" htmlFor="weapon-crime-usage">
+                  Wykorzystanie w przestępstwie
+                </label>
+                <select
+                  id="weapon-crime-usage"
+                  className="input"
+                  value={weaponForm.crimeUsage}
+                  onChange={(e) => setWeaponForm((prev) => ({ ...prev, crimeUsage: e.target.value }))}
+                >
+                  {CRIME_USAGE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-white/60">
+                  Określ, czy zabezpieczona broń została wykorzystana do popełnienia przestępstwa lub przygotowań.
+                </p>
+              </div>
               <input
                 type="date"
                 className="input"
@@ -791,6 +816,25 @@ export default function DossierPage() {
                 onChange={(e) => setWeaponForm((prev) => ({ ...prev, blackMarketValue: e.target.value }))}
               />
             </div>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className={`btn ${weaponForm.controlledTransaction ? "bg-orange-500 text-white" : ""}`}
+                  onClick={() =>
+                    setWeaponForm((prev) => ({
+                      ...prev,
+                      controlledTransaction: !prev.controlledTransaction,
+                    }))
+                  }
+                >
+                  {weaponForm.controlledTransaction ? "Transakcja kontrolowana ✓" : "Transakcja kontrolowana"}
+                </button>
+                <span className="text-xs text-white/60">
+                  Zaznacz, jeśli zabezpieczenie odbyło się w ramach kontrolowanego zakupu lub operacji.
+                </span>
+              </div>
+            </div>
             <input
               key={weaponFileKey}
               type="file"
@@ -814,6 +858,7 @@ export default function DossierPage() {
                     time: "",
                     purchasePrice: "",
                     blackMarketValue: "",
+                    controlledTransaction: false,
                     files: [],
                   });
                   setWeaponFileKey((k) => k + 1);
@@ -1311,6 +1356,15 @@ export default function DossierPage() {
     return Array.from(unique.values());
   }, [records]);
 
+  const timelineRecords = useMemo(
+    () =>
+      records.filter((record) => {
+        const type = record.type || "note";
+        return type !== "member" && type !== "vehicle";
+      }),
+    [records]
+  );
+
   const numberFormatter = useMemo(() => new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 2 }), []);
 
   const summaryStats = useMemo(() => {
@@ -1379,7 +1433,7 @@ export default function DossierPage() {
       {
         key: "records",
         label: "Zarchiwizowane wpisy",
-        value: numberFormatter.format(records.length),
+        value: numberFormatter.format(timelineRecords.length),
         icon: "🗂️",
         accent: "#818cf8",
       },
@@ -1388,7 +1442,7 @@ export default function DossierPage() {
       numberFormatter,
       organizationMembers.length,
       organizationVehicles.length,
-      records.length,
+      timelineRecords.length,
       summaryStats.blackMarket,
       summaryStats.bombs,
       summaryStats.drugs,
@@ -1448,10 +1502,15 @@ export default function DossierPage() {
             <div>Model broni: <strong>{record.weaponModel || "—"}</strong></div>
             <div>Numery seryjne: <strong>{record.serialNumbers || "—"}</strong></div>
             <div>Źródło pochodzenia: {record.source || "—"}</div>
-            <div>Popełniono przestępstwo: {record.crimeUsage || "—"}</div>
+            <div>Wykorzystanie w przestępstwie: {describeWeaponCrimeUsage(record.crimeUsage)}</div>
             <div>Data: {record.date || "—"} • Godzina: {record.time || "—"}</div>
             <div>Cena kupna: {record.purchasePrice || "—"}</div>
             <div>Wartość czarnorynkowa: {record.blackMarketValue || "—"}</div>
+            {record.controlledTransaction ? (
+              <span className="inline-flex mt-1 px-2 py-1 rounded-full bg-orange-500/30 text-xs font-semibold text-orange-100">
+                Transakcja kontrolowana
+              </span>
+            ) : null}
           </div>
         );
       case "drug":
@@ -1893,7 +1952,7 @@ export default function DossierPage() {
             ) : null}
 
             <div className="grid gap-2">
-              {records.map((record) => {
+              {timelineRecords.map((record) => {
                 const createdAt = record.createdAt?.toDate?.();
                 const dateLabel = createdAt ? new Date(createdAt).toLocaleString() : new Date().toLocaleString();
                 const style = resolveRecordStyle(record);
@@ -1921,7 +1980,7 @@ export default function DossierPage() {
                   </div>
                 );
               })}
-              {records.length === 0 && <div className="card p-3">Brak wpisów.</div>}
+              {timelineRecords.length === 0 && <div className="card p-3">Brak wpisów.</div>}
             </div>
           </div>
 
