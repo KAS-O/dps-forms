@@ -175,109 +175,105 @@ export default function VehicleArchivePage() {
         <Nav />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_320px]">
           <div className="grid gap-6">
-            <div className="card p-4">
-              <div className="flex flex-wrap items-center gap-3 mb-4">
-                <h1 className="text-2xl font-bold">Archiwum pojazdów</h1>
-                <input
-                  className="input w-full md:w-64 ml-auto"
-                  placeholder="Szukaj po numerze, właścicielu, marce..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              {err && <div className="card bg-red-50 text-red-700 p-3 mb-3">{err}</div>}
-              {ok && <div className="card bg-green-50 text-green-700 p-3 mb-3">{ok}</div>}
-              <div className="grid gap-3">
-                {filtered.map((vehicle) => {
-                  const highlight = getVehicleHighlightStyle(vehicle.statuses);
-                  const activeFlags = highlight?.active || getActiveVehicleFlags(vehicle.statuses);
-                  return (
-                    <a
-                      key={vehicle.id}
-                      href={`/vehicle-archive/${vehicle.id}`}
-                      className={`card p-4 transition hover:shadow-xl ${highlight ? "text-white" : ""}`}
-                      style={highlight?.style || undefined}
-                    >
-                      <div className="flex flex-col gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="text-xl font-semibold">{vehicle.registration}</h2>
-                          <span className="text-sm opacity-80">{vehicle.brand}</span>
-                          <span className="text-sm opacity-80">Kolor: {vehicle.color}</span>
-                        </div>
-                        <div className="text-sm opacity-80">
-                          Właściciel: {vehicle.ownerName} • CID: {vehicle.ownerCid || "—"}
-                        </div>
-                        {activeFlags.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {activeFlags.map((flag) => (
-                              <span
-                                key={flag.key}
-                                className="px-2 py-1 text-xs font-semibold rounded-full bg-black/30 border border-white/40"
-                              >
-                                {flag.icon} {flag.label}
-                              </span>
-                            ))}
+            <div className="section-shell section-shell--vehicles">
+              <div className="section-shell__inner p-6 md:p-8 space-y-6">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                  <div className="space-y-1 flex-1">
+                    <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-100/80">
+                      🚓 Archiwum pojazdów
+                    </span>
+                    <h1 className="text-3xl font-bold bg-gradient-to-r from-emerald-200 via-white to-sky-200 bg-clip-text text-transparent">
+                      Pojazdy w ewidencji
+                    </h1>
+                    <p className="text-sm text-emerald-100/70 max-w-2xl">
+                      Odnajdź pojazd po numerze rejestracyjnym, właścicielu lub stanie flag, aby przejść do szczegółowej karty.
+                    </p>
+                  </div>
+                  <input
+                    className="input w-full md:w-72 bg-black/40 border-emerald-200/40 focus:border-emerald-100/70"
+                    placeholder="Szukaj po numerze, właścicielu, marce..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+                {err && <div className="rounded-2xl border border-red-400/40 bg-red-500/10 p-4 text-sm text-red-100">{err}</div>}
+                {ok && <div className="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-4 text-sm text-emerald-100">{ok}</div>}
+                <div className="grid gap-3">
+                  {filtered.map((vehicle) => {
+                    const highlight = getVehicleHighlightStyle(vehicle.statuses);
+                    const activeFlags = highlight?.active || getActiveVehicleFlags(vehicle.statuses);
+                    return (
+                      <a
+                        key={vehicle.id}
+                        href={`/vehicle-archive/${vehicle.id}`}
+                        className={`group relative overflow-hidden rounded-2xl border border-emerald-200/25 bg-gradient-to-br from-slate-950/80 via-slate-900/60 to-slate-900/40 p-5 transition-all duration-300 hover:border-emerald-200/55 hover:shadow-2xl ${highlight ? "text-white" : "text-emerald-50"}`}
+                        style={highlight?.style || undefined}
+                      >
+                        <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ background: "radial-gradient(circle at 80% -10%, rgba(56, 189, 248, 0.28), transparent 45%)" }} />
+                        <div className="relative space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-semibold text-lg flex items-center gap-2">
+                              <span className="text-xl">🚘</span> {vehicle.registration}
+                            </div>
+                            <span className="rounded-full border border-white/30 bg-white/10 px-3 py-0.5 text-xs font-semibold uppercase tracking-wide">
+                              karta pojazdu
+                            </span>
                           </div>
-                        )}
-                      </div>
-                      <div className="mt-3 flex justify-end">
-                        <button
-                          className="btn bg-red-700 text-white"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            void removeVehicle(vehicle.id, vehicle.registration);
-                          }}
-                          disabled={deletingId === vehicle.id}
-                        >
-                          {deletingId === vehicle.id ? "Usuwanie..." : "Usuń"}
-                        </button>
-                      </div>
-                    </a>
-                  );
-                })}
-                {filtered.length === 0 && <p>Brak pojazdów w archiwum.</p>}
+                          <div className="text-sm text-emerald-100/80">
+                            {vehicle.brand || "—"} • Kolor: {vehicle.color || "—"}
+                          </div>
+                          <div className="text-xs text-emerald-100/70">Właściciel: {vehicle.ownerName || "—"} • CID: {vehicle.ownerCid || "—"}</div>
+                          {activeFlags.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {activeFlags.map((flag) => (
+                                <span
+                                  key={flag.key}
+                                  className="px-2.5 py-1 text-[11px] font-semibold rounded-full border border-emerald-200/50 bg-black/40 backdrop-blur"
+                                >
+                                  {flag.icon} {flag.label}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </a>
+                    );
+                  })}
+                  {filtered.length === 0 && (
+                    <div className="rounded-2xl border border-emerald-200/20 bg-black/30 p-5 text-sm text-emerald-100/70">
+                      Brak pojazdów spełniających kryteria.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="card p-4">
-            <h2 className="font-semibold mb-3">Dodaj pojazd</h2>
-            <div className="grid gap-2">
-              <input
-                className="input"
-                placeholder="Numer rejestracyjny"
-                value={form.registration}
-                onChange={(e) => setForm((prev) => ({ ...prev, registration: e.target.value }))}
-              />
-              <input
-                className="input"
-                placeholder="Marka"
-                value={form.brand}
-                onChange={(e) => setForm((prev) => ({ ...prev, brand: e.target.value }))}
-              />
-              <input
-                className="input"
-                placeholder="Kolor"
-                value={form.color}
-                onChange={(e) => setForm((prev) => ({ ...prev, color: e.target.value }))}
-              />
-              <input
-                className="input"
-                placeholder="Imię i nazwisko właściciela"
-                value={form.ownerName}
-                onChange={(e) => setForm((prev) => ({ ...prev, ownerName: e.target.value }))}
-              />
-              <input
-                className="input"
-                placeholder="CID właściciela"
-                value={form.ownerCid}
-                onChange={(e) => setForm((prev) => ({ ...prev, ownerCid: e.target.value }))}
-              />
+            <div className="section-shell section-shell--vehicles">
+              <div className="section-shell__inner p-6 space-y-4">
+                <div className="space-y-1">
+                  <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-100/80">
+                    ➕ Nowy pojazd
+                  </span>
+                  <h2 className="text-xl font-semibold text-emerald-50">Dodaj pojazd</h2>
+                  <p className="text-xs text-emerald-100/70">Wprowadź wszystkie pola, aby zarejestrować nowy pojazd w archiwum.</p>
+                </div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <input className="input bg-black/40 border-emerald-200/40 focus:border-emerald-100/70" placeholder="Numer rejestracyjny" value={form.registration} onChange={(e) => setForm((prev) => ({ ...prev, registration: e.target.value }))} />
+                  <input className="input bg-black/40 border-emerald-200/40 focus:border-emerald-100/70" placeholder="Marka" value={form.brand} onChange={(e) => setForm((prev) => ({ ...prev, brand: e.target.value }))} />
+                  <input className="input bg-black/40 border-emerald-200/40 focus:border-emerald-100/70" placeholder="Kolor" value={form.color} onChange={(e) => setForm((prev) => ({ ...prev, color: e.target.value }))} />
+                  <input className="input bg-black/40 border-emerald-200/40 focus:border-emerald-100/70" placeholder="Imię i nazwisko właściciela" value={form.ownerName} onChange={(e) => setForm((prev) => ({ ...prev, ownerName: e.target.value }))} />
+                  <input className="input bg-black/40 border-emerald-200/40 focus:border-emerald-100/70" placeholder="CID właściciela" value={form.ownerCid} onChange={(e) => setForm((prev) => ({ ...prev, ownerCid: e.target.value }))} />
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button className="btn" onClick={createVehicle} disabled={creating}>
+                    {creating ? "Tworzenie..." : "Dodaj"}
+                  </button>
+                  <button className="btn" onClick={resetForm} type="button">
+                    Wyczyść
+                  </button>
+                </div>
+              </div>
             </div>
-            <button className="btn mt-4" onClick={createVehicle} disabled={creating}>
-              {creating ? "Tworzenie..." : "Utwórz teczkę"}
-            </button>
           </div>
           <AnnouncementSpotlight />
         </div>
