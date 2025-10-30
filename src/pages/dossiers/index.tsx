@@ -20,30 +20,10 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 
-const slugify = (value: string): string => {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[^a-z0-9]+/gi, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/-{2,}/g, "-")
-    || "grupa";
-};
-
 export default function Dossiers() {
   const [list, setList] = useState<any[]>([]);
   const [qtxt, setQ] = useState("");
   const [form, setForm] = useState({ first: "", last: "", cid: "" });
-  const [mode, setMode] = useState<"person" | "group">("person");
-  const [groupForm, setGroupForm] = useState({
-    name: "Ballas",
-    colorName: "Fioletowa",
-    colorHex: "#7c3aed",
-    organizationType: "Gang uliczny",
-    base: "Grove Street",
-    operations:
-      "Handel narkotykami, handel bronią, handel materiałami wybuchowymi, tworzenie materiałów wybuchowych, napady, wyłudzenia, porwania, strzelaniny, pranie pieniędzy",
-  });
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -60,23 +40,15 @@ export default function Dossiers() {
 
   const filtered = useMemo(() => {
     const l = qtxt.toLowerCase();
-    return list.filter((x) =>
-      (x.first || "").toLowerCase().includes(l) ||
-      (x.last || "").toLowerCase().includes(l) ||
-      (x.cid || "").toLowerCase().includes(l) ||
-      (x.title || "").toLowerCase().includes(l) ||
-      (x.group?.name || "").toLowerCase().includes(l)
-    );
+    return list
+      .filter((x) => x.category !== "criminal-group")
+      .filter((x) =>
+        (x.first || "").toLowerCase().includes(l) ||
+        (x.last || "").toLowerCase().includes(l) ||
+        (x.cid || "").toLowerCase().includes(l) ||
+        (x.title || "").toLowerCase().includes(l)
+      );
   }, [qtxt, list]);
-
-  const filteredGroups = useMemo(
-    () => filtered.filter((item) => item.category === "criminal-group"),
-    [filtered]
-  );
-  const filteredPeople = useMemo(
-    () => filtered.filter((item) => item.category !== "criminal-group"),
-    [filtered]
-  );
 
   const create = async () => {
     try {
@@ -84,53 +56,6 @@ export default function Dossiers() {
       setOk(null);
       setCreating(true);
       const user = auth.currentUser;
-
-      if (mode === "group") {
-        const name = groupForm.name.trim();
-        if (!name) {
-          setErr("Podaj nazwę grupy.");
-          return;
-        }
-        const dossierId = `group-${slugify(name)}`;
-        const dossierRef = doc(db, "dossiers", dossierId);
-        await runTransaction(db, async (tx) => {
-          const existing = await tx.get(dossierRef);
-          if (existing.exists()) {
-            throw new Error("Teczka tej grupy już istnieje.");
-          }
-          tx.set(dossierRef, {
-            title: `Organizacja ${name}`,
-            category: "criminal-group",
-            group: {
-              name,
-              colorName: groupForm.colorName.trim() || "",
-              colorHex: groupForm.colorHex.trim() || "#7c3aed",
-              organizationType: groupForm.organizationType.trim() || "",
-              base: groupForm.base.trim() || "",
-              operations: groupForm.operations.trim() || "",
-            },
-            createdAt: serverTimestamp(),
-            createdBy: user?.email || "",
-            createdByUid: user?.uid || "",
-          });
-        });
-        await addDoc(collection(db, "logs"), {
-          type: "dossier_create",
-          dossierId,
-          createdAt: serverTimestamp(),
-          ts: serverTimestamp(),
-          author: user?.email || "",
-          authorUid: user?.uid || "",
-          category: "criminal-group",
-          groupName: name,
-        });
-        setGroupForm((prev) => ({
-          ...prev,
-          name: "",
-        }));
-        setOk("Dodano nową grupę przestępczą.");
-        return;
-      }
 
       const first = form.first.trim();
       const last = form.last.trim();
@@ -183,7 +108,7 @@ export default function Dossiers() {
   };
 
   const remove = async (dossierId: string) => {
-   if (!isDirector) {
+    if (!isDirector) {
       await alert({
         title: "Brak uprawnień",
         message: "Tylko Director może usuwać teczki.",
@@ -241,40 +166,9 @@ export default function Dossiers() {
               {err && <div className="card p-3 bg-red-50 text-red-700 mb-3">{err}</div>}
               {ok && <div className="card p-3 bg-green-50 text-green-700 mb-3">{ok}</div>}
               <div className="grid gap-3">
-                {filteredGroups.length > 0 && (
-                  <div className="grid gap-2">
-                    <h2 className="text-sm uppercase tracking-wide text-beige-700">Grupy przestępcze</h2>
-                    {filteredGroups.map((group) => (
-                      <a
-                        key={group.id}
-                        href={`/dossiers/${group.id}`}
-                        className="card p-4 border-l-4 hover:shadow transition"
-                        style={{ borderColor: group.group?.colorHex || "#7c3aed" }}
-                        onClick={() => {
-                          if (!session) return;
-                          void logActivity({ type: "dossier_link_open", dossierId: group.id });
-                        }}
-                      >
-                        <div className="flex flex-col gap-1">
-                          <div className="text-lg font-semibold">{group.group?.name || group.title}</div>
-                          <div className="text-sm text-beige-700">
-                            Kolorystyka: {group.group?.colorName || "—"} • Rodzaj: {group.group?.organizationType || "—"}
-                          </div>
-                          {group.group?.base && (
-                            <div className="text-sm text-beige-700">Baza: {group.group.base}</div>
-                          )}
-                          {group.group?.operations && (
-                            <div className="text-sm text-beige-600">Działalność: {group.group.operations}</div>
-                          )}
-                        </div>
-                      </a>
-                    ))}
-                  </div>
-                )}
-
-                <div className="grid gap-2">
+              <div className="grid gap-2">
                   <h2 className="text-sm uppercase tracking-wide text-beige-700">Teczki osób</h2>
-                  {filteredPeople.map((d) => (
+                  {filtered.map((d) => (
                     <div
                       key={d.id}
                       className="card p-3 hover:shadow flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
@@ -305,57 +199,21 @@ export default function Dossiers() {
                       )}
                     </div>
                   ))}
-                  {filteredPeople.length === 0 && filteredGroups.length === 0 && <p>Brak teczek.</p>}
+                  {filtered.length === 0 && <p>Brak teczek.</p>}
                 </div>
               </div>
             </div>
-        
+
 
           <div className="card p-4">
               <h2 className="font-semibold mb-3">Załóż nową teczkę</h2>
-              <div className="flex gap-2 mb-3">
-                <button
-                  className={`btn ${mode === "person" ? "bg-blue-600 text-white" : ""}`}
-                  type="button"
-                  onClick={() => setMode("person")}
-                >
-                  Osoba
-                </button>
-                <button
-                  className={`btn ${mode === "group" ? "bg-purple-600 text-white" : ""}`}
-                  type="button"
-                  onClick={() => setMode("group")}
-                >
-                  Grupa przestępcza
-                </button>
-              </div>
-
-              {mode === "person" ? (
-                <div className="grid md:grid-cols-3 gap-2">
+              <div className="grid md:grid-cols-3 gap-2">
                   <input className="input" placeholder="Imię" value={form.first} onChange={e=>setForm({...form, first:e.target.value})}/>
                   <input className="input" placeholder="Nazwisko" value={form.last} onChange={e=>setForm({...form, last:e.target.value})}/>
                   <input className="input" placeholder="CID" value={form.cid} onChange={e=>setForm({...form, cid:e.target.value})}/>
                 </div>
-              ) : (
-                <div className="grid gap-2">
-                  <input className="input" placeholder="Nazwa grupy" value={groupForm.name} onChange={(e) => setGroupForm({ ...groupForm, name: e.target.value })} />
-                  <div className="grid md:grid-cols-2 gap-2">
-                    <input className="input" placeholder="Kolorystyka" value={groupForm.colorName} onChange={(e) => setGroupForm({ ...groupForm, colorName: e.target.value })} />
-                    <input className="input" placeholder="Kolor HEX" value={groupForm.colorHex} onChange={(e) => setGroupForm({ ...groupForm, colorHex: e.target.value })} />
-                    <input className="input" placeholder="Rodzaj organizacji" value={groupForm.organizationType} onChange={(e) => setGroupForm({ ...groupForm, organizationType: e.target.value })} />
-                    <input className="input" placeholder="Baza grupy" value={groupForm.base} onChange={(e) => setGroupForm({ ...groupForm, base: e.target.value })} />
-                  </div>
-                  <textarea
-                    className="input"
-                    placeholder="Zakres działalności"
-                    value={groupForm.operations}
-                    onChange={(e) => setGroupForm({ ...groupForm, operations: e.target.value })}
-                  />
-                </div>
-              )}
-
               <button className="btn mt-3" onClick={create} disabled={creating}>
-                {creating ? "Tworzenie..." : mode === "group" ? "Dodaj grupę" : "Utwórz"}
+                {creating ? "Tworzenie..." : "Utwórz"}
               </button>
             </div>
           </div>
