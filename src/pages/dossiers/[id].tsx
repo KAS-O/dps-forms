@@ -18,6 +18,7 @@ import {
   updateDoc,
   where,
   writeBatch,
+  type DocumentReference,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useProfile } from "@/hooks/useProfile";
@@ -49,7 +50,11 @@ type DossierInfo = {
   group?: GroupInfo | null;
 };
 
-type DossierRecord = Record<string, any> & { id: string };
+type DossierRecord = Record<string, any> & {
+  id: string;
+  linkedRecordPath?: string;
+  linkedVehicleNotePath?: string;
+};
 
 type VehicleOption = {
   id: string;
@@ -376,9 +381,9 @@ export default function DossierPage() {
   );
 
   const addRecordWithLog = useCallback(
-    async (payload: Record<string, any>, recordType: string) => {
-      if (!id) return;
-      await addDoc(collection(db, "dossiers", id, "records"), payload);
+    async (payload: Record<string, any>, recordType: string): Promise<DocumentReference | null> => {
+      if (!id) return null;
+      const ref = await addDoc(collection(db, "dossiers", id, "records"), payload);
       await addDoc(collection(db, "logs"), {
         type: "dossier_record_add",
         recordType,
@@ -387,6 +392,7 @@ export default function DossierPage() {
         authorUid: auth.currentUser?.uid || "",
         ts: serverTimestamp(),
       });
+      return ref;
     },
     [id]
   );
@@ -588,11 +594,12 @@ export default function DossierPage() {
       return false;
     }
     const rank = MEMBER_RANKS.find((r) => r.value === memberForm.rank) ?? MEMBER_RANKS[MEMBER_RANKS.length - 1];
+    const groupName = info.group?.name || title || "Organizacja przestępcza";
     try {
       setErr(null);
       setMemberSaving(true);
       const attachments = memberForm.profileImage ? await uploadAttachments([memberForm.profileImage], "members") : [];
-      await addRecordWithLog(
+      const recordRef = await addRecordWithLog(
         {
           type: "member",
           dossierId: memberForm.dossierId,
@@ -610,6 +617,42 @@ export default function DossierPage() {
         },
         "member"
       );
+      if (!recordRef) {
+        throw new Error("Nie udało się zapisać wpisu członka.");
+      }
+      try {
+        const noteLines = [
+          `Powiązano osobę z organizacją: ${groupName}.`,
+          memberForm.rank ? `Ranga w organizacji: ${rank.label}.` : null,
+          memberForm.traits ? `Cechy szczególne: ${memberForm.traits}.` : null,
+        ].filter(Boolean) as string[];
+        const linkedRef = await addDoc(collection(db, "dossiers", memberForm.dossierId, "records"), {
+          type: "note",
+          text: noteLines.join("\n"),
+          linkedCriminalGroupId: id,
+          linkedCriminalGroupRecordId: recordRef.id,
+          linkedCriminalGroupName: groupName,
+          linkedCriminalGroupRank: rank.label,
+          createdAt: serverTimestamp(),
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
+        });
+        await updateDoc(recordRef, {
+          linkedRecordPath: linkedRef.path,
+        });
+        await addDoc(collection(db, "logs"), {
+          type: "dossier_group_link_add",
+          dossierId: memberForm.dossierId,
+          criminalGroupId: id,
+          groupRecordId: recordRef.id,
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
+          ts: serverTimestamp(),
+        });
+      } catch (linkError: any) {
+        await deleteDoc(recordRef);
+        throw new Error(linkError?.message || "Nie udało się powiązać teczki członka z organizacją.");
+      }
       setMemberForm({
         dossierId: "",
         name: "",
@@ -627,7 +670,7 @@ export default function DossierPage() {
     } finally {
       setMemberSaving(false);
     }
-  }, [addRecordWithLog, id, memberForm, memberSaving, uploadAttachments]);
+  }, [addRecordWithLog, id, info.group?.name, memberForm, memberSaving, title, uploadAttachments]);
 
   const addVehicle = useCallback(async (): Promise<boolean> => {
     if (!id || vehicleSaving) return false;
@@ -640,10 +683,11 @@ export default function DossierPage() {
       setErr("Nie udało się odczytać danych pojazdu.");
       return false;
     }
+    const groupName = info.group?.name || title || "Organizacja przestępcza";
     try {
       setErr(null);
       setVehicleSaving(true);
-      await addRecordWithLog(
+      const recordRef = await addRecordWithLog(
         {
           type: "vehicle",
           vehicleId: vehicle.id,
@@ -658,6 +702,42 @@ export default function DossierPage() {
         },
         "vehicle"
       );
+      if (!recordRef) {
+        throw new Error("Nie udało się zapisać wpisu pojazdu.");
+      }
+      try {
+        const noteText = [
+          `Pojazd powiązano z organizacją ${groupName}.`,
+          vehicle.ownerName ? `Właściciel w bazie: ${vehicle.ownerName}${vehicle.ownerCid ? ` (CID: ${vehicle.ownerCid})` : ""}.` : null,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        const vehicleNoteRef = await addDoc(collection(db, "vehicleFolders", vehicle.id, "notes"), {
+          text: noteText,
+          linkedCriminalGroupId: id,
+          linkedCriminalGroupRecordId: recordRef.id,
+          linkedCriminalGroupName: groupName,
+          createdAt: serverTimestamp(),
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
+        });
+        await updateDoc(recordRef, {
+          linkedVehicleNotePath: vehicleNoteRef.path,
+        });
+        await addDoc(collection(db, "logs"), {
+          type: "vehicle_group_link_add",
+          vehicleId: vehicle.id,
+          dossierId: id,
+          criminalGroupId: id,
+          groupRecordId: recordRef.id,
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
+          ts: serverTimestamp(),
+        });
+      } catch (linkError: any) {
+        await deleteDoc(recordRef);
+        throw new Error(linkError?.message || "Nie udało się powiązać pojazdu z kartoteką organizacji.");
+      }
       setVehicleForm({ vehicleId: "" });
       return true;
     } catch (e: any) {
@@ -666,7 +746,7 @@ export default function DossierPage() {
     } finally {
       setVehicleSaving(false);
     }
-  }, [addRecordWithLog, id, vehicleForm.vehicleId, vehicleOptions, vehicleSaving]);
+  }, [addRecordWithLog, id, info.group?.name, title, vehicleForm.vehicleId, vehicleOptions, vehicleSaving]);
 
   const handleNoteModalSubmit = useCallback(async () => {
     const ok = await addNote();
@@ -1246,7 +1326,9 @@ export default function DossierPage() {
   );
 
   const deleteRecord = useCallback(
-    async (rid: string) => {
+    async (recordOrId: string | DossierRecord) => {
+      const record = typeof recordOrId === "string" ? records.find((r) => r.id === recordOrId) : recordOrId;
+      const rid = typeof recordOrId === "string" ? recordOrId : recordOrId.id;
       const ok = await confirm({
         title: "Usuń wpis",
         message: "Czy na pewno chcesz usunąć ten wpis z teczki?",
@@ -1262,8 +1344,27 @@ export default function DossierPage() {
         author: auth.currentUser?.email || "",
         ts: serverTimestamp(),
       });
+      const linkedPaths = [record?.linkedRecordPath, record?.linkedVehicleNotePath].filter(
+        (p): p is string => typeof p === "string" && p.length > 0
+      );
+      for (const path of linkedPaths) {
+        const segments = path.split("/").filter(Boolean);
+        if (segments.length >= 2) {
+          await deleteDoc(doc(db, ...(segments as [string, ...string[]])));
+          await addDoc(collection(db, "logs"), {
+            type: path.includes("vehicleFolders") ? "vehicle_group_link_remove" : "dossier_group_link_remove",
+            dossierId: path.includes("vehicleFolders") ? undefined : record?.dossierId,
+            vehicleId: path.includes("vehicleFolders") ? segments[1] : undefined,
+            criminalGroupId: id,
+            recordId: rid,
+            author: auth.currentUser?.email || "",
+            authorUid: auth.currentUser?.uid || "",
+            ts: serverTimestamp(),
+          });
+        }
+      }
     },
-    [confirm, id]
+    [confirm, id, records]
   );
 
   const deleteDossier = useCallback(async () => {
@@ -1309,16 +1410,16 @@ export default function DossierPage() {
   }, [info, isCriminalGroup, title]);
 
   const groupSummaryGradient = useMemo(
-    () => `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.55)}, rgba(8, 12, 28, 0.9))`,
+    () => `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.28)}, rgba(6, 10, 24, 0.94))`,
     [groupColorHex]
   );
-  const groupSummaryBorder = useMemo(() => withAlpha(groupColorHex, 0.6), [groupColorHex]);
+  const groupSummaryBorder = useMemo(() => withAlpha(groupColorHex, 0.45), [groupColorHex]);
   const groupSummaryShadow = useMemo(
-    () => `0 36px 90px -28px ${withAlpha(groupColorHex, 0.75)}`,
+    () => `0 28px 72px -30px ${withAlpha(groupColorHex, 0.6)}`,
     [groupColorHex]
   );
   const groupSummaryGlow = useMemo(
-    () => `radial-gradient(circle at 18% 20%, ${withAlpha(groupColorHex, 0.45)}, transparent 60%)`,
+    () => `radial-gradient(circle at 18% 20%, ${withAlpha(groupColorHex, 0.28)}, transparent 65%)`,
     [groupColorHex]
   );
 
@@ -1642,9 +1743,9 @@ export default function DossierPage() {
               style={
                 isCriminalGroup
                   ? {
-                      borderColor: withAlpha(groupColorHex, 0.65),
-                      boxShadow: `0 32px 80px -28px ${withAlpha(groupColorHex, 0.7)}`,
-                      background: `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.55)}, rgba(8, 14, 32, 0.92))`,
+                      borderColor: withAlpha(groupColorHex, 0.45),
+                      boxShadow: `0 28px 70px -30px ${withAlpha(groupColorHex, 0.6)}`,
+                      background: `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.3)}, rgba(6, 10, 24, 0.94))`,
                     }
                   : undefined
               }
@@ -1722,9 +1823,9 @@ export default function DossierPage() {
                       key={stat.key}
                       className="stat-card"
                       style={{
-                        borderColor: `${stat.accent}66`,
-                        background: `linear-gradient(140deg, ${stat.accent}22, rgba(5, 11, 24, 0.6))`,
-                        boxShadow: `0 26px 60px -28px ${stat.accent}aa`,
+                        borderColor: `${stat.accent}55`,
+                        background: `linear-gradient(140deg, ${stat.accent}1f, rgba(5, 10, 22, 0.82))`,
+                        boxShadow: `0 22px 52px -30px ${stat.accent}88`,
                       }}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -1759,15 +1860,24 @@ export default function DossierPage() {
                           key={member.id}
                           className="relative rounded-2xl border p-4 flex gap-4 overflow-hidden"
                           style={{
-                            borderColor: withAlpha(member.rankColor || groupColorHex, 0.6),
-                            background: `linear-gradient(140deg, ${withAlpha(member.rankColor || groupColorHex, 0.35)}, rgba(10, 14, 28, 0.75))`,
-                            boxShadow: `0 24px 60px -28px ${withAlpha(member.rankColor || groupColorHex, 0.8)}`,
+                            borderColor: withAlpha(member.rankColor || groupColorHex, 0.45),
+                            background: `linear-gradient(140deg, ${withAlpha(member.rankColor || groupColorHex, 0.25)}, rgba(6, 10, 22, 0.88))`,
+                            boxShadow: `0 22px 52px -30px ${withAlpha(member.rankColor || groupColorHex, 0.6)}`,
                           }}
                         >
+                          <button
+                            type="button"
+                            className="absolute top-3 right-3 inline-flex items-center rounded border border-white/25 bg-black/30 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/80 transition hover:bg-red-600/60 hover:text-white"
+                            onClick={() => {
+                              void deleteRecord(member);
+                            }}
+                          >
+                            Usuń
+                          </button>
                           <span
                             className="absolute inset-0 opacity-40"
                             style={{
-                              background: `radial-gradient(circle at 18% 20%, ${withAlpha(member.rankColor || groupColorHex, 0.4)}, transparent 65%)`,
+                              background: `radial-gradient(circle at 18% 20%, ${withAlpha(member.rankColor || groupColorHex, 0.28)}, transparent 70%)`,
                             }}
                           />
                           {member.profileImageUrl ? (
@@ -1828,15 +1938,26 @@ export default function DossierPage() {
                           href={vehicle.vehicleId ? `/vehicle-archive/${vehicle.vehicleId}` : undefined}
                           className="relative rounded-2xl border p-4 hover:-translate-y-0.5 transition"
                           style={{
-                            borderColor: withAlpha(groupColorHex, 0.6),
-                            background: `linear-gradient(140deg, ${withAlpha(groupColorHex, 0.35)}, rgba(8, 12, 24, 0.75))`,
-                            boxShadow: `0 24px 56px -26px ${withAlpha(groupColorHex, 0.75)}`,
+                            borderColor: withAlpha(groupColorHex, 0.45),
+                            background: `linear-gradient(140deg, ${withAlpha(groupColorHex, 0.25)}, rgba(6, 10, 22, 0.9))`,
+                            boxShadow: `0 22px 50px -28px ${withAlpha(groupColorHex, 0.6)}`,
                           }}
                           onClick={() => {
                             if (!vehicle.vehicleId || !session) return;
                             void logActivity({ type: "vehicle_from_dossier_open", dossierId: id, vehicleId: vehicle.vehicleId });
                           }}
                         >
+                          <button
+                            type="button"
+                            className="absolute top-3 right-3 inline-flex items-center rounded border border-white/25 bg-black/30 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/80 transition hover:bg-red-600/60 hover:text-white"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void deleteRecord(vehicle);
+                            }}
+                          >
+                            Usuń
+                          </button>
                           <div className="font-semibold text-lg text-white flex items-center gap-2">
                             <span aria-hidden>🚗</span>
                             {vehicle.registration || "Pojazd"}

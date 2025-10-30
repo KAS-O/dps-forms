@@ -75,7 +75,7 @@ export default function Nav() {
 
   return (
     <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
-      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+      <div className="max-w-6xl mx-auto px-4 py-3 lg:py-0 lg:h-14 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-3">
           <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />
           <span className="font-semibold tracking-wide text-beige-900/90">
@@ -83,47 +83,51 @@ export default function Nav() {
           </span>
         </div>
 
-        <div className="flex items-center gap-3 text-sm">
-          {NAV_LINKS.map((link) => {
-            const isActive = router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
-            return (
+        <div className="flex flex-col items-end gap-3 text-sm md:flex-row md:flex-wrap md:items-center md:justify-end md:gap-4">
+          <div className="flex flex-wrap justify-end gap-2 md:gap-3 max-w-full">
+            {NAV_LINKS.map((link) => {
+              const isActive = router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`nav-pill${isActive ? " nav-pill--active" : ""}`}
+                  style={createNavStyle(link.color, isActive)}
+                >
+                  <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
+                  {link.label}
+                </Link>
+              );
+            })}
+            {can.seeArchive(role) && (
               <Link
-                key={link.href}
-                href={link.href}
-                className={`nav-pill${isActive ? " nav-pill--active" : ""}`}
-                style={createNavStyle(link.color, isActive)}
+                href="/archive"
+                className={`nav-pill${archiveActive ? " nav-pill--active" : ""}`}
+                style={createNavStyle("#fbbf24", archiveActive)}
               >
-                <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
-                {link.label}
+                <span className="nav-pill__dot" style={{ background: "#fbbf24" }} aria-hidden />
+                Archiwum
               </Link>
-            );
-          })}
-          {can.seeArchive(role) && (
-            <Link
-              href="/archive"
-              className={`nav-pill${archiveActive ? " nav-pill--active" : ""}`}
-              style={createNavStyle("#fbbf24", archiveActive)}
-            >
-              <span className="nav-pill__dot" style={{ background: "#fbbf24" }} aria-hidden />
-              Archiwum
-            </Link>
-          )}
-          {role === "director" && (
-            <Link
-              href="/admin"
-              className={`nav-pill${adminActive ? " nav-pill--active" : ""}`}
-              style={{ ...createNavStyle("#eab308", adminActive), color: "#fefce8" }}
-            >
-              <span className="nav-pill__dot" style={{ background: "#eab308" }} aria-hidden />
-              Panel zarządu
-            </Link>
-          )}
-          <span className="ml-2 px-2 py-1 rounded bg-white/10 text-beige-900">
-            {fullName || "—"}{role ? ` • ${roleLabel}` : ""}
-          </span>
-          <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold">
-            Wyloguj
-          </button>
+            )}
+            {role === "director" && (
+              <Link
+                href="/admin"
+                className={`nav-pill${adminActive ? " nav-pill--active" : ""}`}
+                style={{ ...createNavStyle("#eab308", adminActive), color: "#fefce8" }}
+              >
+                <span className="nav-pill__dot" style={{ background: "#eab308" }} aria-hidden />
+                Panel zarządu
+              </Link>
+            )}
+          </div>
+          <div className="flex items-center gap-2 md:ml-2">
+            <span className="px-2 py-1 rounded bg-white/10 text-beige-900 whitespace-nowrap">
+              {fullName || "—"}{role ? ` • ${roleLabel}` : ""}
+            </span>
+            <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold">
+              Wyloguj
+            </button>
+          </div>
         </div>
       </div>
     </nav>
