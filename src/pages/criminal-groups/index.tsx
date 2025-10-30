@@ -38,6 +38,19 @@ const BALLAS_INFO = {
     "Handel narkotykami, handel bronią, handel materiałami wybuchowymi, tworzenie materiałów wybuchowych, napady, wyłudzenia, porwania, strzelaniny, pranie pieniędzy",
 };
 
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace("#", "");
+  const bigint = parseInt(clean.length === 3 ? clean.repeat(2) : clean, 16);
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function groupTileGradient(hex: string) {
+  return `linear-gradient(135deg, ${hexToRgba(hex, 0.4)}, rgba(9, 12, 24, 0.92))`;
+}
+
 export default function CriminalGroupsPage() {
   const [groups, setGroups] = useState<CriminalGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,64 +127,75 @@ export default function CriminalGroupsPage() {
         </Head>
         <Nav />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6">
-          <div className="card p-4 flex flex-col gap-3">
-            <div>
-              <h1 className="text-xl font-bold">Grupy przestępcze</h1>
-              <p className="text-sm text-beige-700">
-                Oddzielny rejestr grup przestępczych. Obecnie dostępna jest jedna organizacja — Ballas.
-              </p>
-            </div>
-            {error && <div className="card p-3 bg-red-50 text-red-700">{error}</div>}
-            {loading ? (
-              <p>Ładowanie...</p>
-            ) : sortedGroups.length ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                {sortedGroups.map((group) => {
-                  const color = group.group?.colorHex || "#7c3aed";
-                  return (
-                    <a
-                      key={group.id}
-                      href={`/criminal-groups/${group.id}`}
-                      className="rounded-2xl border border-white/10 bg-black/30 p-5 hover:border-white/30 transition"
-                      style={{ boxShadow: `0 10px 35px ${color}1a` }}
-                      onClick={() => {
-                        if (!session) return;
-                        void logActivity({ type: "criminal_group_open", dossierId: group.id });
-                      }}
-                    >
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-center gap-3">
-                          <span
-                            className="w-3 h-3 rounded-full border border-white/40"
-                            style={{ background: color }}
-                          />
-                          <h2 className="text-lg font-semibold">{group.group?.name || group.title}</h2>
-                        </div>
-                        <div className="text-sm text-beige-200/80">
-                          Kolorystyka: {group.group?.colorName || "—"}
-                        </div>
-                        <div className="text-sm text-beige-200/80">
-                          Rodzaj organizacji: {group.group?.organizationType || "—"}
-                        </div>
-                        <div className="text-sm text-beige-200/80">
-                          Baza: {group.group?.base || "—"}
-                        </div>
-                        {group.group?.operations ? (
-                          <div className="text-xs text-beige-100/70 leading-relaxed">
-                            Zakres działalności: {group.group.operations}
-                          </div>
-                        ) : null}
-                        <span className="inline-flex items-center justify-center mt-2 w-max px-3 py-1 rounded-full bg-white/10 text-xs uppercase tracking-wide">
-                          Otwórz kartę organizacji
-                        </span>
-                      </div>
-                    </a>
-                  );
-                })}
+          <div className="section-shell section-shell--criminal">
+            <div className="section-shell__inner p-6 md:p-8 space-y-6">
+              <div className="space-y-2">
+                <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.35em] text-rose-100/80">
+                  🕵️‍♂️ Rejestr organizacji
+                </span>
+                <h1 className="text-4xl font-black bg-gradient-to-r from-rose-200 via-white to-amber-200 bg-clip-text text-transparent drop-shadow-[0_0_25px_rgba(255,120,120,0.35)]">
+                  Grupy przestępcze
+                </h1>
+                <p className="text-sm text-rose-100/75 max-w-3xl leading-relaxed">
+                  Przegląd aktywnych kart organizacji. Sekcja oferuje szybki dostęp do najważniejszych informacji operacyjnych oraz statystyk z ostatnich działań.
+                </p>
               </div>
-            ) : (
-              <p>Brak zapisanych grup przestępczych.</p>
-            )}
+              {error && <div className="rounded-2xl border border-red-400/40 bg-red-500/10 p-4 text-sm text-red-100">{error}</div>}
+              {loading ? (
+                <p className="text-sm text-rose-100/70 animate-pulse">Ładowanie danych organizacji...</p>
+              ) : sortedGroups.length ? (
+                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                  {sortedGroups.map((group) => {
+                    const color = group.group?.colorHex || "#7c3aed";
+                    const glow = hexToRgba(color, 0.45);
+                    return (
+                      <a
+                        key={group.id}
+                        href={`/criminal-groups/${group.id}`}
+                        className="group relative overflow-hidden rounded-3xl border bg-black/30 p-5 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_25px_60px_rgba(0,0,0,0.45)]"
+                        style={{
+                          background: groupTileGradient(color),
+                          borderColor: hexToRgba(color, 0.5),
+                          boxShadow: `0 22px 45px ${hexToRgba(color, 0.25)}`,
+                        }}
+                        onClick={() => {
+                          if (!session) return;
+                          void logActivity({ type: "criminal_group_open", dossierId: group.id });
+                        }}
+                      >
+                        <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ background: `radial-gradient(circle at 20% -10%, ${glow}, transparent 55%)` }} />
+                        <div className="relative flex flex-col gap-3">
+                          <div className="flex items-center gap-3">
+                            <span
+                              className="h-3 w-3 rounded-full border border-white/50 shadow-[0_0_15px_rgba(255,255,255,0.45)]"
+                              style={{ background: color }}
+                            />
+                            <h2 className="text-xl font-semibold text-rose-50 flex items-center gap-2">
+                              <span className="text-2xl">🔥</span> {group.group?.name || group.title}
+                            </h2>
+                          </div>
+                          <div className="grid gap-1 text-sm text-rose-100/80">
+                            <div>🎨 Kolorystyka: <span className="font-semibold text-rose-50">{group.group?.colorName || "—"}</span></div>
+                            <div>🏷️ Rodzaj: <span className="font-semibold text-rose-50">{group.group?.organizationType || "—"}</span></div>
+                            <div>📍 Baza: <span className="font-semibold text-rose-50">{group.group?.base || "—"}</span></div>
+                          </div>
+                          {group.group?.operations ? (
+                            <div className="rounded-2xl border border-white/20 bg-black/30 p-3 text-xs text-rose-100/80 leading-relaxed">
+                              <span className="font-semibold text-rose-50">Zakres działalności:</span> {group.group.operations}
+                            </div>
+                          ) : null}
+                          <span className="inline-flex items-center justify-center w-max gap-2 rounded-full border border-white/40 bg-white/15 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-rose-50">
+                            Zobacz kartę organizacji →
+                          </span>
+                        </div>
+                      </a>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-rose-100/70">Brak zapisanych grup przestępczych.</p>
+              )}
+            </div>
           </div>
         </div>
       </>

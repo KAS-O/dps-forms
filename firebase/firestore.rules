@@ -41,6 +41,20 @@ service cloud.firestore {
       ]);
     }
 
+    function dossierCategoryAllowed(data) {
+      return !data.keys().hasAny(["category"]) ||
+        data.category == null ||
+        data.category in [
+          "", // legacy empty value
+          "person",
+          "case",
+          "vehicle",
+          "subject",
+          "archive",
+          "criminal-group"
+        ];
+    }
+
     // profile
     match /profiles/{uid} {
       allow read: if signedIn();
@@ -76,9 +90,9 @@ service cloud.firestore {
     // teczki + wpisy
     match /dossiers/{dossierId} {
       allow read: if signedIn();
-      allow create: if signedIn();
-      allow update: if (isDirector() || isChief()) ||
-        (signedIn() && resource.data.createdByUid == request.auth.uid);
+      allow create: if signedIn() && dossierCategoryAllowed(request.resource.data);
+      allow update: if dossierCategoryAllowed(request.resource.data) && ((isDirector() || isChief()) ||
+        (signedIn() && resource.data.createdByUid == request.auth.uid));
       allow delete: if isDirector();
 
       match /records/{recordId} {

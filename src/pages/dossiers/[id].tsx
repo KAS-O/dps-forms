@@ -129,6 +129,24 @@ function withAlpha(hex: string, alpha: number): string {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
 }
 
+function formatRelativeTime(ts: number): string {
+  const diffMs = Date.now() - ts;
+  if (diffMs <= 0) return "Przed chwilą";
+  const minutes = Math.round(diffMs / 60000);
+  if (minutes < 1) return "Przed chwilą";
+  if (minutes < 60) return `${minutes} min temu`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h temu`;
+  const days = Math.round(hours / 24);
+  if (days < 14) return `${days} dni temu`;
+  const weeks = Math.round(days / 7);
+  if (weeks < 8) return `${weeks} tyg. temu`;
+  const months = Math.round(days / 30);
+  if (months < 18) return `${months} mies. temu`;
+  const years = Math.round(days / 365);
+  return `${years} lat temu`;
+}
+
 function parseNumberValue(value: any): number {
   if (typeof value === "number") return isFinite(value) ? value : 0;
   if (typeof value === "string") {
@@ -1275,8 +1293,6 @@ export default function DossierPage() {
     return n ? `${title} • ${n} (CID: ${info.cid || "?"})` : title || "Teczka";
   }, [info, isCriminalGroup, title]);
 
-  const groupSummaryColor = useMemo(() => withAlpha(groupColorHex, 0.2), [groupColorHex]);
-
   const organizationMembers = useMemo(() => {
     const unique = new Map<string, DossierRecord>();
     records
@@ -1319,6 +1335,73 @@ export default function DossierPage() {
       { blackMarket: 0, bombs: 0, drugs: 0, weapons: 0 }
     );
   }, [records]);
+
+  const totalNotes = useMemo(() => records.filter((record) => (record.type || "note") === "note").length, [records]);
+
+  const lastActivityLabel = useMemo(() => {
+    const latest = records.reduce((max, record) => {
+      const ts = record.createdAt?.toDate?.()?.getTime?.() ?? record.createdAt?._seconds ? record.createdAt._seconds * 1000 : null;
+      if (!ts) return max;
+      return ts > max ? ts : max;
+    }, 0);
+    if (!latest) return "Brak wpisów";
+    return formatRelativeTime(latest);
+  }, [records]);
+
+  const threatAssessment = useMemo(() => {
+    const weight =
+      summaryStats.blackMarket * 1.5 +
+      summaryStats.weapons * 7500 +
+      summaryStats.bombs * 6000 +
+      summaryStats.drugs * 45 +
+      organizationMembers.length * 2500 +
+      organizationVehicles.length * 2000 +
+      totalNotes * 350;
+    if (weight > 160000) {
+      return {
+        label: "KRYTYCZNY",
+        emoji: "☠️",
+        description: "Natychmiastowe działania i koordynacja międzywydziałowa",
+        accent: "#f87171",
+      };
+    }
+    if (weight > 90000) {
+      return {
+        label: "WYSOKI",
+        emoji: "🚨",
+        description: "Utrzymuj presję operacyjną i nadzór 24/7",
+        accent: "#fb923c",
+      };
+    }
+    if (weight > 45000) {
+      return {
+        label: "PODWYŻSZONY",
+        emoji: "⚠️",
+        description: "Regularne obserwacje i analizy aktywności",
+        accent: "#facc15",
+      };
+    }
+    return {
+      label: "STABILNY",
+      emoji: "🟢",
+      description: "Monitoruj działania i przygotuj scenariusze reakcji",
+      accent: "#34d399",
+    };
+  }, [organizationMembers.length, organizationVehicles.length, summaryStats, totalNotes]);
+
+  const overviewTiles = useMemo(
+    () => [
+      { icon: "💰", label: "Łączna wartość czarnorynkowa", value: `${numberFormatter.format(summaryStats.blackMarket)} $` },
+      { icon: "🔫", label: "Zabezpieczona broń", value: numberFormatter.format(summaryStats.weapons) },
+      { icon: "🧨", label: "Materiały wybuchowe", value: numberFormatter.format(summaryStats.bombs) },
+      { icon: "💊", label: "Narkotyki (g)", value: numberFormatter.format(summaryStats.drugs) },
+      { icon: "🧑‍🤝‍🧑", label: "Zidentyfikowani członkowie", value: String(organizationMembers.length) },
+      { icon: "🚘", label: "Powiązane pojazdy", value: String(organizationVehicles.length) },
+      { icon: "📝", label: "Notatki operacyjne", value: String(totalNotes) },
+      { icon: "⏱️", label: "Ostatnia aktywność", value: lastActivityLabel },
+    ],
+    [lastActivityLabel, numberFormatter, organizationMembers.length, organizationVehicles.length, summaryStats, totalNotes]
+  );
 
   const actionButtons: { type: Exclude<ActiveFormType, null>; label: string; description: string }[] = [
     { type: "note", label: "Notatka", description: "Opis zdarzeń, relacje agentów i ustalenia." },
@@ -1511,94 +1594,129 @@ export default function DossierPage() {
           <div className="grid gap-4">
             {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
-            <div className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h1 className="text-xl font-bold">{personTitle}</h1>
-                {isCriminalGroup && info.group ? (
-                  <p className="text-sm text-beige-700">
-                    Kolorystyka: {info.group.colorName || "—"} • Rodzaj: {info.group.organizationType || "—"} • Baza: {info.group.base || "—"}
-                  </p>
-                ) : null}
-              </div>
-              {canDeleteDossier && (
-                <button className="btn bg-red-700 text-white" onClick={deleteDossier} disabled={deleting}>
-                  {deleting ? "Usuwanie..." : "Usuń teczkę"}
-                </button>
-              )}
-            </div>
-
             {isCriminalGroup && info.group ? (
               <div
-                className="card p-4 grid gap-4"
-                style={{ background: groupSummaryColor, borderColor: withAlpha(groupColorHex, 0.4) }}
+                className="relative overflow-hidden rounded-3xl border p-6 md:p-8 shadow-[0_35px_65px_rgba(0,0,0,0.55)]"
+                style={{
+                  background: `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.45)}, rgba(7, 12, 24, 0.92))`,
+                  borderColor: withAlpha(groupColorHex, 0.6),
+                }}
               >
-                {info.group.operations ? (
-                  <p className="text-sm text-beige-100/90">
-                    Zakres działalności: {info.group.operations}
-                  </p>
-                ) : null}
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-lg border border-white/20 bg-black/10 p-3">
-                    <span className="text-xs uppercase tracking-wide text-beige-200/70">Łączna wartość czarnorynkowa</span>
-                    <div className="mt-1 text-xl font-semibold text-beige-50">{numberFormatter.format(summaryStats.blackMarket)}</div>
+                <div
+                  className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full opacity-40 blur-3xl"
+                  style={{ background: withAlpha(groupColorHex, 0.55) }}
+                />
+                <div className="pointer-events-none absolute bottom-[-30%] right-[-20%] h-96 w-96 rounded-full opacity-30 blur-3xl" style={{ background: withAlpha(groupColorHex, 0.35) }} />
+                <div className="relative flex flex-col gap-6">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-2">
+                      <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.4em] text-white/70">
+                        Profil organizacji
+                      </span>
+                      <h1 className="text-4xl md:text-5xl font-black text-white drop-shadow-[0_8px_30px_rgba(0,0,0,0.55)]">
+                        🚨 {info.group.name}
+                      </h1>
+                      <p className="text-sm text-white/80">
+                        🎨 {info.group.colorName || "Brak"} • 🏷️ {info.group.organizationType || "Brak"} • 📍 {info.group.base || "Brak"}
+                      </p>
+                    </div>
+                    <div
+                      className="rounded-2xl border bg-black/30 p-4 text-right shadow-inner"
+                      style={{ borderColor: withAlpha(groupColorHex, 0.45) }}
+                    >
+                      <div className="text-xs uppercase tracking-[0.3em] text-white/70">Poziom zagrożenia</div>
+                      <div className="mt-1 flex items-center justify-end gap-2 text-2xl font-bold" style={{ color: threatAssessment.accent }}>
+                        <span>{threatAssessment.emoji}</span>
+                        <span>{threatAssessment.label}</span>
+                      </div>
+                      <p className="text-xs text-white/75">{threatAssessment.description}</p>
+                    </div>
                   </div>
-                  <div className="rounded-lg border border-white/20 bg-black/10 p-3">
-                    <span className="text-xs uppercase tracking-wide text-beige-200/70">Przejęte bomby</span>
-                    <div className="mt-1 text-xl font-semibold text-beige-50">{numberFormatter.format(summaryStats.bombs)}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/20 bg-black/10 p-3">
-                    <span className="text-xs uppercase tracking-wide text-beige-200/70">Przejęte narkotyki (g)</span>
-                    <div className="mt-1 text-xl font-semibold text-beige-50">{numberFormatter.format(summaryStats.drugs)}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/20 bg-black/10 p-3">
-                    <span className="text-xs uppercase tracking-wide text-beige-200/70">Przejęta broń</span>
-                    <div className="mt-1 text-xl font-semibold text-beige-50">{numberFormatter.format(summaryStats.weapons)}</div>
+                  {info.group.operations ? (
+                    <div
+                      className="rounded-2xl border bg-black/35 p-4 text-sm leading-relaxed text-white/85 shadow-inner"
+                      style={{ borderColor: withAlpha(groupColorHex, 0.35) }}
+                    >
+                      <span className="font-semibold text-white">🎯 Zakres działań:</span> {info.group.operations}
+                    </div>
+                  ) : null}
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {overviewTiles.map((tile) => (
+                      <div
+                        key={tile.label}
+                        className="rounded-2xl border border-white/25 bg-black/25 p-4 shadow-[0_15px_30px_rgba(0,0,0,0.35)] transition-transform duration-300 hover:-translate-y-1"
+                        style={{ borderColor: withAlpha(groupColorHex, 0.28) }}
+                      >
+                        <div className="text-xs uppercase tracking-wide text-white/70 flex items-center gap-2">
+                          <span>{tile.icon}</span>
+                          {tile.label}
+                        </div>
+                        <div className="mt-2 text-xl font-semibold text-white">{tile.value}</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
-            ) : null}
+            ) : (
+              <div className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h1 className="text-xl font-bold">{personTitle}</h1>
+                </div>
+                {canDeleteDossier && (
+                  <button className="btn bg-red-700 text-white" onClick={deleteDossier} disabled={deleting}>
+                    {deleting ? "Usuwanie..." : "Usuń teczkę"}
+                  </button>
+                )}
+              </div>
+            )}
 
             {isCriminalGroup ? (
               <div className="grid gap-4">
-                <div className="card p-4">
-                  <h2 className="text-lg font-semibold mb-2">Członkowie organizacji</h2>
+                <div
+                  className="rounded-3xl border bg-black/30 p-5 shadow-[0_25px_45px_rgba(0,0,0,0.45)]"
+                  style={{ borderColor: withAlpha(groupColorHex, 0.35) }}
+                >
+                  <h2 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                    <span>🧑‍🤝‍🧑</span> Członkowie organizacji
+                  </h2>
                   {organizationMembers.length ? (
                     <div className="grid gap-3 md:grid-cols-2">
                       {organizationMembers.map((member) => (
                         <div
                           key={member.id}
-                          className="rounded-xl border border-white/10 bg-black/20 p-3 flex gap-3"
+                          className="relative overflow-hidden rounded-2xl border border-white/15 bg-black/30 p-3 flex gap-3 transition-transform duration-300 hover:-translate-y-1"
+                          style={{ borderColor: withAlpha(member.rankColor || groupColorHex, 0.35) }}
                         >
                           {member.profileImageUrl ? (
                             <img
                               src={member.profileImageUrl}
                               alt={member.name || "Profil"}
-                              className="w-16 h-16 rounded-lg object-cover"
+                              className="w-16 h-16 rounded-lg object-cover shadow-lg"
                             />
                           ) : (
-                            <div className="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center text-2xl">
+                            <div className="w-16 h-16 rounded-lg bg-white/15 flex items-center justify-center text-2xl">
                               👤
                             </div>
                           )}
                           <div className="flex-1">
-                            <div className="font-semibold">{member.name || "Nieznany"}</div>
-                            <div className="text-xs text-beige-200/80">CID: {member.cid || "—"}</div>
-                            <div className="mt-1 flex flex-wrap gap-1 items-center">
+                            <div className="font-semibold text-white">{member.name || "Nieznany"}</div>
+                            <div className="text-xs text-white/70">CID: {member.cid || "—"}</div>
+                            <div className="mt-2 flex flex-wrap gap-1 items-center">
                               <span
-                                className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
-                                style={{ background: withAlpha(member.rankColor || "#64748b", 0.3), color: member.rankColor || "#e2e8f0" }}
+                                className="px-2 py-0.5 rounded-full text-[11px] font-semibold shadow"
+                                style={{ background: withAlpha(member.rankColor || groupColorHex, 0.4), color: "#050b18" }}
                               >
                                 {member.rank || "Brak informacji"}
                               </span>
                               {member.skinColor ? (
-                                <span className="text-xs text-beige-100/80">Kolor skóry: {member.skinColor}</span>
+                                <span className="text-xs text-white/70">Kolor skóry: {member.skinColor}</span>
                               ) : null}
                             </div>
                             {member.traits ? (
-                              <div className="text-xs text-beige-100/70 mt-1">Cechy: {member.traits}</div>
+                              <div className="text-xs text-white/75 mt-2">Cechy: {member.traits}</div>
                             ) : null}
                             {member.dossierId ? (
-                              <a href={`/dossiers/${member.dossierId}`} className="text-xs underline text-blue-200 mt-1 inline-block">
+                              <a href={`/dossiers/${member.dossierId}`} className="text-xs text-sky-200 underline mt-2 inline-block">
                                 Przejdź do teczki
                               </a>
                             ) : null}
@@ -1607,32 +1725,42 @@ export default function DossierPage() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-beige-700">Brak dodanych członków organizacji.</p>
+                    <p className="text-sm text-white/70">Brak dodanych członków organizacji.</p>
                   )}
                 </div>
 
-                <div className="card p-4">
-                  <h2 className="text-lg font-semibold mb-2">Pojazdy organizacji</h2>
+                <div
+                  className="rounded-3xl border bg-black/30 p-5 shadow-[0_25px_45px_rgba(0,0,0,0.45)]"
+                  style={{ borderColor: withAlpha(groupColorHex, 0.35) }}
+                >
+                  <h2 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                    <span>🚘</span> Pojazdy organizacji
+                  </h2>
                   {organizationVehicles.length ? (
                     <div className="grid gap-3 md:grid-cols-2">
                       {organizationVehicles.map((vehicle) => (
                         <a
                           key={vehicle.id}
                           href={vehicle.vehicleId ? `/vehicle-archive/${vehicle.vehicleId}` : undefined}
-                          className="rounded-xl border border-white/10 bg-black/20 p-3 hover:border-white/30 transition"
+                          className="group relative overflow-hidden rounded-2xl border border-white/15 bg-black/25 p-4 transition-all duration-300 hover:-translate-y-1 hover:border-white/40"
                           onClick={() => {
                             if (!vehicle.vehicleId || !session) return;
                             void logActivity({ type: "vehicle_from_dossier_open", dossierId: id, vehicleId: vehicle.vehicleId });
                           }}
                         >
-                          <div className="font-semibold text-lg">{vehicle.registration || "Pojazd"}</div>
-                          <div className="text-sm text-beige-200/80">{vehicle.brand || "—"} • Kolor: {vehicle.color || "—"}</div>
-                          <div className="text-xs text-beige-200/60">Właściciel: {vehicle.ownerName || "—"}</div>
+                          <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ background: `radial-gradient(circle at 90% -10%, ${withAlpha(groupColorHex, 0.35)}, transparent 55%)` }} />
+                          <div className="relative space-y-1 text-white">
+                            <div className="text-lg font-semibold flex items-center gap-2">
+                              <span>🚔</span> {vehicle.registration || "Pojazd"}
+                            </div>
+                            <div className="text-sm text-white/80">{vehicle.brand || "—"} • Kolor: {vehicle.color || "—"}</div>
+                            <div className="text-xs text-white/70">Właściciel: {vehicle.ownerName || "—"}</div>
+                          </div>
                         </a>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-beige-700">Brak przypisanych pojazdów.</p>
+                    <p className="text-sm text-white/70">Brak przypisanych pojazdów.</p>
                   )}
                 </div>
               </div>
@@ -1751,9 +1879,14 @@ export default function DossierPage() {
 
           {isCriminalGroup ? (
             <aside className="grid gap-4">
-              <div className="card p-4 sticky top-24 space-y-3">
-                <h2 className="text-lg font-semibold">Dodaj wpis</h2>
-                <p className="text-sm text-beige-600">
+              <div
+                className="sticky top-24 space-y-4 rounded-3xl border bg-black/35 p-5 shadow-[0_25px_45px_rgba(0,0,0,0.45)]"
+                style={{ borderColor: withAlpha(groupColorHex, 0.4) }}
+              >
+                <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <span>➕</span> Dodaj wpis
+                </h2>
+                <p className="text-sm text-white/75">
                   Wybierz kategorię, aby uzupełnić dokumentację organizacji.
                 </p>
                 <div className="grid gap-2">
@@ -1762,14 +1895,17 @@ export default function DossierPage() {
                       key={action.type}
                       type="button"
                       onClick={() => openForm(action.type)}
-                      className="w-full rounded-xl border px-3 py-2 text-left transition hover:-translate-y-0.5 hover:shadow-lg"
+                      className="w-full rounded-2xl border px-4 py-3 text-left transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg"
                       style={{
                         background: withAlpha(RECORD_COLORS[action.type], 0.18),
                         borderColor: withAlpha(RECORD_COLORS[action.type], 0.45),
                       }}
                     >
-                      <div className="font-semibold">{action.label}</div>
-                      <div className="text-xs text-beige-200/80">{action.description}</div>
+                      <div className="font-semibold text-white flex items-center gap-2">
+                        <span>{action.type === "note" ? "📝" : action.type === "weapon" ? "🔫" : action.type === "drug" ? "💊" : action.type === "explosive" ? "🧨" : action.type === "member" ? "🧑‍🤝‍🧑" : "🚘"}</span>
+                        {action.label}
+                      </div>
+                      <div className="text-xs text-white/80">{action.description}</div>
                     </button>
                   ))}
                 </div>

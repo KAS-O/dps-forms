@@ -44,6 +44,72 @@ body {
   box-shadow: 0 35px 60px -20px rgba(32, 69, 133, 0.9);
 }
 
+.section-shell {
+  position: relative;
+  padding: 1px;
+  border-radius: 1.5rem;
+  background: linear-gradient(135deg, rgba(61, 130, 226, 0.55), rgba(134, 207, 255, 0.25));
+  box-shadow: 0 30px 80px -35px rgba(18, 45, 98, 0.9);
+  overflow: hidden;
+}
+
+.section-shell__inner {
+  position: relative;
+  border-radius: 1.5rem;
+  background: linear-gradient(145deg, rgba(8, 19, 40, 0.95), rgba(6, 14, 28, 0.85));
+  border: 1px solid rgba(136, 206, 255, 0.25);
+  backdrop-filter: blur(18px);
+}
+
+.section-shell::before {
+  content: "";
+  position: absolute;
+  inset: -120% -40% 20% -40%;
+  background: radial-gradient(circle, rgba(118, 190, 255, 0.35), transparent 55%);
+  animation: glowPulse 12s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.section-shell--docs {
+  background: linear-gradient(135deg, rgba(61, 130, 226, 0.55), rgba(111, 226, 241, 0.25));
+}
+
+.section-shell--dossiers {
+  background: linear-gradient(135deg, rgba(160, 88, 255, 0.6), rgba(73, 189, 255, 0.25));
+}
+
+.section-shell--criminal {
+  background: linear-gradient(135deg, rgba(255, 91, 91, 0.7), rgba(255, 199, 92, 0.35));
+}
+
+.section-shell--vehicles {
+  background: linear-gradient(135deg, rgba(88, 255, 201, 0.55), rgba(95, 176, 255, 0.3));
+}
+
+.section-shell--logs {
+  background: linear-gradient(135deg, rgba(255, 143, 230, 0.55), rgba(118, 169, 255, 0.3));
+}
+
+.section-shell--docs .section-shell__inner {
+  border-color: rgba(98, 215, 255, 0.35);
+}
+
+.section-shell--dossiers .section-shell__inner {
+  border-color: rgba(182, 140, 255, 0.4);
+}
+
+.section-shell--criminal .section-shell__inner {
+  border-color: rgba(255, 148, 148, 0.45);
+}
+
+.section-shell--vehicles .section-shell__inner {
+  border-color: rgba(122, 233, 255, 0.4);
+}
+
+.section-shell--logs .section-shell__inner {
+  border-color: rgba(255, 169, 239, 0.4);
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -129,6 +195,21 @@ select option {
   }
   50% {
     transform: translateY(-8px);
+  }
+}
+
+@keyframes glowPulse {
+  0% {
+    opacity: 0.35;
+    transform: rotate(0deg) scale(0.9);
+  }
+  50% {
+    opacity: 0.7;
+    transform: rotate(6deg) scale(1.05);
+  }
+  100% {
+    opacity: 0.35;
+    transform: rotate(-4deg) scale(0.92);
   }
 }
 
