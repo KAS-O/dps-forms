@@ -1003,7 +1003,7 @@ export default function ArchivePage() {
           </Head>
           <Nav />
           <div className="max-w-4xl mx-auto px-4 py-10">
-            <div className="card p-6 text-center">Brak dostępu do archiwum.</div>
+            <div className="card p-6 text-center" data-section="archive">Brak dostępu do archiwum.</div>
           </div>
         </>
       </AuthGate>
@@ -1019,9 +1019,15 @@ export default function ArchivePage() {
         <Nav />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="grid gap-4">
-            <div className="card p-4 space-y-4">
+            <div className="card p-6 space-y-5" data-section="archive">
               <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-2xl font-bold">Archiwum</h1>
+                <div className="space-y-1">
+                  <span className="section-chip">
+                    <span className="section-chip__dot" style={{ background: "#f59e0b" }} />
+                    Archiwum
+                  </span>
+                  <h1 className="text-3xl font-semibold tracking-tight">Archiwum dokumentów służbowych</h1>
+                </div>
                 <div className="ml-auto flex flex-wrap items-center gap-2">
                   <input
                     className="input w-[200px] sm:w-[240px]"

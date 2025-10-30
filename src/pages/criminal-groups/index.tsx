@@ -28,6 +28,24 @@ type CriminalGroup = {
   } | null;
 };
 
+function withAlpha(hex: string | undefined, alpha: number): string {
+  if (!hex) return `rgba(124, 58, 237, ${alpha})`;
+  const normalized = hex.replace(/[^0-9a-f]/gi, "");
+  if (normalized.length === 3) {
+    const r = parseInt(normalized[0] + normalized[0], 16);
+    const g = parseInt(normalized[1] + normalized[1], 16);
+    const b = parseInt(normalized[2] + normalized[2], 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  if (normalized.length === 6) {
+    const r = parseInt(normalized.slice(0, 2), 16);
+    const g = parseInt(normalized.slice(2, 4), 16);
+    const b = parseInt(normalized.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return `rgba(124, 58, 237, ${alpha})`;
+}
+
 const BALLAS_INFO = {
   name: "Ballas",
   colorName: "Fioletowa",
@@ -114,12 +132,27 @@ export default function CriminalGroupsPage() {
         </Head>
         <Nav />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6">
-          <div className="card p-4 flex flex-col gap-3">
-            <div>
-              <h1 className="text-xl font-bold">Grupy przestępcze</h1>
-              <p className="text-sm text-beige-700">
-                Oddzielny rejestr grup przestępczych. Obecnie dostępna jest jedna organizacja — Ballas.
-              </p>
+          <div className="card p-6 space-y-5" data-section="criminal-groups">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="space-y-2">
+                <span className="section-chip">
+                  <span className="section-chip__dot" style={{ background: "#ec4899" }} />
+                  Grupy przestępcze
+                </span>
+                <div>
+                  <h1 className="text-3xl font-semibold tracking-tight">Rejestr organizacji przestępczych</h1>
+                  <p className="text-sm text-beige-100/75">
+                    Podgląd najgroźniejszych grup działających na terenie miasta. Każda karta zawiera kolorystykę,
+                    zakres działań i informacje operacyjne.
+                  </p>
+                </div>
+              </div>
+              <div className="hidden md:flex items-center gap-3">
+                <span className="section-chip">
+                  <span className="section-chip__dot" style={{ background: "#38bdf8" }} />
+                  Wydział Kryminalny
+                </span>
+              </div>
             </div>
             {error && <div className="card p-3 bg-red-50 text-red-700">{error}</div>}
             {loading ? (
@@ -128,40 +161,68 @@ export default function CriminalGroupsPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 {sortedGroups.map((group) => {
                   const color = group.group?.colorHex || "#7c3aed";
+                  const glow = withAlpha(color, 0.35);
                   return (
                     <a
                       key={group.id}
                       href={`/criminal-groups/${group.id}`}
-                      className="rounded-2xl border border-white/10 bg-black/30 p-5 hover:border-white/30 transition"
-                      style={{ boxShadow: `0 10px 35px ${color}1a` }}
+                      className="card p-5 transition hover:-translate-y-1"
+                      data-section="criminal-groups"
+                      style={{
+                        borderColor: `${color}b0`,
+                        boxShadow: `0 32px 72px -32px ${color}d5`,
+                        background: `linear-gradient(135deg, ${withAlpha(color, 0.55)}, rgba(10, 16, 34, 0.92))`,
+                      }}
                       onClick={() => {
                         if (!session) return;
                         void logActivity({ type: "criminal_group_open", dossierId: group.id });
                       }}
                     >
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-center gap-3">
-                          <span
-                            className="w-3 h-3 rounded-full border border-white/40"
-                            style={{ background: color }}
-                          />
-                          <h2 className="text-lg font-semibold">{group.group?.name || group.title}</h2>
-                        </div>
-                        <div className="text-sm text-beige-200/80">
-                          Kolorystyka: {group.group?.colorName || "—"}
-                        </div>
-                        <div className="text-sm text-beige-200/80">
-                          Rodzaj organizacji: {group.group?.organizationType || "—"}
-                        </div>
-                        <div className="text-sm text-beige-200/80">
-                          Baza: {group.group?.base || "—"}
-                        </div>
-                        {group.group?.operations ? (
-                          <div className="text-xs text-beige-100/70 leading-relaxed">
-                            Zakres działalności: {group.group.operations}
+                      <span
+                        className="absolute inset-0 opacity-60 animate-pulse-soft"
+                        style={{
+                          background: `radial-gradient(circle at 20% 20%, ${glow}, transparent 55%)`,
+                        }}
+                      />
+                      <div className="relative flex flex-col gap-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <span className="text-3xl animate-bounce-slow" aria-hidden>
+                              🐍
+                            </span>
+                            <div>
+                              <h2 className="text-xl font-semibold text-white tracking-tight">
+                                {group.group?.name || group.title}
+                              </h2>
+                              <p className="text-xs uppercase tracking-[0.3em] text-white/70">
+                                Kolorystyka: {group.group?.colorName || "—"}
+                              </p>
+                            </div>
                           </div>
-                        ) : null}
-                        <span className="inline-flex items-center justify-center mt-2 w-max px-3 py-1 rounded-full bg-white/10 text-xs uppercase tracking-wide">
+                          <span className="section-chip hidden sm:inline-flex" style={{ borderColor: `${color}aa` }}>
+                            <span className="section-chip__dot" style={{ background: color }} />
+                            Profil
+                          </span>
+                        </div>
+                        <div className="grid gap-2 text-sm text-white/85">
+                          <div className="flex items-center gap-2">
+                            <span aria-hidden>🏷️</span>
+                            <span>Rodzaj organizacji: {group.group?.organizationType || "—"}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span aria-hidden>📍</span>
+                            <span>Baza: {group.group?.base || "—"}</span>
+                          </div>
+                          {group.group?.operations ? (
+                            <div className="flex items-start gap-2 text-sm text-white/85">
+                              <span aria-hidden>⚔️</span>
+                              <span className="leading-relaxed">
+                                Zakres działalności: {group.group.operations}
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
+                        <span className="relative inline-flex items-center justify-center mt-2 w-max px-4 py-1.5 rounded-full text-xs font-semibold uppercase tracking-[0.4em] bg-white/15 text-white/90">
                           Otwórz kartę organizacji
                         </span>
                       </div>

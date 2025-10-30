@@ -53,6 +53,7 @@ export default function VehicleArchivePage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const { confirm } = useDialog();
   const { session, logActivity } = useSessionActivity();
+  const accentColor = "#0ea5e9";
 
   useEffect(() => {
     const q = query(collection(db, "vehicleFolders"), orderBy("createdAt", "desc"));
@@ -175,52 +176,73 @@ export default function VehicleArchivePage() {
         <Nav />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_320px]">
           <div className="grid gap-6">
-            <div className="card p-4">
-              <div className="flex flex-wrap items-center gap-3 mb-4">
-                <h1 className="text-2xl font-bold">Archiwum pojazdów</h1>
+            <div className="card p-6 space-y-4" data-section="vehicle">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="space-y-2">
+                  <span className="section-chip">
+                    <span className="section-chip__dot" style={{ background: accentColor }} />
+                    Archiwum pojazdów
+                  </span>
+                  <div>
+                    <h1 className="text-3xl font-semibold tracking-tight">Rejestr pojazdów LSPD</h1>
+                    <p className="text-sm text-beige-100/75">
+                      Przeglądaj i aktualizuj teczki pojazdów zabezpieczonych podczas działań operacyjnych.
+                    </p>
+                  </div>
+                </div>
                 <input
-                  className="input w-full md:w-64 ml-auto"
+                  className="input w-full md:w-72"
                   placeholder="Szukaj po numerze, właścicielu, marce..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              {err && <div className="card bg-red-50 text-red-700 p-3 mb-3">{err}</div>}
-              {ok && <div className="card bg-green-50 text-green-700 p-3 mb-3">{ok}</div>}
+              {err && <div className="card bg-red-50 text-red-700 p-3 mb-3" data-section="vehicle">{err}</div>}
+              {ok && <div className="card bg-green-50 text-green-700 p-3 mb-3" data-section="vehicle">{ok}</div>}
               <div className="grid gap-3">
                 {filtered.map((vehicle) => {
                   const highlight = getVehicleHighlightStyle(vehicle.statuses);
                   const activeFlags = highlight?.active || getActiveVehicleFlags(vehicle.statuses);
+                  const defaultStyle = {
+                    borderColor: `${accentColor}90`,
+                    background: `linear-gradient(140deg, ${accentColor}33, rgba(7, 24, 38, 0.85))`,
+                    boxShadow: `0 26px 60px -26px ${accentColor}aa`,
+                  };
+                  const style = highlight?.style ? { ...defaultStyle, ...highlight.style } : defaultStyle;
                   return (
                     <a
                       key={vehicle.id}
                       href={`/vehicle-archive/${vehicle.id}`}
-                      className={`card p-4 transition hover:shadow-xl ${highlight ? "text-white" : ""}`}
-                      style={highlight?.style || undefined}
+                      className="card p-5 transition hover:-translate-y-0.5 text-white"
+                      data-section="vehicle"
+                      style={style}
                     >
-                      <div className="flex flex-col gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="text-xl font-semibold">{vehicle.registration}</h2>
-                          <span className="text-sm opacity-80">{vehicle.brand}</span>
-                          <span className="text-sm opacity-80">Kolor: {vehicle.color}</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-semibold text-xl flex items-center gap-2">
+                          <span aria-hidden>🚔</span>
+                          {vehicle.registration}
                         </div>
-                        <div className="text-sm opacity-80">
-                          Właściciel: {vehicle.ownerName} • CID: {vehicle.ownerCid || "—"}
-                        </div>
-                        {activeFlags.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {activeFlags.map((flag) => (
-                              <span
-                                key={flag.key}
-                                className="px-2 py-1 text-xs font-semibold rounded-full bg-black/30 border border-white/40"
-                              >
-                                {flag.icon} {flag.label}
-                              </span>
-                            ))}
-                          </div>
-                        )}
+                        <span className="text-xs uppercase tracking-[0.35em] text-white/70">
+                          {vehicle.createdAt?.toDate?.()?.toLocaleDateString?.() || "—"}
+                        </span>
                       </div>
-                      <div className="mt-3 flex justify-end">
+                      <div className="text-sm text-white/80">
+                        {vehicle.brand} • Kolor: {vehicle.color}
+                      </div>
+                      <div className="text-xs text-white/70">Właściciel: {vehicle.ownerName} • CID: {vehicle.ownerCid || "—"}</div>
+                      {activeFlags.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {activeFlags.map((flag) => (
+                            <span
+                              key={flag.key}
+                              className="px-2 py-1 text-xs font-semibold rounded-full border border-white/30 bg-white/10"
+                            >
+                              {flag.icon} {flag.label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="mt-4 flex justify-end">
                         <button
                           className="btn bg-red-700 text-white"
                           onClick={(e) => {
@@ -236,13 +258,25 @@ export default function VehicleArchivePage() {
                     </a>
                   );
                 })}
-                {filtered.length === 0 && <p>Brak pojazdów w archiwum.</p>}
+                {filtered.length === 0 && (
+                  <div className="card p-4 text-sm text-white/75" data-section="vehicle">
+                    Brak pojazdów w archiwum spełniających kryteria.
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          <div className="card p-4">
-            <h2 className="font-semibold mb-3">Dodaj pojazd</h2>
+          <div className="card p-6 space-y-4" data-section="vehicle">
+            <div className="space-y-2">
+              <h2 className="text-2xl font-semibold flex items-center gap-2">
+                <span className="text-2xl" aria-hidden>🛠️</span>
+                Dodaj pojazd
+              </h2>
+              <p className="text-sm text-beige-100/70">
+                Uzupełnij dane pojazdu, aby utworzyć nową teczkę w archiwum.
+              </p>
+            </div>
             <div className="grid gap-2">
               <input
                 className="input"
@@ -275,7 +309,7 @@ export default function VehicleArchivePage() {
                 onChange={(e) => setForm((prev) => ({ ...prev, ownerCid: e.target.value }))}
               />
             </div>
-            <button className="btn mt-4" onClick={createVehicle} disabled={creating}>
+            <button className="btn w-full md:w-auto" onClick={createVehicle} disabled={creating}>
               {creating ? "Tworzenie..." : "Utwórz teczkę"}
             </button>
           </div>

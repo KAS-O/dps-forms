@@ -1275,7 +1275,19 @@ export default function DossierPage() {
     return n ? `${title} • ${n} (CID: ${info.cid || "?"})` : title || "Teczka";
   }, [info, isCriminalGroup, title]);
 
-  const groupSummaryColor = useMemo(() => withAlpha(groupColorHex, 0.2), [groupColorHex]);
+  const groupSummaryGradient = useMemo(
+    () => `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.55)}, rgba(8, 12, 28, 0.9))`,
+    [groupColorHex]
+  );
+  const groupSummaryBorder = useMemo(() => withAlpha(groupColorHex, 0.6), [groupColorHex]);
+  const groupSummaryShadow = useMemo(
+    () => `0 36px 90px -28px ${withAlpha(groupColorHex, 0.75)}`,
+    [groupColorHex]
+  );
+  const groupSummaryGlow = useMemo(
+    () => `radial-gradient(circle at 18% 20%, ${withAlpha(groupColorHex, 0.45)}, transparent 60%)`,
+    [groupColorHex]
+  );
 
   const organizationMembers = useMemo(() => {
     const unique = new Map<string, DossierRecord>();
@@ -1319,6 +1331,70 @@ export default function DossierPage() {
       { blackMarket: 0, bombs: 0, drugs: 0, weapons: 0 }
     );
   }, [records]);
+
+  const summaryCards = useMemo(
+    () => [
+      {
+        key: "blackMarket",
+        label: "Łączna wartość czarnorynkowa",
+        value: numberFormatter.format(summaryStats.blackMarket),
+        icon: "💰",
+        accent: "#facc15",
+      },
+      {
+        key: "bombs",
+        label: "Przejęte ładunki wybuchowe",
+        value: numberFormatter.format(summaryStats.bombs),
+        icon: "💣",
+        accent: "#ef4444",
+      },
+      {
+        key: "drugs",
+        label: "Przejęte narkotyki (g)",
+        value: numberFormatter.format(summaryStats.drugs),
+        icon: "🧪",
+        accent: "#22d3ee",
+      },
+      {
+        key: "weapons",
+        label: "Przejęta broń",
+        value: numberFormatter.format(summaryStats.weapons),
+        icon: "🔫",
+        accent: "#f472b6",
+      },
+      {
+        key: "members",
+        label: "Członkowie w kartotece",
+        value: numberFormatter.format(organizationMembers.length),
+        icon: "🧑‍🤝‍🧑",
+        accent: "#34d399",
+      },
+      {
+        key: "vehicles",
+        label: "Powiązane pojazdy",
+        value: numberFormatter.format(organizationVehicles.length),
+        icon: "🚘",
+        accent: "#60a5fa",
+      },
+      {
+        key: "records",
+        label: "Zarchiwizowane wpisy",
+        value: numberFormatter.format(records.length),
+        icon: "🗂️",
+        accent: "#818cf8",
+      },
+    ],
+    [
+      numberFormatter,
+      organizationMembers.length,
+      organizationVehicles.length,
+      records.length,
+      summaryStats.blackMarket,
+      summaryStats.bombs,
+      summaryStats.drugs,
+      summaryStats.weapons,
+    ]
+  );
 
   const actionButtons: { type: Exclude<ActiveFormType, null>; label: string; description: string }[] = [
     { type: "note", label: "Notatka", description: "Opis zdarzeń, relacje agentów i ustalenia." },
@@ -1511,14 +1587,57 @@ export default function DossierPage() {
           <div className="grid gap-4">
             {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
-            <div className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h1 className="text-xl font-bold">{personTitle}</h1>
+            <div
+              className={`card p-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between ${
+                isCriminalGroup ? "" : ""
+              }`}
+              data-section={isCriminalGroup ? "criminal-groups" : "dossiers"}
+              style={
+                isCriminalGroup
+                  ? {
+                      borderColor: withAlpha(groupColorHex, 0.65),
+                      boxShadow: `0 32px 80px -28px ${withAlpha(groupColorHex, 0.7)}`,
+                      background: `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.55)}, rgba(8, 14, 32, 0.92))`,
+                    }
+                  : undefined
+              }
+            >
+              <div className="space-y-3">
                 {isCriminalGroup && info.group ? (
-                  <p className="text-sm text-beige-700">
-                    Kolorystyka: {info.group.colorName || "—"} • Rodzaj: {info.group.organizationType || "—"} • Baza: {info.group.base || "—"}
-                  </p>
-                ) : null}
+                  <>
+                    <span className="section-chip">
+                      <span className="section-chip__dot" style={{ background: groupColorHex }} />
+                      Grupa przestępcza
+                    </span>
+                    <h1 className="text-4xl font-bold tracking-tight text-white flex flex-wrap items-center gap-3">
+                      <span className="text-3xl animate-bounce-slow" aria-hidden>
+                        🔥
+                      </span>
+                      {info.group.name}
+                    </h1>
+                    <div className="flex flex-wrap gap-2 text-sm text-white/80">
+                      <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1">
+                        <span aria-hidden>🎨</span>
+                        {info.group.colorName || "—"}
+                      </span>
+                      <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1">
+                        <span aria-hidden>🏷️</span>
+                        {info.group.organizationType || "Rodzaj nieznany"}
+                      </span>
+                      <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1">
+                        <span aria-hidden>📍</span>
+                        {info.group.base || "Baza nieznana"}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <h1 className="text-2xl font-bold">{personTitle}</h1>
+                    <p className="text-sm text-beige-700">
+                      Dokumentacja osoby wraz z pełnym dziennikiem działań i zabezpieczonymi dowodami.
+                    </p>
+                  </>
+                )}
               </div>
               {canDeleteDossier && (
                 <button className="btn bg-red-700 text-white" onClick={deleteDossier} disabled={deleting}>
@@ -1529,61 +1648,96 @@ export default function DossierPage() {
 
             {isCriminalGroup && info.group ? (
               <div
-                className="card p-4 grid gap-4"
-                style={{ background: groupSummaryColor, borderColor: withAlpha(groupColorHex, 0.4) }}
+                className="card p-6 space-y-5 relative overflow-hidden"
+                data-section="criminal-groups"
+                style={{
+                  background: groupSummaryGradient,
+                  borderColor: groupSummaryBorder,
+                  boxShadow: groupSummaryShadow,
+                }}
               >
+                <span
+                  className="absolute inset-0 opacity-60 animate-pulse-soft"
+                  style={{ background: groupSummaryGlow }}
+                />
                 {info.group.operations ? (
-                  <p className="text-sm text-beige-100/90">
-                    Zakres działalności: {info.group.operations}
-                  </p>
+                  <div className="relative text-base text-white/90 flex flex-col gap-2">
+                    <span className="text-xs uppercase tracking-[0.4em] text-white/70">Zakres działalności</span>
+                    <p className="leading-relaxed flex items-start gap-3">
+                      <span aria-hidden>⚔️</span>
+                      <span>{info.group.operations}</span>
+                    </p>
+                  </div>
                 ) : null}
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-lg border border-white/20 bg-black/10 p-3">
-                    <span className="text-xs uppercase tracking-wide text-beige-200/70">Łączna wartość czarnorynkowa</span>
-                    <div className="mt-1 text-xl font-semibold text-beige-50">{numberFormatter.format(summaryStats.blackMarket)}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/20 bg-black/10 p-3">
-                    <span className="text-xs uppercase tracking-wide text-beige-200/70">Przejęte bomby</span>
-                    <div className="mt-1 text-xl font-semibold text-beige-50">{numberFormatter.format(summaryStats.bombs)}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/20 bg-black/10 p-3">
-                    <span className="text-xs uppercase tracking-wide text-beige-200/70">Przejęte narkotyki (g)</span>
-                    <div className="mt-1 text-xl font-semibold text-beige-50">{numberFormatter.format(summaryStats.drugs)}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/20 bg-black/10 p-3">
-                    <span className="text-xs uppercase tracking-wide text-beige-200/70">Przejęta broń</span>
-                    <div className="mt-1 text-xl font-semibold text-beige-50">{numberFormatter.format(summaryStats.weapons)}</div>
-                  </div>
+                <div className="relative grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {summaryCards.map((stat) => (
+                    <div
+                      key={stat.key}
+                      className="stat-card"
+                      style={{
+                        borderColor: `${stat.accent}66`,
+                        background: `linear-gradient(140deg, ${stat.accent}22, rgba(5, 11, 24, 0.6))`,
+                        boxShadow: `0 26px 60px -28px ${stat.accent}aa`,
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-2">
+                          <span className="text-xs uppercase tracking-[0.35em] text-white/70">{stat.label}</span>
+                          <div className="stat-card__value text-white">{stat.value}</div>
+                        </div>
+                        <span className="stat-card__icon" aria-hidden>
+                          {stat.icon}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ) : null}
 
             {isCriminalGroup ? (
               <div className="grid gap-4">
-                <div className="card p-4">
-                  <h2 className="text-lg font-semibold mb-2">Członkowie organizacji</h2>
+                <div className="card p-6 space-y-4" data-section="criminal-groups">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-2xl font-semibold">Członkowie organizacji</h2>
+                    <span className="section-chip hidden sm:inline-flex" style={{ borderColor: withAlpha(groupColorHex, 0.6) }}>
+                      <span className="section-chip__dot" style={{ background: withAlpha(groupColorHex, 1) }} />
+                      {organizationMembers.length}
+                    </span>
+                  </div>
                   {organizationMembers.length ? (
                     <div className="grid gap-3 md:grid-cols-2">
                       {organizationMembers.map((member) => (
                         <div
                           key={member.id}
-                          className="rounded-xl border border-white/10 bg-black/20 p-3 flex gap-3"
+                          className="relative rounded-2xl border p-4 flex gap-4 overflow-hidden"
+                          style={{
+                            borderColor: withAlpha(member.rankColor || groupColorHex, 0.6),
+                            background: `linear-gradient(140deg, ${withAlpha(member.rankColor || groupColorHex, 0.35)}, rgba(10, 14, 28, 0.75))`,
+                            boxShadow: `0 24px 60px -28px ${withAlpha(member.rankColor || groupColorHex, 0.8)}`,
+                          }}
                         >
+                          <span
+                            className="absolute inset-0 opacity-40"
+                            style={{
+                              background: `radial-gradient(circle at 18% 20%, ${withAlpha(member.rankColor || groupColorHex, 0.4)}, transparent 65%)`,
+                            }}
+                          />
                           {member.profileImageUrl ? (
                             <img
                               src={member.profileImageUrl}
                               alt={member.name || "Profil"}
-                              className="w-16 h-16 rounded-lg object-cover"
+                              className="w-16 h-16 rounded-lg object-cover relative z-10"
                             />
                           ) : (
-                            <div className="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center text-2xl">
+                            <div className="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center text-2xl relative z-10">
                               👤
                             </div>
                           )}
-                          <div className="flex-1">
-                            <div className="font-semibold">{member.name || "Nieznany"}</div>
-                            <div className="text-xs text-beige-200/80">CID: {member.cid || "—"}</div>
-                            <div className="mt-1 flex flex-wrap gap-1 items-center">
+                          <div className="flex-1 relative z-10">
+                            <div className="font-semibold text-lg text-white">{member.name || "Nieznany"}</div>
+                            <div className="text-xs text-white/70">CID: {member.cid || "—"}</div>
+                            <div className="mt-2 flex flex-wrap gap-1 items-center">
                               <span
                                 className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
                                 style={{ background: withAlpha(member.rankColor || "#64748b", 0.3), color: member.rankColor || "#e2e8f0" }}
@@ -1591,14 +1745,14 @@ export default function DossierPage() {
                                 {member.rank || "Brak informacji"}
                               </span>
                               {member.skinColor ? (
-                                <span className="text-xs text-beige-100/80">Kolor skóry: {member.skinColor}</span>
+                                <span className="text-xs text-white/75">Kolor skóry: {member.skinColor}</span>
                               ) : null}
                             </div>
                             {member.traits ? (
-                              <div className="text-xs text-beige-100/70 mt-1">Cechy: {member.traits}</div>
+                              <div className="text-xs text-white/70 mt-2 leading-relaxed">Cechy: {member.traits}</div>
                             ) : null}
                             {member.dossierId ? (
-                              <a href={`/dossiers/${member.dossierId}`} className="text-xs underline text-blue-200 mt-1 inline-block">
+                              <a href={`/dossiers/${member.dossierId}`} className="text-xs underline text-blue-100 mt-2 inline-block">
                                 Przejdź do teczki
                               </a>
                             ) : null}
@@ -1607,32 +1761,54 @@ export default function DossierPage() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-beige-700">Brak dodanych członków organizacji.</p>
+                    <p className="text-sm text-white/75">Brak dodanych członków organizacji.</p>
                   )}
                 </div>
 
-                <div className="card p-4">
-                  <h2 className="text-lg font-semibold mb-2">Pojazdy organizacji</h2>
+                <div className="card p-6 space-y-4" data-section="criminal-groups">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-2xl font-semibold">Pojazdy organizacji</h2>
+                    <span className="section-chip hidden sm:inline-flex" style={{ borderColor: withAlpha(groupColorHex, 0.5) }}>
+                      <span className="section-chip__dot" style={{ background: withAlpha(groupColorHex, 1) }} />
+                      {organizationVehicles.length}
+                    </span>
+                  </div>
                   {organizationVehicles.length ? (
                     <div className="grid gap-3 md:grid-cols-2">
                       {organizationVehicles.map((vehicle) => (
                         <a
                           key={vehicle.id}
                           href={vehicle.vehicleId ? `/vehicle-archive/${vehicle.vehicleId}` : undefined}
-                          className="rounded-xl border border-white/10 bg-black/20 p-3 hover:border-white/30 transition"
+                          className="relative rounded-2xl border p-4 hover:-translate-y-0.5 transition"
+                          style={{
+                            borderColor: withAlpha(groupColorHex, 0.6),
+                            background: `linear-gradient(140deg, ${withAlpha(groupColorHex, 0.35)}, rgba(8, 12, 24, 0.75))`,
+                            boxShadow: `0 24px 56px -26px ${withAlpha(groupColorHex, 0.75)}`,
+                          }}
                           onClick={() => {
                             if (!vehicle.vehicleId || !session) return;
                             void logActivity({ type: "vehicle_from_dossier_open", dossierId: id, vehicleId: vehicle.vehicleId });
                           }}
                         >
-                          <div className="font-semibold text-lg">{vehicle.registration || "Pojazd"}</div>
-                          <div className="text-sm text-beige-200/80">{vehicle.brand || "—"} • Kolor: {vehicle.color || "—"}</div>
-                          <div className="text-xs text-beige-200/60">Właściciel: {vehicle.ownerName || "—"}</div>
+                          <div className="font-semibold text-lg text-white flex items-center gap-2">
+                            <span aria-hidden>🚗</span>
+                            {vehicle.registration || "Pojazd"}
+                          </div>
+                          <div className="text-sm text-white/80">
+                            {vehicle.brand || "—"} • Kolor: {vehicle.color || "—"}
+                          </div>
+                          <div className="text-xs text-white/70 mt-1">Właściciel: {vehicle.ownerName || "—"}</div>
+                          {vehicle.vehicleId ? (
+                            <div className="mt-2 inline-flex items-center gap-2 text-xs text-white/80">
+                              <span aria-hidden>🔗</span>
+                              <span>Otwórz teczkę pojazdu</span>
+                            </div>
+                          ) : null}
                         </a>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-beige-700">Brak przypisanych pojazdów.</p>
+                    <p className="text-sm text-white/75">Brak przypisanych pojazdów.</p>
                   )}
                 </div>
               </div>
@@ -1751,25 +1927,38 @@ export default function DossierPage() {
 
           {isCriminalGroup ? (
             <aside className="grid gap-4">
-              <div className="card p-4 sticky top-24 space-y-3">
-                <h2 className="text-lg font-semibold">Dodaj wpis</h2>
-                <p className="text-sm text-beige-600">
-                  Wybierz kategorię, aby uzupełnić dokumentację organizacji.
-                </p>
+              <div
+                className="card p-5 sticky top-24 space-y-4"
+                data-section="criminal-groups"
+                style={{
+                  borderColor: withAlpha(groupColorHex, 0.55),
+                  boxShadow: `0 28px 70px -28px ${withAlpha(groupColorHex, 0.75)}`,
+                  background: `linear-gradient(140deg, ${withAlpha(groupColorHex, 0.5)}, rgba(8, 14, 30, 0.92))`,
+                }}
+              >
+                <div className="space-y-2">
+                  <h2 className="text-xl font-semibold text-white">Dodaj wpis</h2>
+                  <p className="text-sm text-white/75">
+                    Wybierz kategorię, aby uzupełnić dokumentację organizacji.
+                  </p>
+                </div>
                 <div className="grid gap-2">
                   {actionButtons.map((action) => (
                     <button
                       key={action.type}
                       type="button"
                       onClick={() => openForm(action.type)}
-                      className="w-full rounded-xl border px-3 py-2 text-left transition hover:-translate-y-0.5 hover:shadow-lg"
+                      className="w-full rounded-xl border px-3 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-xl"
                       style={{
-                        background: withAlpha(RECORD_COLORS[action.type], 0.18),
-                        borderColor: withAlpha(RECORD_COLORS[action.type], 0.45),
+                        background: `linear-gradient(135deg, ${withAlpha(RECORD_COLORS[action.type], 0.28)}, rgba(5, 10, 20, 0.7))`,
+                        borderColor: withAlpha(RECORD_COLORS[action.type], 0.5),
                       }}
                     >
-                      <div className="font-semibold">{action.label}</div>
-                      <div className="text-xs text-beige-200/80">{action.description}</div>
+                      <div className="font-semibold text-white flex items-center gap-2">
+                        <span aria-hidden>➕</span>
+                        {action.label}
+                      </div>
+                      <div className="text-xs text-white/70">{action.description}</div>
                     </button>
                   ))}
                 </div>
