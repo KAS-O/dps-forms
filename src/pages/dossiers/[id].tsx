@@ -274,6 +274,12 @@ export default function DossierPage() {
   const groupColorHex = info.group?.colorHex || "#7c3aed";
 
   useEffect(() => {
+    if (info.category === "criminal-group") {
+      void router.replace("/criminal-groups");
+    }
+  }, [info.category, router]);
+
+  useEffect(() => {
     if (!id) return;
     (async () => {
       try {
@@ -921,6 +927,24 @@ export default function DossierPage() {
       </div>
     );
   };
+
+  if (isCriminalGroup) {
+    return (
+      <AuthGate>
+        <>
+          <Head>
+            <title>LSPD 77RP — Przekierowanie</title>
+          </Head>
+          <Nav />
+          <div className="max-w-5xl mx-auto px-4 py-10">
+            <div className="card p-4 text-center text-sm text-beige-200/80">
+              Przenosimy Cię do sekcji <strong>Grupy przestępcze</strong>…
+            </div>
+          </div>
+        </>
+      </AuthGate>
+    );
+  }
 
   return (
     <AuthGate>
