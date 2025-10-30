@@ -180,6 +180,7 @@ export default function DossierPage() {
   const router = useRouter();
   const { id } = router.query as { id: string };
   const { role } = useProfile();
+  const isCriminalGroupRoute = router.pathname?.startsWith("/criminal-groups");
 
   const [title, setTitle] = useState<string>("");
   const [info, setInfo] = useState<DossierInfo>({});
@@ -258,8 +259,83 @@ export default function DossierPage() {
 
   const [err, setErr] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [activeForm, setActiveForm] = useState<
+    null | "note" | "weapon" | "drug" | "explosive" | "member" | "vehicle"
+  >(null);
   const { confirm, prompt, alert } = useDialog();
   const { logActivity, session } = useSessionActivity();
+
+  const resetNoteForm = useCallback(() => {
+    setNoteForm({ text: "", files: [] });
+    setNoteFileKey((k) => k + 1);
+  }, []);
+
+  const resetWeaponForm = useCallback(() => {
+    setWeaponForm({
+      model: "",
+      serialNumbers: "",
+      source: "",
+      crimeUsage: "brak informacji",
+      date: "",
+      time: "",
+      purchasePrice: "",
+      blackMarketValue: "",
+      files: [],
+    });
+    setWeaponFileKey((k) => k + 1);
+  }, []);
+
+  const resetDrugForm = useCallback(() => {
+    setDrugForm({
+      type: "",
+      quantity: "",
+      quality: "",
+      date: "",
+      time: "",
+      location: "",
+      source: "",
+      purchasePrice: "",
+      blackMarketValue: "",
+      note: "",
+      controlledTransaction: false,
+      files: [],
+    });
+    setDrugFileKey((k) => k + 1);
+  }, []);
+
+  const resetExplosiveForm = useCallback(() => {
+    setExplosiveForm({
+      type: "",
+      quantity: "",
+      date: "",
+      time: "",
+      location: "",
+      source: "",
+      purchasePrice: "",
+      blackMarketValue: "",
+      note: "",
+      controlledTransaction: false,
+      files: [],
+    });
+    setExplosiveFileKey((k) => k + 1);
+  }, []);
+
+  const resetMemberForm = useCallback(() => {
+    setMemberForm({
+      dossierId: "",
+      name: "",
+      cid: "",
+      rank: "brak informacji",
+      skinColor: "",
+      traits: "",
+      profileImage: null,
+    });
+    setMemberImageKey((k) => k + 1);
+  }, []);
+
+  const resetVehicleForm = useCallback(() => {
+    setVehicleForm({ vehicleId: "" });
+  }, []);
 
   const canDeleteDossier = role === "director";
   const canEditRecord = useCallback(
@@ -272,6 +348,19 @@ export default function DossierPage() {
 
   const isCriminalGroup = info.category === "criminal-group";
   const groupColorHex = info.group?.colorHex || "#7c3aed";
+
+  useEffect(() => {
+    if (!isCriminalGroupRoute) return;
+    const originalOverflow = document.body.style.overflow;
+    if (activeForm) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = originalOverflow || "";
+    }
+    return () => {
+      document.body.style.overflow = originalOverflow || "";
+    };
+  }, [activeForm, isCriminalGroupRoute]);
 
   useEffect(() => {
     if (!id) return;
@@ -383,14 +472,25 @@ export default function DossierPage() {
         },
         "note"
       );
-      setNoteForm({ text: "", files: [] });
-      setNoteFileKey((k) => k + 1);
+      resetNoteForm();
+      if (isCriminalGroupRoute) {
+        setActiveForm(null);
+      }
     } catch (e: any) {
       setErr(e.message || "Nie udało się dodać notatki");
     } finally {
       setNoteSaving(false);
     }
-  }, [addRecordWithLog, id, noteForm.files, noteForm.text, noteSaving, uploadAttachments]);
+  }, [
+    addRecordWithLog,
+    id,
+    noteForm.files,
+    noteForm.text,
+    noteSaving,
+    resetNoteForm,
+    isCriminalGroupRoute,
+    uploadAttachments,
+  ]);
 
   const addWeapon = useCallback(async () => {
     if (!id || weaponSaving) return;
@@ -421,24 +521,24 @@ export default function DossierPage() {
         },
         "weapon"
       );
-      setWeaponForm({
-        model: "",
-        serialNumbers: "",
-        source: "",
-        crimeUsage: "brak informacji",
-        date: "",
-        time: "",
-        purchasePrice: "",
-        blackMarketValue: "",
-        files: [],
-      });
-      setWeaponFileKey((k) => k + 1);
+      resetWeaponForm();
+      if (isCriminalGroupRoute) {
+        setActiveForm(null);
+      }
     } catch (e: any) {
       setErr(e.message || "Nie udało się dodać dowodu broni");
     } finally {
       setWeaponSaving(false);
     }
-  }, [addRecordWithLog, id, uploadAttachments, weaponForm, weaponSaving]);
+  }, [
+    addRecordWithLog,
+    id,
+    isCriminalGroupRoute,
+    resetWeaponForm,
+    uploadAttachments,
+    weaponForm,
+    weaponSaving,
+  ]);
 
   const addDrug = useCallback(async () => {
     if (!id || drugSaving) return;
@@ -472,27 +572,24 @@ export default function DossierPage() {
         },
         "drug"
       );
-      setDrugForm({
-        type: "",
-        quantity: "",
-        quality: "",
-        date: "",
-        time: "",
-        location: "",
-        source: "",
-        purchasePrice: "",
-        blackMarketValue: "",
-        note: "",
-        controlledTransaction: false,
-        files: [],
-      });
-      setDrugFileKey((k) => k + 1);
+      resetDrugForm();
+      if (isCriminalGroupRoute) {
+        setActiveForm(null);
+      }
     } catch (e: any) {
       setErr(e.message || "Nie udało się dodać dowodu narkotyków");
     } finally {
       setDrugSaving(false);
     }
-  }, [addRecordWithLog, drugForm, drugSaving, id, uploadAttachments]);
+  }, [
+    addRecordWithLog,
+    drugForm,
+    drugSaving,
+    id,
+    isCriminalGroupRoute,
+    resetDrugForm,
+    uploadAttachments,
+  ]);
 
   const addExplosive = useCallback(async () => {
     if (!id || explosiveSaving) return;
@@ -525,26 +622,24 @@ export default function DossierPage() {
         },
         "explosive"
       );
-      setExplosiveForm({
-        type: "",
-        quantity: "",
-        date: "",
-        time: "",
-        location: "",
-        source: "",
-        purchasePrice: "",
-        blackMarketValue: "",
-        note: "",
-        controlledTransaction: false,
-        files: [],
-      });
-      setExplosiveFileKey((k) => k + 1);
+      resetExplosiveForm();
+      if (isCriminalGroupRoute) {
+        setActiveForm(null);
+      }
     } catch (e: any) {
       setErr(e.message || "Nie udało się dodać dowodu materiału wybuchowego");
     } finally {
       setExplosiveSaving(false);
     }
-  }, [addRecordWithLog, explosiveForm, explosiveSaving, id, uploadAttachments]);
+  }, [
+    addRecordWithLog,
+    explosiveForm,
+    explosiveSaving,
+    id,
+    isCriminalGroupRoute,
+    resetExplosiveForm,
+    uploadAttachments,
+  ]);
 
   const addMember = useCallback(async () => {
     if (!id || memberSaving) return;
@@ -575,22 +670,24 @@ export default function DossierPage() {
         },
         "member"
       );
-      setMemberForm({
-        dossierId: "",
-        name: "",
-        cid: "",
-        rank: "brak informacji",
-        skinColor: "",
-        traits: "",
-        profileImage: null,
-      });
-      setMemberImageKey((k) => k + 1);
+      resetMemberForm();
+      if (isCriminalGroupRoute) {
+        setActiveForm(null);
+      }
     } catch (e: any) {
       setErr(e.message || "Nie udało się dodać członka organizacji");
     } finally {
       setMemberSaving(false);
     }
-  }, [addRecordWithLog, id, memberForm, memberSaving, uploadAttachments]);
+  }, [
+    addRecordWithLog,
+    id,
+    isCriminalGroupRoute,
+    memberForm,
+    memberSaving,
+    resetMemberForm,
+    uploadAttachments,
+  ]);
 
   const addVehicle = useCallback(async () => {
     if (!id || vehicleSaving) return;
@@ -621,13 +718,24 @@ export default function DossierPage() {
         },
         "vehicle"
       );
-      setVehicleForm({ vehicleId: "" });
+      resetVehicleForm();
+      if (isCriminalGroupRoute) {
+        setActiveForm(null);
+      }
     } catch (e: any) {
       setErr(e.message || "Nie udało się dodać pojazdu");
     } finally {
       setVehicleSaving(false);
     }
-  }, [addRecordWithLog, id, vehicleForm.vehicleId, vehicleOptions, vehicleSaving]);
+  }, [
+    addRecordWithLog,
+    id,
+    isCriminalGroupRoute,
+    resetVehicleForm,
+    vehicleForm.vehicleId,
+    vehicleOptions,
+    vehicleSaving,
+  ]);
 
   const editRecord = useCallback(
     async (rid: string, currentText: string, type: string) => {
@@ -754,6 +862,165 @@ export default function DossierPage() {
       });
     return Array.from(unique.values());
   }, [records]);
+
+  const parseNumericValue = useCallback((value: any): number => {
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? value : 0;
+    }
+    if (!value) return 0;
+    const normalized = String(value)
+      .replace(/\s+/g, "")
+      .replace(/[^0-9.,-]/g, "")
+      .replace(/,/g, ".");
+    const parsed = parseFloat(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }, []);
+
+  const groupStats = useMemo(() => {
+    const stats = {
+      blackMarketValue: 0,
+      drugGrams: 0,
+      explosiveQuantity: 0,
+      weapons: 0,
+    };
+    records.forEach((record) => {
+      switch (record.type) {
+        case "weapon":
+          stats.weapons += 1;
+          stats.blackMarketValue += parseNumericValue(record.blackMarketValue);
+          break;
+        case "drug":
+          stats.drugGrams += parseNumericValue(record.quantityGrams);
+          stats.blackMarketValue += parseNumericValue(record.blackMarketValue);
+          break;
+        case "explosive":
+          stats.explosiveQuantity += parseNumericValue(record.quantity);
+          stats.blackMarketValue += parseNumericValue(record.blackMarketValue);
+          break;
+        default:
+          break;
+      }
+    });
+    return stats;
+  }, [parseNumericValue, records]);
+
+  const formatNumber = useCallback((value: number, fractionDigits = 0) => {
+    return value.toLocaleString("pl-PL", {
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    });
+  }, []);
+
+  const groupSummaryStats = useMemo(
+    () => [
+      {
+        key: "blackMarket",
+        label: "Łączna wartość czarnorynkowa",
+        value: `${formatNumber(groupStats.blackMarketValue, 2)} $`,
+        color: withAlpha(RECORD_COLORS.weapon, 0.3),
+      },
+      {
+        key: "explosives",
+        label: "Ilość przejętych materiałów wybuchowych",
+        value: formatNumber(groupStats.explosiveQuantity, 0),
+        color: withAlpha(RECORD_COLORS.explosive, 0.25),
+      },
+      {
+        key: "drugs",
+        label: "Ilość przejętych narkotyków (g)",
+        value: formatNumber(groupStats.drugGrams, 2),
+        color: withAlpha(RECORD_COLORS.drug, 0.25),
+      },
+      {
+        key: "weapons",
+        label: "Ilość przejętych broni",
+        value: formatNumber(groupStats.weapons, 0),
+        color: withAlpha(RECORD_COLORS.weapon, 0.2),
+      },
+    ],
+    [formatNumber, groupStats]
+  );
+
+  const containerClasses = isCriminalGroupRoute
+    ? "max-w-6xl mx-auto px-4 py-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]"
+    : "max-w-5xl mx-auto px-4 py-6 grid gap-4";
+
+  const groupActionButtons = useMemo(
+    () => [
+      {
+        key: "note" as const,
+        label: "Dodaj notatkę",
+        description: "Wpis tekstowy z możliwością osadzenia multimediów.",
+        accent: RECORD_COLORS.note,
+        action: () => {
+          resetNoteForm();
+          setActiveForm("note");
+        },
+      },
+      {
+        key: "weapon" as const,
+        label: "Dowód — Broń",
+        description: "Dodaj przejętą broń jako dowód rzeczowy.",
+        accent: RECORD_COLORS.weapon,
+        action: () => {
+          resetWeaponForm();
+          setActiveForm("weapon");
+        },
+      },
+      {
+        key: "drug" as const,
+        label: "Dowód — Narkotyki",
+        description: "Ewidencja narkotyków wraz z informacją o transakcji.",
+        accent: RECORD_COLORS.drug,
+        action: () => {
+          resetDrugForm();
+          setActiveForm("drug");
+        },
+      },
+      {
+        key: "explosive" as const,
+        label: "Dowód — Materiały wybuchowe",
+        description: "Dodaj przejęte materiały wybuchowe.",
+        accent: RECORD_COLORS.explosive,
+        action: () => {
+          resetExplosiveForm();
+          setActiveForm("explosive");
+        },
+      },
+      {
+        key: "member" as const,
+        label: "Członek grupy",
+        description: "Powiąż osobę z organizacją i dodaj jej profil.",
+        accent: RECORD_COLORS.member,
+        action: () => {
+          resetMemberForm();
+          setMemberSearch("");
+          setActiveForm("member");
+        },
+      },
+      {
+        key: "vehicle" as const,
+        label: "Pojazd organizacji",
+        description: "Dodaj pojazd z teczek do bazy gangu.",
+        accent: RECORD_COLORS.vehicle,
+        action: () => {
+          resetVehicleForm();
+          setVehicleSearch("");
+          setActiveForm("vehicle");
+        },
+      },
+    ],
+    [
+      resetDrugForm,
+      resetExplosiveForm,
+      resetMemberForm,
+      resetNoteForm,
+      resetVehicleForm,
+      resetWeaponForm,
+      setMemberSearch,
+      setVehicleSearch,
+    ]
+  );
 
   const filteredDossierOptions = useMemo(() => {
     if (!memberSearch.trim()) return allDossiers.filter((d) => d.id !== id);
@@ -922,6 +1189,642 @@ export default function DossierPage() {
     );
   };
 
+  const renderNoteForm = (variant: "inline" | "modal", onClose?: () => void) => {
+    const content = (
+      <>
+        <h2 className="font-semibold text-lg">Dodaj notatkę</h2>
+        <textarea
+          className="input h-28"
+          placeholder="Treść notatki..."
+          value={noteForm.text}
+          onChange={(e) => setNoteForm((prev) => ({ ...prev, text: e.target.value }))}
+        />
+        <input
+          key={noteFileKey}
+          type="file"
+          multiple
+          onChange={(e) =>
+            setNoteForm((prev) => ({ ...prev, files: Array.from(e.target.files || []) }))
+          }
+        />
+        <div className="flex flex-wrap gap-2">
+          <button className="btn" onClick={addNote} disabled={noteSaving}>
+            {noteSaving ? "Dodawanie..." : "Dodaj notatkę"}
+          </button>
+          <button
+            className="btn"
+            type="button"
+            onClick={() => {
+              resetNoteForm();
+            }}
+          >
+            Wyczyść
+          </button>
+          {variant === "modal" && (
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                resetNoteForm();
+                onClose?.();
+              }}
+            >
+              Zamknij
+            </button>
+          )}
+        </div>
+      </>
+    );
+    if (variant === "inline") {
+      return <div className="card p-4 grid gap-3">{content}</div>;
+    }
+    return <div className="grid gap-3">{content}</div>;
+  };
+
+  const renderWeaponForm = (variant: "inline" | "modal", onClose?: () => void) => {
+    const body = (
+      <>
+        <h2 className="font-semibold text-lg">Dodaj dowód — Broń</h2>
+        <div className="grid md:grid-cols-2 gap-3">
+          <input
+            className="input"
+            placeholder="Model broni"
+            value={weaponForm.model}
+            onChange={(e) => setWeaponForm((prev) => ({ ...prev, model: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Numery seryjne"
+            value={weaponForm.serialNumbers}
+            onChange={(e) => setWeaponForm((prev) => ({ ...prev, serialNumbers: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Od kogo pozyskano"
+            value={weaponForm.source}
+            onChange={(e) => setWeaponForm((prev) => ({ ...prev, source: e.target.value }))}
+          />
+          <select
+            className="input"
+            value={weaponForm.crimeUsage}
+            onChange={(e) => setWeaponForm((prev) => ({ ...prev, crimeUsage: e.target.value }))}
+          >
+            <option value="tak">Tak</option>
+            <option value="nie">Nie</option>
+            <option value="brak informacji">Brak informacji</option>
+          </select>
+          <input
+            type="date"
+            className="input"
+            value={weaponForm.date}
+            onChange={(e) => setWeaponForm((prev) => ({ ...prev, date: e.target.value }))}
+          />
+          <input
+            type="time"
+            className="input"
+            value={weaponForm.time}
+            onChange={(e) => setWeaponForm((prev) => ({ ...prev, time: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Cena kupna"
+            value={weaponForm.purchasePrice}
+            onChange={(e) => setWeaponForm((prev) => ({ ...prev, purchasePrice: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Wartość czarnorynkowa"
+            value={weaponForm.blackMarketValue}
+            onChange={(e) => setWeaponForm((prev) => ({ ...prev, blackMarketValue: e.target.value }))}
+          />
+        </div>
+        <input
+          key={weaponFileKey}
+          type="file"
+          multiple
+          onChange={(e) => setWeaponForm((prev) => ({ ...prev, files: Array.from(e.target.files || []) }))}
+        />
+        <div className="flex flex-wrap gap-2">
+          <button className="btn" onClick={addWeapon} disabled={weaponSaving}>
+            {weaponSaving ? "Dodawanie..." : "Dodaj dowód"}
+          </button>
+          <button
+            className="btn"
+            type="button"
+            onClick={() => {
+              resetWeaponForm();
+            }}
+          >
+            Wyczyść
+          </button>
+          {variant === "modal" && (
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                resetWeaponForm();
+                onClose?.();
+              }}
+            >
+              Zamknij
+            </button>
+          )}
+        </div>
+      </>
+    );
+    if (variant === "inline") {
+      return (
+        <div className="card p-4 grid gap-3 border-l-4" style={{ borderColor: RECORD_COLORS.weapon }}>
+          {body}
+        </div>
+      );
+    }
+    return <div className="grid gap-3">{body}</div>;
+  };
+
+  const renderDrugForm = (variant: "inline" | "modal", onClose?: () => void) => {
+    const body = (
+      <>
+        <h2 className="font-semibold text-lg">Dodaj dowód — Narkotyki</h2>
+        <div className="grid md:grid-cols-2 gap-3">
+          <input
+            className="input"
+            placeholder="Rodzaj narkotyku"
+            value={drugForm.type}
+            onChange={(e) => setDrugForm((prev) => ({ ...prev, type: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Ilość w gramach"
+            value={drugForm.quantity}
+            onChange={(e) => setDrugForm((prev) => ({ ...prev, quantity: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Jakość"
+            value={drugForm.quality}
+            onChange={(e) => setDrugForm((prev) => ({ ...prev, quality: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Miejsce"
+            value={drugForm.location}
+            onChange={(e) => setDrugForm((prev) => ({ ...prev, location: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Od kogo"
+            value={drugForm.source}
+            onChange={(e) => setDrugForm((prev) => ({ ...prev, source: e.target.value }))}
+          />
+          <input
+            type="date"
+            className="input"
+            value={drugForm.date}
+            onChange={(e) => setDrugForm((prev) => ({ ...prev, date: e.target.value }))}
+          />
+          <input
+            type="time"
+            className="input"
+            value={drugForm.time}
+            onChange={(e) => setDrugForm((prev) => ({ ...prev, time: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Cena kupna"
+            value={drugForm.purchasePrice}
+            onChange={(e) => setDrugForm((prev) => ({ ...prev, purchasePrice: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Wartość czarnorynkowa"
+            value={drugForm.blackMarketValue}
+            onChange={(e) => setDrugForm((prev) => ({ ...prev, blackMarketValue: e.target.value }))}
+          />
+        </div>
+        <textarea
+          className="input"
+          placeholder="Dodatkowa notatka"
+          value={drugForm.note}
+          onChange={(e) => setDrugForm((prev) => ({ ...prev, note: e.target.value }))}
+        />
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className={`btn ${drugForm.controlledTransaction ? "bg-orange-500 text-white" : ""}`}
+            onClick={() => setDrugForm((prev) => ({ ...prev, controlledTransaction: !prev.controlledTransaction }))}
+          >
+            {drugForm.controlledTransaction ? "Transakcja kontrolowana ✓" : "Transakcja kontrolowana"}
+          </button>
+        </div>
+        <input
+          key={drugFileKey}
+          type="file"
+          multiple
+          onChange={(e) => setDrugForm((prev) => ({ ...prev, files: Array.from(e.target.files || []) }))}
+        />
+        <div className="flex flex-wrap gap-2">
+          <button className="btn" onClick={addDrug} disabled={drugSaving}>
+            {drugSaving ? "Dodawanie..." : "Dodaj dowód"}
+          </button>
+          <button
+            className="btn"
+            type="button"
+            onClick={() => {
+              resetDrugForm();
+            }}
+          >
+            Wyczyść
+          </button>
+          {variant === "modal" && (
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                resetDrugForm();
+                onClose?.();
+              }}
+            >
+              Zamknij
+            </button>
+          )}
+        </div>
+      </>
+    );
+    if (variant === "inline") {
+      return (
+        <div className="card p-4 grid gap-3 border-l-4" style={{ borderColor: RECORD_COLORS.drug }}>
+          {body}
+        </div>
+      );
+    }
+    return <div className="grid gap-3">{body}</div>;
+  };
+
+  const renderExplosiveForm = (variant: "inline" | "modal", onClose?: () => void) => {
+    const body = (
+      <>
+        <h2 className="font-semibold text-lg">Dodaj dowód — Materiały wybuchowe</h2>
+        <div className="grid md:grid-cols-2 gap-3">
+          <input
+            className="input"
+            placeholder="Rodzaj materiału"
+            value={explosiveForm.type}
+            onChange={(e) => setExplosiveForm((prev) => ({ ...prev, type: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Ilość"
+            value={explosiveForm.quantity}
+            onChange={(e) => setExplosiveForm((prev) => ({ ...prev, quantity: e.target.value }))}
+          />
+          <input
+            type="date"
+            className="input"
+            value={explosiveForm.date}
+            onChange={(e) => setExplosiveForm((prev) => ({ ...prev, date: e.target.value }))}
+          />
+          <input
+            type="time"
+            className="input"
+            value={explosiveForm.time}
+            onChange={(e) => setExplosiveForm((prev) => ({ ...prev, time: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Miejsce"
+            value={explosiveForm.location}
+            onChange={(e) => setExplosiveForm((prev) => ({ ...prev, location: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Od kogo"
+            value={explosiveForm.source}
+            onChange={(e) => setExplosiveForm((prev) => ({ ...prev, source: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Cena kupna"
+            value={explosiveForm.purchasePrice}
+            onChange={(e) => setExplosiveForm((prev) => ({ ...prev, purchasePrice: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Wartość czarnorynkowa"
+            value={explosiveForm.blackMarketValue}
+            onChange={(e) => setExplosiveForm((prev) => ({ ...prev, blackMarketValue: e.target.value }))}
+          />
+        </div>
+        <textarea
+          className="input"
+          placeholder="Notatka"
+          value={explosiveForm.note}
+          onChange={(e) => setExplosiveForm((prev) => ({ ...prev, note: e.target.value }))}
+        />
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className={`btn ${explosiveForm.controlledTransaction ? "bg-orange-500 text-white" : ""}`}
+            onClick={() => setExplosiveForm((prev) => ({ ...prev, controlledTransaction: !prev.controlledTransaction }))}
+          >
+            {explosiveForm.controlledTransaction ? "Transakcja kontrolowana ✓" : "Transakcja kontrolowana"}
+          </button>
+        </div>
+        <input
+          key={explosiveFileKey}
+          type="file"
+          multiple
+          onChange={(e) => setExplosiveForm((prev) => ({ ...prev, files: Array.from(e.target.files || []) }))}
+        />
+        <div className="flex flex-wrap gap-2">
+          <button className="btn" onClick={addExplosive} disabled={explosiveSaving}>
+            {explosiveSaving ? "Dodawanie..." : "Dodaj dowód"}
+          </button>
+          <button
+            className="btn"
+            type="button"
+            onClick={() => {
+              resetExplosiveForm();
+            }}
+          >
+            Wyczyść
+          </button>
+          {variant === "modal" && (
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                resetExplosiveForm();
+                onClose?.();
+              }}
+            >
+              Zamknij
+            </button>
+          )}
+        </div>
+      </>
+    );
+    if (variant === "inline") {
+      return (
+        <div className="card p-4 grid gap-3 border-l-4" style={{ borderColor: RECORD_COLORS.explosive }}>
+          {body}
+        </div>
+      );
+    }
+    return <div className="grid gap-3">{body}</div>;
+  };
+
+  const renderMemberForm = (variant: "inline" | "modal", onClose?: () => void) => {
+    const body = (
+      <>
+        <h2 className="font-semibold text-lg">Dodaj członka grupy</h2>
+        <input
+          className="input"
+          placeholder="Szukaj po imieniu, nazwisku lub CID"
+          value={memberSearch}
+          onChange={(e) => setMemberSearch(e.target.value)}
+        />
+        <select
+          className="input"
+          value={memberForm.dossierId}
+          onChange={(e) => setMemberForm((prev) => ({ ...prev, dossierId: e.target.value }))}
+        >
+          <option value="">Wybierz teczkę</option>
+          {filteredDossierOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.title || `${option.first || ""} ${option.last || ""}`} (CID: {option.cid || "?"})
+            </option>
+          ))}
+        </select>
+        <div className="grid md:grid-cols-2 gap-3">
+          <input
+            className="input"
+            placeholder="Imię i nazwisko"
+            value={memberForm.name}
+            onChange={(e) => setMemberForm((prev) => ({ ...prev, name: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="CID"
+            value={memberForm.cid}
+            onChange={(e) => setMemberForm((prev) => ({ ...prev, cid: e.target.value }))}
+          />
+          <select
+            className="input"
+            value={memberForm.rank}
+            onChange={(e) => setMemberForm((prev) => ({ ...prev, rank: e.target.value }))}
+          >
+            {MEMBER_RANKS.map((rank) => (
+              <option key={rank.value} value={rank.value}>
+                {rank.label}
+              </option>
+            ))}
+          </select>
+          <input
+            className="input"
+            placeholder="Kolor skóry"
+            value={memberForm.skinColor}
+            onChange={(e) => setMemberForm((prev) => ({ ...prev, skinColor: e.target.value }))}
+          />
+        </div>
+        <textarea
+          className="input"
+          placeholder="Cechy szczególne"
+          value={memberForm.traits}
+          onChange={(e) => setMemberForm((prev) => ({ ...prev, traits: e.target.value }))}
+        />
+        <input
+          key={memberImageKey}
+          type="file"
+          accept="image/*"
+          onChange={(e) => setMemberForm((prev) => ({ ...prev, profileImage: e.target.files?.[0] || null }))}
+        />
+        <div className="flex flex-wrap gap-2">
+          <button className="btn" onClick={addMember} disabled={memberSaving}>
+            {memberSaving ? "Dodawanie..." : "Dodaj członka"}
+          </button>
+          <button
+            className="btn"
+            type="button"
+            onClick={() => {
+              resetMemberForm();
+              setMemberSearch("");
+            }}
+          >
+            Wyczyść
+          </button>
+          {variant === "modal" && (
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                resetMemberForm();
+                setMemberSearch("");
+                onClose?.();
+              }}
+            >
+              Zamknij
+            </button>
+          )}
+        </div>
+      </>
+    );
+    if (variant === "inline") {
+      return (
+        <div className="card p-4 grid gap-3 border-l-4" style={{ borderColor: RECORD_COLORS.member }}>
+          {body}
+        </div>
+      );
+    }
+    return <div className="grid gap-3">{body}</div>;
+  };
+
+  const renderVehicleForm = (variant: "inline" | "modal", onClose?: () => void) => {
+    const body = (
+      <>
+        <h2 className="font-semibold text-lg">Dodaj pojazd organizacji</h2>
+        <input
+          className="input"
+          placeholder="Szukaj pojazdu (rejestracja, właściciel, marka)"
+          value={vehicleSearch}
+          onChange={(e) => setVehicleSearch(e.target.value)}
+        />
+        <select
+          className="input"
+          value={vehicleForm.vehicleId}
+          onChange={(e) => setVehicleForm({ vehicleId: e.target.value })}
+        >
+          <option value="">Wybierz pojazd</option>
+          {filteredVehicleOptions.map((vehicle) => (
+            <option key={vehicle.id} value={vehicle.id}>
+              {vehicle.registration || "?"} — {vehicle.brand || "?"} • {vehicle.ownerName || "Brak właściciela"}
+            </option>
+          ))}
+        </select>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn" onClick={addVehicle} disabled={vehicleSaving}>
+            {vehicleSaving ? "Dodawanie..." : "Dodaj pojazd"}
+          </button>
+          <button
+            className="btn"
+            type="button"
+            onClick={() => {
+              resetVehicleForm();
+              setVehicleSearch("");
+            }}
+          >
+            Wyczyść
+          </button>
+          {variant === "modal" && (
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                resetVehicleForm();
+                setVehicleSearch("");
+                onClose?.();
+              }}
+            >
+              Zamknij
+            </button>
+          )}
+        </div>
+      </>
+    );
+    if (variant === "inline") {
+      return (
+        <div className="card p-4 grid gap-3 border-l-4" style={{ borderColor: RECORD_COLORS.vehicle }}>
+          {body}
+        </div>
+      );
+    }
+    return <div className="grid gap-3">{body}</div>;
+  };
+
+  const FormModal = ({
+    title,
+    color,
+    children,
+    onClose,
+  }: {
+    title: string;
+    color: string;
+    children: React.ReactNode;
+    onClose: () => void;
+  }) => (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="w-full max-w-3xl overflow-hidden rounded-3xl border bg-[var(--card)] shadow-2xl"
+        style={{ borderColor: withAlpha(color, 0.45) }}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-white/10"
+          style={{ background: withAlpha(color, 0.18) }}
+        >
+          <h2 className="text-lg font-semibold text-white">{title}</h2>
+          <button
+            type="button"
+            className="rounded-full bg-white/10 px-3 py-1 text-sm font-semibold text-white hover:bg-white/20"
+            onClick={onClose}
+          >
+            Zamknij
+          </button>
+        </div>
+        <div className="p-5 grid gap-4">{children}</div>
+      </div>
+    </div>
+  );
+
+  const renderActiveFormModal = () => {
+    if (!isCriminalGroupRoute || !activeForm) return null;
+    const close = () => setActiveForm(null);
+    switch (activeForm) {
+      case "note":
+        return (
+          <FormModal title="Dodaj notatkę" color={RECORD_COLORS.note} onClose={close}>
+            {renderNoteForm("modal", close)}
+          </FormModal>
+        );
+      case "weapon":
+        return (
+          <FormModal title="Dodaj dowód — Broń" color={RECORD_COLORS.weapon} onClose={close}>
+            {renderWeaponForm("modal", close)}
+          </FormModal>
+        );
+      case "drug":
+        return (
+          <FormModal title="Dodaj dowód — Narkotyki" color={RECORD_COLORS.drug} onClose={close}>
+            {renderDrugForm("modal", close)}
+          </FormModal>
+        );
+      case "explosive":
+        return (
+          <FormModal title="Dodaj dowód — Materiały wybuchowe" color={RECORD_COLORS.explosive} onClose={close}>
+            {renderExplosiveForm("modal", close)}
+          </FormModal>
+        );
+      case "member":
+        return (
+          <FormModal title="Dodaj członka grupy" color={RECORD_COLORS.member} onClose={close}>
+            {renderMemberForm("modal", close)}
+          </FormModal>
+        );
+      case "vehicle":
+        return (
+          <FormModal title="Dodaj pojazd organizacji" color={RECORD_COLORS.vehicle} onClose={close}>
+            {renderVehicleForm("modal", close)}
+          </FormModal>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <AuthGate>
       <>
@@ -929,662 +1832,255 @@ export default function DossierPage() {
           <title>LSPD 77RP — {personTitle}</title>
         </Head>
         <Nav />
-        <div className="max-w-5xl mx-auto px-4 py-6 grid gap-4">
-          {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
-          <div className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-xl font-bold">{personTitle}</h1>
-              {isCriminalGroup && info.group ? (
-                <p className="text-sm text-beige-700">
-                  Kolorystyka: {info.group.colorName || "—"} • Rodzaj: {info.group.organizationType || "—"} • Baza: {info.group.base || "—"}
-                </p>
-              ) : null}
-            </div>
-            {canDeleteDossier && (
-              <button className="btn bg-red-700 text-white" onClick={deleteDossier} disabled={deleting}>
-                {deleting ? "Usuwanie..." : "Usuń teczkę"}
-              </button>
-            )}
-          </div>
+                <div className={containerClasses}>
+          <div className="grid gap-4">
+            {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
-          {isCriminalGroup && info.group ? (
-            <div
-              className="card p-4 grid gap-2"
-              style={{ background: groupSummaryColor, borderColor: withAlpha(groupColorHex, 0.4) }}
-            >
-              <h2 className="text-lg font-semibold">Informacje o grupie</h2>
-              {info.group.operations ? (
-                <p className="text-sm text-beige-100/90">
-                  Zakres działalności: {info.group.operations}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          {isCriminalGroup ? (
-            <div className="grid gap-4">
-              <div className="card p-4">
-                <h2 className="text-lg font-semibold mb-2">Członkowie organizacji</h2>
-                {organizationMembers.length ? (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {organizationMembers.map((member) => (
-                      <div
-                        key={member.id}
-                        className="rounded-xl border border-white/10 bg-black/20 p-3 flex gap-3"
-                      >
-                        {member.profileImageUrl ? (
-                          <img
-                            src={member.profileImageUrl}
-                            alt={member.name || "Profil"}
-                            className="w-16 h-16 rounded-lg object-cover"
-                          />
-                        ) : (
-                          <div className="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center text-2xl">
-                            👤
-                          </div>
-                        )}
-                        <div className="flex-1">
-                          <div className="font-semibold">{member.name || "Nieznany"}</div>
-                          <div className="text-xs text-beige-200/80">CID: {member.cid || "—"}</div>
-                          <div className="mt-1 flex flex-wrap gap-1 items-center">
-                            <span
-                              className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
-                              style={{ background: withAlpha(member.rankColor || "#64748b", 0.3), color: member.rankColor || "#e2e8f0" }}
-                            >
-                              {member.rank || "Brak informacji"}
-                            </span>
-                            {member.skinColor ? (
-                              <span className="text-xs text-beige-100/80">Kolor skóry: {member.skinColor}</span>
-                            ) : null}
-                          </div>
-                          {member.traits ? (
-                            <div className="text-xs text-beige-100/70 mt-1">Cechy: {member.traits}</div>
-                          ) : null}
-                          {member.dossierId ? (
-                            <a href={`/dossiers/${member.dossierId}`} className="text-xs underline text-blue-200 mt-1 inline-block">
-                              Przejdź do teczki
-                            </a>
-                          ) : null}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-beige-700">Brak dodanych członków organizacji.</p>
-                )}
+            <div className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h1 className="text-xl font-bold">{personTitle}</h1>
+                {isCriminalGroup && info.group ? (
+                  <p className="text-sm text-beige-700">
+                    Kolorystyka: {info.group.colorName || "—"} • Rodzaj: {info.group.organizationType || "—"} • Baza: {info.group.base || "—"}
+                  </p>
+                ) : null}
               </div>
-
-              <div className="card p-4">
-                <h2 className="text-lg font-semibold mb-2">Pojazdy organizacji</h2>
-                {organizationVehicles.length ? (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {organizationVehicles.map((vehicle) => (
-                      <a
-                        key={vehicle.id}
-                        href={vehicle.vehicleId ? `/vehicle-archive/${vehicle.vehicleId}` : undefined}
-                        className="rounded-xl border border-white/10 bg-black/20 p-3 hover:border-white/30 transition"
-                        onClick={() => {
-                          if (!vehicle.vehicleId || !session) return;
-                          void logActivity({ type: "vehicle_from_dossier_open", dossierId: id, vehicleId: vehicle.vehicleId });
-                        }}
-                      >
-                        <div className="font-semibold text-lg">{vehicle.registration || "Pojazd"}</div>
-                        <div className="text-sm text-beige-200/80">{vehicle.brand || "—"} • Kolor: {vehicle.color || "—"}</div>
-                        <div className="text-xs text-beige-200/60">Właściciel: {vehicle.ownerName || "—"}</div>
-                      </a>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-beige-700">Brak przypisanych pojazdów.</p>
-                )}
-              </div>
-            </div>
-          ) : null}
-
-          {!isCriminalGroup ? (
-            <div className="card p-4 grid gap-3">
-              <h2 className="font-semibold">Powiązane pojazdy</h2>
-              {personVehicles.length > 0 ? (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {personVehicles.map((vehicle) => {
-                    const highlight = getVehicleHighlightStyle(vehicle?.statuses);
-                    const activeFlags = highlight?.active || getActiveVehicleFlags(vehicle?.statuses);
-                    return (
-                      <a
-                        key={vehicle.id}
-                        href={`/vehicle-archive/${vehicle.id}`}
-                        className={`card p-3 transition hover:shadow-xl ${highlight ? "text-white" : ""}`}
-                        style={highlight?.style || undefined}
-                        onClick={() => {
-                          if (!session) return;
-                          void logActivity({ type: "vehicle_from_dossier_open", dossierId: id, vehicleId: vehicle.id });
-                        }}
-                      >
-                        <div className="font-semibold text-lg">{vehicle.registration}</div>
-                        <div className="text-sm opacity-80">{vehicle.brand} • Kolor: {vehicle.color}</div>
-                        <div className="text-sm opacity-80">Właściciel: {vehicle.ownerName}</div>
-                        {activeFlags.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {activeFlags.map((flag: any) => (
-                              <span
-                                key={flag.key}
-                                className="px-2 py-1 text-xs font-semibold rounded-full bg-black/30 border border-white/40"
-                              >
-                                {flag.icon} {flag.label}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </a>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p>Brak powiązanych pojazdów.</p>
+              {canDeleteDossier && (
+                <button className="btn bg-red-700 text-white" onClick={deleteDossier} disabled={deleting}>
+                  {deleting ? "Usuwanie..." : "Usuń teczkę"}
+                </button>
               )}
             </div>
-          ) : null}
 
-          <div className="card p-4 grid gap-3">
-            <h2 className="font-semibold mb-2">Dodaj notatkę</h2>
-            <textarea
-              className="input h-28"
-              placeholder="Treść notatki..."
-              value={noteForm.text}
-              onChange={(e) => setNoteForm((prev) => ({ ...prev, text: e.target.value }))}
-            />
-            <input
-              key={noteFileKey}
-              type="file"
-              multiple
-              onChange={(e) =>
-                setNoteForm((prev) => ({ ...prev, files: Array.from(e.target.files || []) }))
-              }
-            />
-            <div className="flex gap-2">
-              <button className="btn" onClick={addNote} disabled={noteSaving}>
-                {noteSaving ? "Dodawanie..." : "Dodaj notatkę"}
-              </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  setNoteForm({ text: "", files: [] });
-                  setNoteFileKey((k) => k + 1);
-                }}
+            {isCriminalGroup && info.group ? (
+              <div
+                className="card p-5 grid gap-3"
+                style={{ background: groupSummaryColor, borderColor: withAlpha(groupColorHex, 0.4) }}
               >
-                Wyczyść
-              </button>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Informacje o grupie</h2>
+                  {info.group.operations ? (
+                    <p className="text-sm text-white/90 mt-1">
+                      Zakres działalności: {info.group.operations}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {groupSummaryStats.map((stat) => (
+                    <div
+                      key={stat.key}
+                      className="rounded-2xl border border-white/30 px-3 py-2"
+                      style={{ background: stat.color }}
+                    >
+                      <div className="text-[11px] uppercase tracking-wide text-white/70">{stat.label}</div>
+                      <div className="text-lg font-semibold text-white">{stat.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {isCriminalGroup ? (
+              <div className="grid gap-4">
+                <div className="card p-4">
+                  <h2 className="text-lg font-semibold mb-2">Członkowie organizacji</h2>
+                  {organizationMembers.length ? (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {organizationMembers.map((member) => (
+                        <div
+                          key={member.id}
+                          className="rounded-xl border border-white/10 bg-black/20 p-3 flex gap-3"
+                        >
+                          {member.profileImageUrl ? (
+                            <img
+                              src={member.profileImageUrl}
+                              alt={member.name || "Profil"}
+                              className="w-16 h-16 rounded-lg object-cover"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center text-2xl">
+                              👤
+                            </div>
+                          )}
+                          <div className="flex-1">
+                            <div className="font-semibold">{member.name || "Nieznany"}</div>
+                            <div className="text-xs text-beige-200/80">CID: {member.cid || "—"}</div>
+                            <div className="mt-1 flex flex-wrap gap-1 items-center">
+                              <span
+                                className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                                style={{ background: withAlpha(member.rankColor || "#64748b", 0.3), color: member.rankColor || "#e2e8f0" }}
+                              >
+                                {member.rank || "Brak informacji"}
+                              </span>
+                              {member.skinColor ? (
+                                <span className="text-xs text-beige-100/80">Kolor skóry: {member.skinColor}</span>
+                              ) : null}
+                            </div>
+                            {member.traits ? (
+                              <div className="text-xs text-beige-100/70 mt-1">Cechy: {member.traits}</div>
+                            ) : null}
+                            {member.dossierId ? (
+                              <a href={`/dossiers/${member.dossierId}`} className="text-xs underline text-blue-200 mt-1 inline-block">
+                                Przejdź do teczki
+                              </a>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-beige-700">Brak dodanych członków organizacji.</p>
+                  )}
+                </div>
+
+                <div className="card p-4">
+                  <h2 className="text-lg font-semibold mb-2">Pojazdy organizacji</h2>
+                  {organizationVehicles.length ? (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {organizationVehicles.map((vehicle) => (
+                        <a
+                          key={vehicle.id}
+                          href={vehicle.vehicleId ? `/vehicle-archive/${vehicle.vehicleId}` : undefined}
+                          className="rounded-xl border border-white/10 bg-black/20 p-3 hover:border-white/30 transition"
+                          onClick={() => {
+                            if (!vehicle.vehicleId || !session) return;
+                            void logActivity({ type: "vehicle_from_dossier_open", dossierId: id, vehicleId: vehicle.vehicleId });
+                          }}
+                        >
+                          <div className="font-semibold text-lg">{vehicle.registration || "Pojazd"}</div>
+                          <div className="text-sm text-beige-200/80">{vehicle.brand || "—"} • Kolor: {vehicle.color || "—"}</div>
+                          <div className="text-xs text-beige-200/60">Właściciel: {vehicle.ownerName || "—"}</div>
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-beige-700">Brak przypisanych pojazdów.</p>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {!isCriminalGroup ? (
+              <div className="card p-4 grid gap-3">
+                <h2 className="font-semibold">Powiązane pojazdy</h2>
+                {personVehicles.length > 0 ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {personVehicles.map((vehicle) => {
+                      const highlight = getVehicleHighlightStyle(vehicle?.statuses);
+                      const activeFlags = highlight?.active || getActiveVehicleFlags(vehicle?.statuses);
+                      return (
+                        <a
+                          key={vehicle.id}
+                          href={`/vehicle-archive/${vehicle.id}`}
+                          className={`card p-3 transition hover:shadow-xl ${highlight ? "text-white" : ""}`}
+                          style={highlight?.style || undefined}
+                          onClick={() => {
+                            if (!session) return;
+                            void logActivity({ type: "vehicle_from_dossier_open", dossierId: id, vehicleId: vehicle.id });
+                          }}
+                        >
+                          <div className="font-semibold text-lg">{vehicle.registration}</div>
+                          <div className="text-sm opacity-80">{vehicle.brand} • Kolor: {vehicle.color}</div>
+                          <div className="text-sm opacity-80">Właściciel: {vehicle.ownerName}</div>
+                          {activeFlags.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {activeFlags.map((flag: any) => (
+                                <span
+                                  key={flag.key}
+                                  className="px-2 py-1 text-xs font-semibold rounded-full bg-black/30 border border-white/40"
+                                >
+                                  {flag.icon} {flag.label}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </a>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p>Brak powiązanych pojazdów.</p>
+                )}
+              </div>
+            ) : null}
+
+            {(!isCriminalGroup || !isCriminalGroupRoute) && renderNoteForm("inline")}
+
+            {isCriminalGroup && !isCriminalGroupRoute ? (
+              <>
+                {renderWeaponForm("inline")}
+                {renderDrugForm("inline")}
+                {renderExplosiveForm("inline")}
+                {renderMemberForm("inline")}
+                {renderVehicleForm("inline")}
+              </>
+            ) : null}
+
+            <div className="grid gap-2">
+              {records.map((record) => {
+                const createdAt = record.createdAt?.toDate?.();
+                const dateLabel = createdAt ? new Date(createdAt).toLocaleString() : new Date().toLocaleString();
+                const style = resolveRecordStyle(record);
+                const label = resolveRecordLabel(record);
+                return (
+                  <div
+                    key={record.id}
+                    className="card p-3 border"
+                    style={{ background: style.background, borderColor: style.borderColor }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-beige-200/80 mb-2">
+                      <span>{dateLabel} • {record.author || record.authorUid}</span>
+                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-black/20">{label}</span>
+                    </div>
+                    {renderRecordDetails(record)}
+                    {renderAttachments(record)}
+                    {canEditRecord(record) && (
+                      <div className="mt-2 flex gap-2">
+                        <button className="btn" onClick={() => editRecord(record.id, record.text || "", record.type || "note")}>
+                          Edytuj
+                        </button>
+                        <button className="btn bg-red-700 text-white" onClick={() => deleteRecord(record.id)}>
+                          Usuń
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {records.length === 0 && <div className="card p-3">Brak wpisów.</div>}
             </div>
           </div>
 
-          {isCriminalGroup ? (
-            <>
-              <div className="card p-4 grid gap-3 border-l-4" style={{ borderColor: RECORD_COLORS.weapon }}>
-                <h2 className="font-semibold text-lg">Dodaj dowód — Broń</h2>
-                <div className="grid md:grid-cols-2 gap-3">
-                  <input
-                    className="input"
-                    placeholder="Model broni"
-                    value={weaponForm.model}
-                    onChange={(e) => setWeaponForm((prev) => ({ ...prev, model: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Numery seryjne"
-                    value={weaponForm.serialNumbers}
-                    onChange={(e) => setWeaponForm((prev) => ({ ...prev, serialNumbers: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Od kogo pozyskano"
-                    value={weaponForm.source}
-                    onChange={(e) => setWeaponForm((prev) => ({ ...prev, source: e.target.value }))}
-                  />
-                  <select
-                    className="input"
-                    value={weaponForm.crimeUsage}
-                    onChange={(e) => setWeaponForm((prev) => ({ ...prev, crimeUsage: e.target.value }))}
-                  >
-                    <option value="tak">Tak</option>
-                    <option value="nie">Nie</option>
-                    <option value="brak informacji">Brak informacji</option>
-                  </select>
-                  <input
-                    type="date"
-                    className="input"
-                    value={weaponForm.date}
-                    onChange={(e) => setWeaponForm((prev) => ({ ...prev, date: e.target.value }))}
-                  />
-                  <input
-                    type="time"
-                    className="input"
-                    value={weaponForm.time}
-                    onChange={(e) => setWeaponForm((prev) => ({ ...prev, time: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Cena kupna"
-                    value={weaponForm.purchasePrice}
-                    onChange={(e) => setWeaponForm((prev) => ({ ...prev, purchasePrice: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Wartość czarnorynkowa"
-                    value={weaponForm.blackMarketValue}
-                    onChange={(e) => setWeaponForm((prev) => ({ ...prev, blackMarketValue: e.target.value }))}
-                  />
-                </div>
-                <input
-                  key={weaponFileKey}
-                  type="file"
-                  multiple
-                  onChange={(e) => setWeaponForm((prev) => ({ ...prev, files: Array.from(e.target.files || []) }))}
-                />
-                <div className="flex gap-2">
-                  <button className="btn" onClick={addWeapon} disabled={weaponSaving}>
-                    {weaponSaving ? "Dodawanie..." : "Dodaj dowód"}
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      setWeaponForm({
-                        model: "",
-                        serialNumbers: "",
-                        source: "",
-                        crimeUsage: "brak informacji",
-                        date: "",
-                        time: "",
-                        purchasePrice: "",
-                        blackMarketValue: "",
-                        files: [],
-                      });
-                      setWeaponFileKey((k) => k + 1);
-                    }}
-                  >
-                    Wyczyść
-                  </button>
-                </div>
-              </div>
-
-              <div className="card p-4 grid gap-3 border-l-4" style={{ borderColor: RECORD_COLORS.drug }}>
-                <h2 className="font-semibold text-lg">Dodaj dowód — Narkotyki</h2>
-                <div className="grid md:grid-cols-2 gap-3">
-                  <input
-                    className="input"
-                    placeholder="Rodzaj narkotyku"
-                    value={drugForm.type}
-                    onChange={(e) => setDrugForm((prev) => ({ ...prev, type: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Ilość w gramach"
-                    value={drugForm.quantity}
-                    onChange={(e) => setDrugForm((prev) => ({ ...prev, quantity: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Jakość"
-                    value={drugForm.quality}
-                    onChange={(e) => setDrugForm((prev) => ({ ...prev, quality: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Miejsce"
-                    value={drugForm.location}
-                    onChange={(e) => setDrugForm((prev) => ({ ...prev, location: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Od kogo"
-                    value={drugForm.source}
-                    onChange={(e) => setDrugForm((prev) => ({ ...prev, source: e.target.value }))}
-                  />
-                  <input
-                    type="date"
-                    className="input"
-                    value={drugForm.date}
-                    onChange={(e) => setDrugForm((prev) => ({ ...prev, date: e.target.value }))}
-                  />
-                  <input
-                    type="time"
-                    className="input"
-                    value={drugForm.time}
-                    onChange={(e) => setDrugForm((prev) => ({ ...prev, time: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Cena kupna"
-                    value={drugForm.purchasePrice}
-                    onChange={(e) => setDrugForm((prev) => ({ ...prev, purchasePrice: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Wartość czarnorynkowa"
-                    value={drugForm.blackMarketValue}
-                    onChange={(e) => setDrugForm((prev) => ({ ...prev, blackMarketValue: e.target.value }))}
-                  />
-                </div>
-                <textarea
-                  className="input"
-                  placeholder="Dodatkowa notatka"
-                  value={drugForm.note}
-                  onChange={(e) => setDrugForm((prev) => ({ ...prev, note: e.target.value }))}
-                />
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    className={`btn ${drugForm.controlledTransaction ? "bg-orange-500 text-white" : ""}`}
-                    onClick={() => setDrugForm((prev) => ({ ...prev, controlledTransaction: !prev.controlledTransaction }))}
-                  >
-                    {drugForm.controlledTransaction ? "Transakcja kontrolowana ✓" : "Transakcja kontrolowana"}
-                  </button>
-                </div>
-                <input
-                  key={drugFileKey}
-                  type="file"
-                  multiple
-                  onChange={(e) => setDrugForm((prev) => ({ ...prev, files: Array.from(e.target.files || []) }))}
-                />
-                <div className="flex gap-2">
-                  <button className="btn" onClick={addDrug} disabled={drugSaving}>
-                    {drugSaving ? "Dodawanie..." : "Dodaj dowód"}
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      setDrugForm({
-                        type: "",
-                        quantity: "",
-                        quality: "",
-                        date: "",
-                        time: "",
-                        location: "",
-                        source: "",
-                        purchasePrice: "",
-                        blackMarketValue: "",
-                        note: "",
-                        controlledTransaction: false,
-                        files: [],
-                      });
-                      setDrugFileKey((k) => k + 1);
-                    }}
-                  >
-                    Wyczyść
-                  </button>
-                </div>
-              </div>
-
-              <div className="card p-4 grid gap-3 border-l-4" style={{ borderColor: RECORD_COLORS.explosive }}>
-                <h2 className="font-semibold text-lg">Dodaj dowód — Materiały wybuchowe</h2>
-                <div className="grid md:grid-cols-2 gap-3">
-                  <input
-                    className="input"
-                    placeholder="Rodzaj materiału"
-                    value={explosiveForm.type}
-                    onChange={(e) => setExplosiveForm((prev) => ({ ...prev, type: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Ilość"
-                    value={explosiveForm.quantity}
-                    onChange={(e) => setExplosiveForm((prev) => ({ ...prev, quantity: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Miejsce"
-                    value={explosiveForm.location}
-                    onChange={(e) => setExplosiveForm((prev) => ({ ...prev, location: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Od kogo"
-                    value={explosiveForm.source}
-                    onChange={(e) => setExplosiveForm((prev) => ({ ...prev, source: e.target.value }))}
-                  />
-                  <input
-                    type="date"
-                    className="input"
-                    value={explosiveForm.date}
-                    onChange={(e) => setExplosiveForm((prev) => ({ ...prev, date: e.target.value }))}
-                  />
-                  <input
-                    type="time"
-                    className="input"
-                    value={explosiveForm.time}
-                    onChange={(e) => setExplosiveForm((prev) => ({ ...prev, time: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Cena kupna"
-                    value={explosiveForm.purchasePrice}
-                    onChange={(e) => setExplosiveForm((prev) => ({ ...prev, purchasePrice: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Wartość czarnorynkowa"
-                    value={explosiveForm.blackMarketValue}
-                    onChange={(e) => setExplosiveForm((prev) => ({ ...prev, blackMarketValue: e.target.value }))}
-                  />
-                </div>
-                <textarea
-                  className="input"
-                  placeholder="Dodatkowa notatka"
-                  value={explosiveForm.note}
-                  onChange={(e) => setExplosiveForm((prev) => ({ ...prev, note: e.target.value }))}
-                />
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    className={`btn ${explosiveForm.controlledTransaction ? "bg-orange-500 text-white" : ""}`}
-                    onClick={() =>
-                      setExplosiveForm((prev) => ({ ...prev, controlledTransaction: !prev.controlledTransaction }))
-                    }
-                  >
-                    {explosiveForm.controlledTransaction ? "Transakcja kontrolowana ✓" : "Transakcja kontrolowana"}
-                  </button>
-                </div>
-                <input
-                  key={explosiveFileKey}
-                  type="file"
-                  multiple
-                  onChange={(e) =>
-                    setExplosiveForm((prev) => ({ ...prev, files: Array.from(e.target.files || []) }))
-                  }
-                />
-                <div className="flex gap-2">
-                  <button className="btn" onClick={addExplosive} disabled={explosiveSaving}>
-                    {explosiveSaving ? "Dodawanie..." : "Dodaj dowód"}
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      setExplosiveForm({
-                        type: "",
-                        quantity: "",
-                        date: "",
-                        time: "",
-                        location: "",
-                        source: "",
-                        purchasePrice: "",
-                        blackMarketValue: "",
-                        note: "",
-                        controlledTransaction: false,
-                        files: [],
-                      });
-                      setExplosiveFileKey((k) => k + 1);
-                    }}
-                  >
-                    Wyczyść
-                  </button>
-                </div>
-              </div>
-
-              <div className="card p-4 grid gap-3 border-l-4" style={{ borderColor: RECORD_COLORS.member }}>
-                <h2 className="font-semibold text-lg">Dodaj członka grupy</h2>
-                <input
-                  className="input"
-                  placeholder="Szukaj teczki (imię, nazwisko, CID)"
-                  value={memberSearch}
-                  onChange={(e) => setMemberSearch(e.target.value)}
-                />
-                <select
-                  className="input"
-                  value={memberForm.dossierId}
-                  onChange={(e) => {
-                    const dossierId = e.target.value;
-                    const dossier = allDossiers.find((d) => d.id === dossierId);
-                    setMemberForm((prev) => ({
-                      ...prev,
-                      dossierId,
-                      name: dossier ? [dossier.first, dossier.last].filter(Boolean).join(" ") || dossier.title || "" : prev.name,
-                      cid: dossier?.cid || prev.cid,
-                    }));
-                  }}
-                >
-                  <option value="">Wybierz teczkę</option>
-                  {filteredDossierOptions.map((dossier) => (
-                    <option key={dossier.id} value={dossier.id}>
-                      {dossier.title || `${dossier.first || ""} ${dossier.last || ""}`.trim() || dossier.id}
-                    </option>
+          {isCriminalGroupRoute ? (
+            <div className="grid gap-4 h-fit">
+              <div className="card p-4 sticky top-24 space-y-3">
+                <h2 className="font-semibold text-lg">Dodawanie wpisów</h2>
+                <p className="text-sm text-beige-700">
+                  Wybierz kategorię, aby otworzyć dedykowany formularz w oknie modalnym.
+                </p>
+                <div className="grid gap-2">
+                  {groupActionButtons.map((action) => (
+                    <button
+                      key={action.key}
+                      type="button"
+                      className="rounded-2xl border px-4 py-3 text-left transition shadow-sm hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-white/40"
+                      style={{
+                        background: `linear-gradient(135deg, ${withAlpha(action.accent, 0.12)}, ${withAlpha(action.accent, 0.28)})`,
+                        borderColor: withAlpha(action.accent, 0.45),
+                      }}
+                      onClick={action.action}
+                    >
+                      <div className="text-sm font-semibold text-white">{action.label}</div>
+                      <div className="text-xs text-white/80 mt-1">{action.description}</div>
+                    </button>
                   ))}
-                </select>
-                <div className="grid md:grid-cols-2 gap-3">
-                  <input
-                    className="input"
-                    placeholder="Imię i nazwisko"
-                    value={memberForm.name}
-                    onChange={(e) => setMemberForm((prev) => ({ ...prev, name: e.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    placeholder="CID"
-                    value={memberForm.cid}
-                    onChange={(e) => setMemberForm((prev) => ({ ...prev, cid: e.target.value }))}
-                  />
-                  <select
-                    className="input"
-                    value={memberForm.rank}
-                    onChange={(e) => setMemberForm((prev) => ({ ...prev, rank: e.target.value }))}
-                  >
-                    {MEMBER_RANKS.map((rank) => (
-                      <option key={rank.value} value={rank.value}>
-                        {rank.label}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className="input"
-                    placeholder="Kolor skóry"
-                    value={memberForm.skinColor}
-                    onChange={(e) => setMemberForm((prev) => ({ ...prev, skinColor: e.target.value }))}
-                  />
-                </div>
-                <textarea
-                  className="input"
-                  placeholder="Cechy szczególne"
-                  value={memberForm.traits}
-                  onChange={(e) => setMemberForm((prev) => ({ ...prev, traits: e.target.value }))}
-                />
-                <input
-                  key={memberImageKey}
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setMemberForm((prev) => ({ ...prev, profileImage: e.target.files?.[0] || null }))}
-                />
-                <div className="flex gap-2">
-                  <button className="btn" onClick={addMember} disabled={memberSaving}>
-                    {memberSaving ? "Dodawanie..." : "Dodaj członka"}
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      setMemberForm({
-                        dossierId: "",
-                        name: "",
-                        cid: "",
-                        rank: "brak informacji",
-                        skinColor: "",
-                        traits: "",
-                        profileImage: null,
-                      });
-                      setMemberImageKey((k) => k + 1);
-                    }}
-                  >
-                    Wyczyść
-                  </button>
                 </div>
               </div>
-
-              <div className="card p-4 grid gap-3 border-l-4" style={{ borderColor: RECORD_COLORS.vehicle }}>
-                <h2 className="font-semibold text-lg">Dodaj pojazd organizacji</h2>
-                <input
-                  className="input"
-                  placeholder="Szukaj pojazdu (rejestracja, właściciel, marka)"
-                  value={vehicleSearch}
-                  onChange={(e) => setVehicleSearch(e.target.value)}
-                />
-                <select
-                  className="input"
-                  value={vehicleForm.vehicleId}
-                  onChange={(e) => setVehicleForm({ vehicleId: e.target.value })}
-                >
-                  <option value="">Wybierz pojazd</option>
-                  {filteredVehicleOptions.map((vehicle) => (
-                    <option key={vehicle.id} value={vehicle.id}>
-                      {vehicle.registration || "?"} — {vehicle.brand || "?"} • {vehicle.ownerName || "Brak właściciela"}
-                    </option>
-                  ))}
-                </select>
-                <div className="flex gap-2">
-                  <button className="btn" onClick={addVehicle} disabled={vehicleSaving}>
-                    {vehicleSaving ? "Dodawanie..." : "Dodaj pojazd"}
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => setVehicleForm({ vehicleId: "" })}
-                  >
-                    Wyczyść
-                  </button>
-                </div>
-              </div>
-            </>
+            </div>
           ) : null}
-
-          <div className="grid gap-2">
-            {records.map((record) => {
-              const createdAt = record.createdAt?.toDate?.();
-              const dateLabel = createdAt ? new Date(createdAt).toLocaleString() : new Date().toLocaleString();
-              const style = resolveRecordStyle(record);
-              const label = resolveRecordLabel(record);
-              return (
-                <div
-                  key={record.id}
-                  className="card p-3 border"
-                  style={{ background: style.background, borderColor: style.borderColor }}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-beige-200/80 mb-2">
-                    <span>{dateLabel} • {record.author || record.authorUid}</span>
-                    <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-black/20">{label}</span>
-                  </div>
-                  {renderRecordDetails(record)}
-                  {renderAttachments(record)}
-                  {canEditRecord(record) && (
-                    <div className="mt-2 flex gap-2">
-                      <button className="btn" onClick={() => editRecord(record.id, record.text || "", record.type || "note")}>
-                        Edytuj
-                      </button>
-                      <button className="btn bg-red-700 text-white" onClick={() => deleteRecord(record.id)}>
-                        Usuń
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {records.length === 0 && <div className="card p-3">Brak wpisów.</div>}
-          </div>
         </div>
+        {renderActiveFormModal()}
       </>
     </AuthGate>
   );
