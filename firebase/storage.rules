@@ -9,7 +9,7 @@ service firebase.storage {
       allow read, write: if signedIn();
     }
 
-    match /dossiers/{dossierId}/evidence/{file} {
+    match /dossiers/{dossierId}/{allPaths=**} {
       allow read, write: if signedIn();
     }
 

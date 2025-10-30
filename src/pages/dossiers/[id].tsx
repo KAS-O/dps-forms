@@ -86,7 +86,22 @@ const RECORD_COLORS: Record<string, string> = {
   vehicle: "#0ea5e9",
 };
 
+const ACTION_BUTTON_THEMES: Record<Exclude<ActiveFormType, null>, { primary: string; secondary: string; text: string }> = {
+  note: { primary: "#a855f7", secondary: "#7c3aed", text: "#f5f3ff" },
+  weapon: { primary: "#ef4444", secondary: "#f97316", text: "#fee2e2" },
+  drug: { primary: "#10b981", secondary: "#14b8a6", text: "#ecfdf5" },
+  explosive: { primary: "#f59e0b", secondary: "#facc15", text: "#fef9c3" },
+  member: { primary: "#6366f1", secondary: "#8b5cf6", text: "#e0e7ff" },
+  vehicle: { primary: "#0ea5e9", secondary: "#38bdf8", text: "#e0f2fe" },
+};
+
 const CONTROLLED_COLOR = "#fb923c";
+
+const CRIME_USAGE_DESCRIPTIONS: Record<string, string> = {
+  tak: "Broń została zabezpieczona po wykorzystaniu w przestępstwie.",
+  nie: "Brak potwierdzenia wykorzystania broni przy popełnieniu przestępstwa.",
+  "brak informacji": "Nie ustalono, czy broń służyła do popełnienia przestępstwa.",
+};
 
 const ACTIVE_FORM_TITLES: Record<Exclude<ActiveFormType, null>, string> = {
   note: "Dodaj notatkę",
@@ -225,6 +240,7 @@ export default function DossierPage() {
     time: "",
     purchasePrice: "",
     blackMarketValue: "",
+    controlledTransaction: false,
     files: [] as File[],
   });
   const [weaponSaving, setWeaponSaving] = useState(false);
@@ -440,6 +456,7 @@ export default function DossierPage() {
           time: weaponForm.time,
           purchasePrice: weaponForm.purchasePrice,
           blackMarketValue: weaponForm.blackMarketValue,
+          controlledTransaction: weaponForm.controlledTransaction,
           attachments,
           createdAt: serverTimestamp(),
           author: auth.currentUser?.email || "",
@@ -456,6 +473,7 @@ export default function DossierPage() {
         time: "",
         purchasePrice: "",
         blackMarketValue: "",
+        controlledTransaction: false,
         files: [],
       });
       setWeaponFileKey((k) => k + 1);
@@ -752,20 +770,29 @@ export default function DossierPage() {
                 onChange={(e) => setWeaponForm((prev) => ({ ...prev, serialNumbers: e.target.value }))}
               />
               <input
-                className="input"
+                className="input md:col-span-2"
                 placeholder="Od kogo pozyskano"
                 value={weaponForm.source}
                 onChange={(e) => setWeaponForm((prev) => ({ ...prev, source: e.target.value }))}
               />
-              <select
-                className="input"
-                value={weaponForm.crimeUsage}
-                onChange={(e) => setWeaponForm((prev) => ({ ...prev, crimeUsage: e.target.value }))}
-              >
-                <option value="tak">Tak</option>
-                <option value="nie">Nie</option>
-                <option value="brak informacji">Brak informacji</option>
-              </select>
+              <div className="md:col-span-2 grid gap-1">
+                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-beige-100/80">
+                  Czy broń została użyta w przestępstwie?
+                </label>
+                <select
+                  className="input"
+                  value={weaponForm.crimeUsage}
+                  onChange={(e) => setWeaponForm((prev) => ({ ...prev, crimeUsage: e.target.value }))}
+                >
+                  <option value="tak">Tak — zabezpieczono po użyciu w przestępstwie</option>
+                  <option value="nie">Nie — brak potwierdzenia użycia</option>
+                  <option value="brak informacji">Brak informacji</option>
+                </select>
+                <p className="text-[11px] text-beige-100/70">
+                  {CRIME_USAGE_DESCRIPTIONS[weaponForm.crimeUsage] ||
+                    "Wybierz odpowiedź, aby doprecyzować okoliczności zabezpieczenia broni."}
+                </p>
+              </div>
               <input
                 type="date"
                 className="input"
@@ -791,6 +818,23 @@ export default function DossierPage() {
                 onChange={(e) => setWeaponForm((prev) => ({ ...prev, blackMarketValue: e.target.value }))}
               />
             </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className={`btn ${weaponForm.controlledTransaction ? "bg-orange-500 text-white" : ""}`}
+                onClick={() =>
+                  setWeaponForm((prev) => ({
+                    ...prev,
+                    controlledTransaction: !prev.controlledTransaction,
+                  }))
+                }
+              >
+                {weaponForm.controlledTransaction ? "Transakcja kontrolowana ✓" : "Transakcja kontrolowana"}
+              </button>
+              <p className="text-xs text-beige-100/70">
+                Zaznacz, jeśli broń została pozyskana w ramach prowadzonej transakcji kontrolowanej.
+              </p>
+            </div>
             <input
               key={weaponFileKey}
               type="file"
@@ -814,6 +858,7 @@ export default function DossierPage() {
                     time: "",
                     purchasePrice: "",
                     blackMarketValue: "",
+                    controlledTransaction: false,
                     files: [],
                   });
                   setWeaponFileKey((k) => k + 1);
@@ -1289,6 +1334,13 @@ export default function DossierPage() {
     [groupColorHex]
   );
 
+  const timelineRecords = useMemo(() => {
+    return records.filter((record) => {
+      const type = record.type || "note";
+      return type !== "member" && type !== "vehicle";
+    });
+  }, [records]);
+
   const organizationMembers = useMemo(() => {
     const unique = new Map<string, DossierRecord>();
     records
@@ -1379,7 +1431,7 @@ export default function DossierPage() {
       {
         key: "records",
         label: "Zarchiwizowane wpisy",
-        value: numberFormatter.format(records.length),
+        value: numberFormatter.format(timelineRecords.length),
         icon: "🗂️",
         accent: "#818cf8",
       },
@@ -1388,7 +1440,7 @@ export default function DossierPage() {
       numberFormatter,
       organizationMembers.length,
       organizationVehicles.length,
-      records.length,
+      timelineRecords.length,
       summaryStats.blackMarket,
       summaryStats.bombs,
       summaryStats.drugs,
@@ -1448,10 +1500,17 @@ export default function DossierPage() {
             <div>Model broni: <strong>{record.weaponModel || "—"}</strong></div>
             <div>Numery seryjne: <strong>{record.serialNumbers || "—"}</strong></div>
             <div>Źródło pochodzenia: {record.source || "—"}</div>
-            <div>Popełniono przestępstwo: {record.crimeUsage || "—"}</div>
+            <div>
+              Wykorzystanie w przestępstwie: {CRIME_USAGE_DESCRIPTIONS[record.crimeUsage || ""] || record.crimeUsage || "—"}
+            </div>
             <div>Data: {record.date || "—"} • Godzina: {record.time || "—"}</div>
             <div>Cena kupna: {record.purchasePrice || "—"}</div>
             <div>Wartość czarnorynkowa: {record.blackMarketValue || "—"}</div>
+            {record.controlledTransaction ? (
+              <span className="inline-flex mt-1 px-2 py-1 rounded-full bg-orange-500/30 text-xs font-semibold text-orange-100">
+                Transakcja kontrolowana
+              </span>
+            ) : null}
           </div>
         );
       case "drug":
@@ -1893,7 +1952,7 @@ export default function DossierPage() {
             ) : null}
 
             <div className="grid gap-2">
-              {records.map((record) => {
+              {timelineRecords.map((record) => {
                 const createdAt = record.createdAt?.toDate?.();
                 const dateLabel = createdAt ? new Date(createdAt).toLocaleString() : new Date().toLocaleString();
                 const style = resolveRecordStyle(record);
@@ -1921,7 +1980,7 @@ export default function DossierPage() {
                   </div>
                 );
               })}
-              {records.length === 0 && <div className="card p-3">Brak wpisów.</div>}
+              {timelineRecords.length === 0 && <div className="card p-3">Brak wpisów.</div>}
             </div>
           </div>
 
@@ -1943,24 +2002,34 @@ export default function DossierPage() {
                   </p>
                 </div>
                 <div className="grid gap-2">
-                  {actionButtons.map((action) => (
-                    <button
-                      key={action.type}
-                      type="button"
-                      onClick={() => openForm(action.type)}
-                      className="w-full rounded-xl border px-3 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-xl"
-                      style={{
-                        background: `linear-gradient(135deg, ${withAlpha(RECORD_COLORS[action.type], 0.28)}, rgba(5, 10, 20, 0.7))`,
-                        borderColor: withAlpha(RECORD_COLORS[action.type], 0.5),
-                      }}
-                    >
-                      <div className="font-semibold text-white flex items-center gap-2">
-                        <span aria-hidden>➕</span>
-                        {action.label}
-                      </div>
-                      <div className="text-xs text-white/70">{action.description}</div>
-                    </button>
-                  ))}
+                  {actionButtons.map((action) => {
+                    const theme = ACTION_BUTTON_THEMES[action.type];
+                    return (
+                      <button
+                        key={action.type}
+                        type="button"
+                        onClick={() => openForm(action.type)}
+                        className="w-full rounded-xl border px-3 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-xl"
+                        style={{
+                          background: `linear-gradient(135deg, ${withAlpha(theme.primary, 0.35)}, ${withAlpha(theme.secondary, 0.2)})`,
+                          borderColor: withAlpha(theme.primary, 0.55),
+                          color: theme.text,
+                          boxShadow: `0 20px 50px -28px ${withAlpha(theme.primary, 0.85)}`,
+                        }}
+                      >
+                        <div className="font-semibold flex items-center gap-2">
+                          <span aria-hidden>➕</span>
+                          {action.label}
+                        </div>
+                        <div
+                          className="text-xs"
+                          style={{ color: withAlpha(theme.text, 0.8) }}
+                        >
+                          {action.description}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </aside>

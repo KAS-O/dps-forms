@@ -7,8 +7,13 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function userProfile(uid) {
+      return signedIn() ? get(/databases/$(database)/documents/profiles/$(uid)) : null;
+    }
+
     function roleOf(uid) {
-      return get(/databases/$(database)/documents/profiles/$(uid)).data.role;
+      let profile = userProfile(uid);
+      return profile != null && profile.data != null ? profile.data.role : null;
     }
 
     function isDirector() {
@@ -47,7 +52,8 @@ service cloud.firestore {
     }
 
     function isCriminalGroupDossier(dossierId) {
-      return get(/databases/$(database)/documents/dossiers/$(dossierId)).data.category == "criminal-group";
+      let dossier = get(/databases/$(database)/documents/dossiers/$(dossierId));
+      return dossier != null && dossier.data != null && dossier.data.category == "criminal-group";
     }
 
     // profile
