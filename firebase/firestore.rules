@@ -41,6 +41,10 @@ service cloud.firestore {
       ]);
     }
 
+    function isCriminalGroupDossier(dossierId) {
+      return get(/databases/$(database)/documents/dossiers/$(dossierId)).data.category == "criminal-group";
+    }
+
     // profile
     match /profiles/{uid} {
       allow read: if signedIn();
@@ -78,14 +82,16 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn();
       allow update: if (isDirector() || isChief()) ||
-        (signedIn() && resource.data.createdByUid == request.auth.uid);
+        (signedIn() && resource.data.createdByUid == request.auth.uid) ||
+        (isCriminalGroupDossier(dossierId) && isStaff());
       allow delete: if isDirector();
 
       match /records/{recordId} {
         allow read: if signedIn();
         allow create: if signedIn();
         allow update, delete: if (isDirector() || isChief()) ||
-          (signedIn() && resource.data.authorUid == request.auth.uid);
+          (signedIn() && resource.data.authorUid == request.auth.uid) ||
+          (isCriminalGroupDossier(dossierId) && isStaff());
       }
     }
 
