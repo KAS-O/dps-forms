@@ -3,6 +3,7 @@ import Head from "next/head";
 import Nav from "@/components/Nav";
 import AuthGate from "@/components/AuthGate";
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   addDoc,
   collection,
@@ -134,6 +135,25 @@ export default function VehicleFolderPage() {
 
   const highlight = useMemo(() => getVehicleHighlightStyle(vehicle?.statuses), [vehicle?.statuses]);
   const activeFlags = highlight?.active || getActiveVehicleFlags(vehicle?.statuses);
+  const accentColor = useMemo(() => {
+    const border = (highlight?.style as CSSProperties | undefined)?.borderColor;
+    if (typeof border === "string" && border.trim().length > 0) {
+      return border;
+    }
+    return "#0ea5e9";
+  }, [highlight?.style]);
+  const baseHeaderStyle = useMemo(
+    () => ({
+      borderColor: `${accentColor}90`,
+      background: `linear-gradient(135deg, ${accentColor}33, rgba(7, 18, 34, 0.92))`,
+      boxShadow: `0 32px 70px -26px ${accentColor}aa`,
+    }),
+    [accentColor]
+  );
+  const headerStyle = useMemo(
+    () => (highlight?.style ? { ...baseHeaderStyle, ...highlight.style } : baseHeaderStyle),
+    [baseHeaderStyle, highlight]
+  );
 
   const saveDetails = async () => {
     if (!id) return;
@@ -384,25 +404,40 @@ export default function VehicleFolderPage() {
         <Head><title>LSPD 77RP — {title}</title></Head>
         <Nav />
         <div className="max-w-5xl mx-auto px-4 py-6 grid gap-4">
-          {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
-          {ok && <div className="card p-3 bg-green-50 text-green-700">{ok}</div>}
+          {err && <div className="card p-3 bg-red-50 text-red-700" data-section="vehicle">{err}</div>}
+          {ok && <div className="card p-3 bg-green-50 text-green-700" data-section="vehicle">{ok}</div>}
 
           <div
-            className={`card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between ${highlight ? "text-white" : ""}`}
-            style={highlight?.style || undefined}
+            className="card p-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between text-white"
+            data-section="vehicle"
+            style={headerStyle}
           >
-            <div>
-              <h1 className="text-2xl font-bold">{vehicle?.registration || "Teczka pojazdu"}</h1>
-              <div className="text-sm opacity-80">Aktualizacja: {vehicle?.updatedAt?.toDate?.()?.toLocaleString?.() || vehicle?.createdAt?.toDate?.()?.toLocaleString?.() || "—"}</div>
-              {ownerDossierId && (
-                <div className="mt-1 text-sm">
-                  Powiązana teczka osoby: <a className="underline" href={`/dossiers/${ownerDossierId}`}>zobacz dossier</a>
+            <div className="space-y-3">
+              <span className="section-chip">
+                <span className="section-chip__dot" style={{ background: accentColor }} />
+                Teczka pojazdu
+              </span>
+              <div>
+                <h1 className="text-3xl font-semibold tracking-tight flex items-center gap-2">
+                  <span aria-hidden>🚔</span>
+                  {vehicle?.registration || "Teczka pojazdu"}
+                </h1>
+                <div className="text-sm text-white/75">
+                  Aktualizacja: {vehicle?.updatedAt?.toDate?.()?.toLocaleString?.() || vehicle?.createdAt?.toDate?.()?.toLocaleString?.() || "—"}
                 </div>
-              )}
+                {ownerDossierId && (
+                  <div className="mt-1 text-sm text-white/70">
+                    Powiązana teczka osoby:{" "}
+                    <a className="underline" href={`/dossiers/${ownerDossierId}`}>
+                      zobacz dossier
+                    </a>
+                  </div>
+                )}
+              </div>
               {activeFlags.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2">
                   {activeFlags.map((flag) => (
-                    <span key={flag.key} className="px-2 py-1 text-xs font-semibold rounded-full bg-black/30 border border-white/40">
+                    <span key={flag.key} className="px-2 py-1 text-xs font-semibold rounded-full border border-white/40 bg-white/10">
                       {flag.icon} {flag.label}
                     </span>
                   ))}
@@ -414,8 +449,14 @@ export default function VehicleFolderPage() {
             </button>
           </div>
 
-          <div className="card p-4 grid gap-3">
-            <h2 className="font-semibold">Dane pojazdu</h2>
+          <div className="card p-6 grid gap-4" data-section="vehicle">
+            <div>
+              <h2 className="text-2xl font-semibold flex items-center gap-2">
+                <span aria-hidden>📑</span>
+                Dane pojazdu
+              </h2>
+              <p className="text-sm text-beige-100/70">Zaktualizuj informacje identyfikacyjne pojazdu.</p>
+            </div>
             <div className="grid gap-2 md:grid-cols-2">
               <div className="grid gap-1">
                 <label className="label">Numer rejestracyjny</label>
@@ -438,15 +479,19 @@ export default function VehicleFolderPage() {
                 <input className="input" value={form.ownerCid} onChange={(e) => setForm((prev) => ({ ...prev, ownerCid: e.target.value }))} />
               </div>
             </div>
-            <div className="flex gap-2">
-              <button className="btn" onClick={saveDetails} disabled={saving}>
-                {saving ? "Zapisywanie..." : "Zapisz dane"}
-              </button>
-            </div>
+            <button className="btn w-full md:w-auto" onClick={saveDetails} disabled={saving}>
+              {saving ? "Zapisywanie..." : "Zapisz dane"}
+            </button>
           </div>
 
-          <div className="card p-4 grid gap-3">
-            <h2 className="font-semibold">Oznaczenia</h2>
+          <div className="card p-6 grid gap-4" data-section="vehicle">
+            <div>
+              <h2 className="text-2xl font-semibold flex items-center gap-2">
+                <span aria-hidden>🚨</span>
+                Oznaczenia
+              </h2>
+              <p className="text-sm text-beige-100/70">Zaznacz statusy przypisane do pojazdu.</p>
+            </div>
             <div className="grid gap-2 sm:grid-cols-2">
               {VEHICLE_FLAGS.map((flag) => {
                 const active = !!vehicle?.statuses?.[flag.key];
@@ -465,15 +510,21 @@ export default function VehicleFolderPage() {
             </div>
           </div>
 
-          <div className="card p-4 grid gap-3">
-            <h2 className="font-semibold">Dodaj notatkę</h2>
+          <div className="card p-6 grid gap-4" data-section="vehicle">
+            <div>
+              <h2 className="text-2xl font-semibold flex items-center gap-2">
+                <span aria-hidden>📝</span>
+                Dodaj notatkę
+              </h2>
+              <p className="text-sm text-beige-100/70">Utrwal obserwacje funkcjonariuszy dotyczące pojazdu.</p>
+            </div>
             <textarea
               className="input h-28"
               placeholder="Opis sytuacji, ustalenia..."
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
             />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button className="btn" onClick={addNote} disabled={noteSaving}>
                 {noteSaving ? "Dodawanie..." : "Dodaj notatkę"}
               </button>
@@ -498,21 +549,21 @@ export default function VehicleFolderPage() {
                   : null);
 
               return (
-                <div key={note.id} className="card p-3">
-                  <div className="text-sm text-beige-700 mb-1">
+                <div key={note.id} className="card p-4" data-section="vehicle">
+                  <div className="text-sm text-white/80 mb-1">
                     {createdLabel} • {note.author || note.authorUid || ""}
                   </div>
-                  <div className="whitespace-pre-wrap mb-2">{note.text}</div>
+                  <div className="whitespace-pre-wrap mb-2 text-white/90">{note.text}</div>
                   {note.paymentStatus && paymentMessage && (
-                    <div className="mb-2 text-sm font-semibold">
+                    <div className="mb-2 text-sm font-semibold text-white">
                       {paymentMessage}
                       {amountLabel && (
-                        <span className="font-normal"> {" "}• {note.paymentLabel || "Kwota"}: {amountLabel}</span>
+                        <span className="font-normal text-white/80"> {" "}• {note.paymentLabel || "Kwota"}: {amountLabel}</span>
                       )}
                     </div>
                   )}
                   {note.paymentStatus && note.paymentStatus !== "pending" && resolvedLabel && (
-                    <div className="mb-2 text-xs text-beige-700">
+                    <div className="mb-2 text-xs text-white/70">
                       Zaktualizowano {resolvedLabel} przez {note.paymentResolvedBy || note.paymentResolvedByUid || "—"}
                     </div>
                   )}

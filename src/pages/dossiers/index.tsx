@@ -32,6 +32,7 @@ export default function Dossiers() {
   const isDirector = role === "director";
   const { confirm, alert } = useDialog();
   const { logActivity, session } = useSessionActivity();
+  const accentPalette = ["#a855f7", "#38bdf8", "#f97316", "#22c55e", "#ef4444", "#eab308"];
 
   useEffect(() => {
     const q = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
@@ -158,62 +159,117 @@ export default function Dossiers() {
         <Nav />
         <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="grid gap-6">
-            <div className="card p-4">
-              <h1 className="text-xl font-bold mb-2">Teczki dowodowe</h1>
-              <div className="flex gap-2 mb-3">
-                <input className="input flex-1" placeholder="Szukaj po imieniu/nazwisku/CID..." value={qtxt} onChange={e=>setQ(e.target.value)} />
+            <div className="card p-6 space-y-4" data-section="dossiers">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div className="space-y-2">
+                  <span className="section-chip">
+                    <span className="section-chip__dot" style={{ background: "#a855f7" }} />
+                    Teczki
+                  </span>
+                  <div>
+                    <h1 className="text-3xl font-semibold tracking-tight">Archiwum teczek osobowych</h1>
+                    <p className="text-sm text-beige-100/75">
+                      Wyszukaj osobę po danych identyfikacyjnych i przejdź do jej szczegółowej dokumentacji.
+                    </p>
+                  </div>
+                </div>
+                <div className="w-full md:w-80">
+                  <input
+                    className="input"
+                    placeholder="Szukaj po imieniu, nazwisku lub numerze CID..."
+                    value={qtxt}
+                    onChange={(e) => setQ(e.target.value)}
+                  />
+                </div>
               </div>
               {err && <div className="card p-3 bg-red-50 text-red-700 mb-3">{err}</div>}
               {ok && <div className="card p-3 bg-green-50 text-green-700 mb-3">{ok}</div>}
               <div className="grid gap-3">
-              <div className="grid gap-2">
-                  <h2 className="text-sm uppercase tracking-wide text-beige-700">Teczki osób</h2>
-                  {filtered.map((d) => (
+                <h2 className="text-xs uppercase tracking-[0.3em] text-beige-100/60">Teczki osób</h2>
+                {filtered.map((d, index) => {
+                  const accent = accentPalette[index % accentPalette.length];
+                  return (
                     <div
                       key={d.id}
-                      className="card p-3 hover:shadow flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
+                      className="card p-4 transition hover:-translate-y-0.5"
+                      data-section="dossiers"
+                      style={{
+                        borderColor: `${accent}90`,
+                        boxShadow: `0 26px 60px -28px ${accent}aa`,
+                      }}
                     >
                       <a
-                        className="flex-1"
+                        className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
                         href={`/dossiers/${d.id}`}
                         onClick={() => {
                           if (!session) return;
                           void logActivity({ type: "dossier_link_open", dossierId: d.id });
                         }}
                       >
-                        <div className="font-semibold">{d.title}</div>
-                        <div className="text-sm text-beige-700">CID: {d.cid}</div>
+                        <div>
+                          <div className="font-semibold text-lg flex items-center gap-2">
+                            <span className="text-base" aria-hidden>📁</span>
+                            {d.title}
+                          </div>
+                          <div className="text-sm text-beige-100/75">CID: {d.cid}</div>
+                        </div>
+                        {isDirector && (
+                          <button
+                            className="btn bg-red-700 text-white w-full md:w-auto"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              remove(d.id);
+                            }}
+                            disabled={deletingId === d.id}
+                          >
+                            {deletingId === d.id ? "Usuwanie..." : "Usuń"}
+                          </button>
+                        )}
                       </a>
-                      {isDirector && (
-                        <button
-                          className="btn bg-red-700 text-white w-full md:w-auto"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            remove(d.id);
-                          }}
-                          disabled={deletingId === d.id}
-                        >
-                          {deletingId === d.id ? "Usuwanie..." : "Usuń"}
-                        </button>
-                      )}
                     </div>
-                  ))}
-                  {filtered.length === 0 && <p>Brak teczek.</p>}
-                </div>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <div className="card p-4 text-sm text-beige-100/70" data-section="dossiers">
+                    Nie znaleziono teczki spełniającej kryteria wyszukiwania.
+                  </div>
+                )}
               </div>
             </div>
 
-
-          <div className="card p-4">
-              <h2 className="font-semibold mb-3">Załóż nową teczkę</h2>
+            <div className="card p-6 space-y-4" data-section="dossiers">
+              <div>
+                <h2 className="text-xl font-semibold flex items-center gap-2">
+                  <span className="text-2xl" aria-hidden>✨</span>
+                  Załóż nową teczkę
+                </h2>
+                <p className="text-sm text-beige-100/70">
+                  Wypełnij podstawowe dane identyfikacyjne, aby rozpocząć dokumentację osoby.
+                </p>
+              </div>
               <div className="grid md:grid-cols-3 gap-2">
-                  <input className="input" placeholder="Imię" value={form.first} onChange={e=>setForm({...form, first:e.target.value})}/>
-                  <input className="input" placeholder="Nazwisko" value={form.last} onChange={e=>setForm({...form, last:e.target.value})}/>
-                  <input className="input" placeholder="CID" value={form.cid} onChange={e=>setForm({...form, cid:e.target.value})}/>
-                </div>
-              <button className="btn mt-3" onClick={create} disabled={creating}>
-                {creating ? "Tworzenie..." : "Utwórz"}
+                <input
+                  className="input"
+                  placeholder="Imię"
+                  value={form.first}
+                  onChange={(e) => setForm({ ...form, first: e.target.value })}
+                />
+                <input
+                  className="input"
+                  placeholder="Nazwisko"
+                  value={form.last}
+                  onChange={(e) => setForm({ ...form, last: e.target.value })}
+                />
+                <input
+                  className="input"
+                  placeholder="CID"
+                  value={form.cid}
+                  onChange={(e) => setForm({ ...form, cid: e.target.value })}
+                />
+              </div>
+              <button className="btn w-full md:w-auto" onClick={create} disabled={creating}>
+                {creating ? "Tworzenie..." : "Utwórz teczkę"}
               </button>
             </div>
           </div>
