@@ -50,6 +50,11 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/dossiers/$(dossierId)).data.category == "criminal-group";
     }
 
+    function isGroupRosterRecord() {
+      let t = request.resource.data.type;
+      return t == "member" || t == "vehicle";
+    }
+
     // profile
     match /profiles/{uid} {
       allow read: if signedIn();
@@ -93,7 +98,7 @@ service cloud.firestore {
 
       match /records/{recordId} {
         allow read: if signedIn();
-        allow create: if signedIn();
+        allow create: if signedIn() && (!isGroupRosterRecord() || isStaff());
         allow update, delete: if (isDirector() || isChief()) ||
           (signedIn() && resource.data.authorUid == request.auth.uid) ||
           (isStaff() && isCriminalGroupDossier(dossierId));

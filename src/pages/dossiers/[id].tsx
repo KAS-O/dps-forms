@@ -225,6 +225,7 @@ export default function DossierPage() {
     time: "",
     purchasePrice: "",
     blackMarketValue: "",
+    controlledTransaction: false,
     files: [] as File[],
   });
   const [weaponSaving, setWeaponSaving] = useState(false);
@@ -436,6 +437,7 @@ export default function DossierPage() {
           serialNumbers: weaponForm.serialNumbers,
           source: weaponForm.source,
           crimeUsage: weaponForm.crimeUsage,
+          controlledTransaction: weaponForm.controlledTransaction,
           date: weaponForm.date,
           time: weaponForm.time,
           purchasePrice: weaponForm.purchasePrice,
@@ -456,6 +458,7 @@ export default function DossierPage() {
         time: "",
         purchasePrice: "",
         blackMarketValue: "",
+        controlledTransaction: false,
         files: [],
       });
       setWeaponFileKey((k) => k + 1);
@@ -719,7 +722,7 @@ export default function DossierPage() {
               }
             />
             <div className="flex justify-end gap-2">
-              <button type="button" className="btn" onClick={handleNoteModalSubmit} disabled={noteSaving}>
+              <button type="button" className="btn btn--note" onClick={handleNoteModalSubmit} disabled={noteSaving}>
                 {noteSaving ? "Dodawanie..." : "Zapisz notatkę"}
               </button>
               <button
@@ -757,15 +760,28 @@ export default function DossierPage() {
                 value={weaponForm.source}
                 onChange={(e) => setWeaponForm((prev) => ({ ...prev, source: e.target.value }))}
               />
-              <select
-                className="input"
-                value={weaponForm.crimeUsage}
-                onChange={(e) => setWeaponForm((prev) => ({ ...prev, crimeUsage: e.target.value }))}
-              >
-                <option value="tak">Tak</option>
-                <option value="nie">Nie</option>
-                <option value="brak informacji">Brak informacji</option>
-              </select>
+              <div className="flex flex-col gap-2 md:col-span-2 lg:col-span-1">
+                <label
+                  className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70"
+                  htmlFor="weapon-crime-usage"
+                >
+                  Wykorzystanie w przestępstwie
+                </label>
+                <select
+                  id="weapon-crime-usage"
+                  className="input"
+                  value={weaponForm.crimeUsage}
+                  onChange={(e) => setWeaponForm((prev) => ({ ...prev, crimeUsage: e.target.value }))}
+                >
+                  <option value="tak">Tak</option>
+                  <option value="nie">Nie</option>
+                  <option value="brak informacji">Brak informacji</option>
+                </select>
+                <span className="text-xs text-white/60 leading-relaxed">
+                  Określ, czy zabezpieczona broń była używana podczas czynu zabronionego (np. strzelaniny, napadu,
+                  wymuszenia).
+                </span>
+              </div>
               <input
                 type="date"
                 className="input"
@@ -791,6 +807,17 @@ export default function DossierPage() {
                 onChange={(e) => setWeaponForm((prev) => ({ ...prev, blackMarketValue: e.target.value }))}
               />
             </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                className={`btn btn--control${weaponForm.controlledTransaction ? " btn--control-active" : ""}`}
+                onClick={() =>
+                  setWeaponForm((prev) => ({ ...prev, controlledTransaction: !prev.controlledTransaction }))
+                }
+              >
+                {weaponForm.controlledTransaction ? "Transakcja kontrolowana ✓" : "Transakcja kontrolowana"}
+              </button>
+            </div>
             <input
               key={weaponFileKey}
               type="file"
@@ -798,7 +825,7 @@ export default function DossierPage() {
               onChange={(e) => setWeaponForm((prev) => ({ ...prev, files: Array.from(e.target.files || []) }))}
             />
             <div className="flex justify-end gap-2">
-              <button type="button" className="btn" onClick={handleWeaponModalSubmit} disabled={weaponSaving}>
+              <button type="button" className="btn btn--weapon" onClick={handleWeaponModalSubmit} disabled={weaponSaving}>
                 {weaponSaving ? "Dodawanie..." : "Dodaj dowód"}
               </button>
               <button
@@ -814,6 +841,7 @@ export default function DossierPage() {
                     time: "",
                     purchasePrice: "",
                     blackMarketValue: "",
+                    controlledTransaction: false,
                     files: [],
                   });
                   setWeaponFileKey((k) => k + 1);
@@ -892,7 +920,7 @@ export default function DossierPage() {
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                className={`btn ${drugForm.controlledTransaction ? "bg-orange-500 text-white" : ""}`}
+                className={`btn btn--control${drugForm.controlledTransaction ? " btn--control-active" : ""}`}
                 onClick={() => setDrugForm((prev) => ({ ...prev, controlledTransaction: !prev.controlledTransaction }))}
               >
                 {drugForm.controlledTransaction ? "Transakcja kontrolowana ✓" : "Transakcja kontrolowana"}
@@ -905,7 +933,7 @@ export default function DossierPage() {
               onChange={(e) => setDrugForm((prev) => ({ ...prev, files: Array.from(e.target.files || []) }))}
             />
             <div className="flex justify-end gap-2">
-              <button type="button" className="btn" onClick={handleDrugModalSubmit} disabled={drugSaving}>
+              <button type="button" className="btn btn--drug" onClick={handleDrugModalSubmit} disabled={drugSaving}>
                 {drugSaving ? "Dodawanie..." : "Dodaj dowód"}
               </button>
               <button
@@ -996,7 +1024,7 @@ export default function DossierPage() {
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                className={`btn ${explosiveForm.controlledTransaction ? "bg-orange-500 text-white" : ""}`}
+                className={`btn btn--control${explosiveForm.controlledTransaction ? " btn--control-active" : ""}`}
                 onClick={() =>
                   setExplosiveForm((prev) => ({ ...prev, controlledTransaction: !prev.controlledTransaction }))
                 }
@@ -1011,7 +1039,12 @@ export default function DossierPage() {
               onChange={(e) => setExplosiveForm((prev) => ({ ...prev, files: Array.from(e.target.files || []) }))}
             />
             <div className="flex justify-end gap-2">
-              <button type="button" className="btn" onClick={handleExplosiveModalSubmit} disabled={explosiveSaving}>
+              <button
+                type="button"
+                className="btn btn--explosive"
+                onClick={handleExplosiveModalSubmit}
+                disabled={explosiveSaving}
+              >
                 {explosiveSaving ? "Dodawanie..." : "Dodaj dowód"}
               </button>
               <button
@@ -1113,7 +1146,7 @@ export default function DossierPage() {
               onChange={(e) => setMemberForm((prev) => ({ ...prev, profileImage: e.target.files?.[0] || null }))}
             />
             <div className="flex justify-end gap-2">
-              <button type="button" className="btn" onClick={handleMemberModalSubmit} disabled={memberSaving}>
+              <button type="button" className="btn btn--member" onClick={handleMemberModalSubmit} disabled={memberSaving}>
                 {memberSaving ? "Dodawanie..." : "Dodaj członka"}
               </button>
               <button
@@ -1159,7 +1192,7 @@ export default function DossierPage() {
               ))}
             </select>
             <div className="flex justify-end gap-2">
-              <button type="button" className="btn" onClick={handleVehicleModalSubmit} disabled={vehicleSaving}>
+              <button type="button" className="btn btn--vehicle" onClick={handleVehicleModalSubmit} disabled={vehicleSaving}>
                 {vehicleSaving ? "Dodawanie..." : "Dodaj pojazd"}
               </button>
               <button type="button" className="btn" onClick={() => setVehicleForm({ vehicleId: "" })}>
@@ -1311,6 +1344,15 @@ export default function DossierPage() {
     return Array.from(unique.values());
   }, [records]);
 
+  const timelineRecords = useMemo(
+    () =>
+      records.filter((record) => {
+        const type = record.type || "note";
+        return type !== "member" && type !== "vehicle";
+      }),
+    [records]
+  );
+
   const numberFormatter = useMemo(() => new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 2 }), []);
 
   const summaryStats = useMemo(() => {
@@ -1379,7 +1421,7 @@ export default function DossierPage() {
       {
         key: "records",
         label: "Zarchiwizowane wpisy",
-        value: numberFormatter.format(records.length),
+        value: numberFormatter.format(timelineRecords.length),
         icon: "🗂️",
         accent: "#818cf8",
       },
@@ -1388,7 +1430,7 @@ export default function DossierPage() {
       numberFormatter,
       organizationMembers.length,
       organizationVehicles.length,
-      records.length,
+      timelineRecords.length,
       summaryStats.blackMarket,
       summaryStats.bombs,
       summaryStats.drugs,
@@ -1448,10 +1490,15 @@ export default function DossierPage() {
             <div>Model broni: <strong>{record.weaponModel || "—"}</strong></div>
             <div>Numery seryjne: <strong>{record.serialNumbers || "—"}</strong></div>
             <div>Źródło pochodzenia: {record.source || "—"}</div>
-            <div>Popełniono przestępstwo: {record.crimeUsage || "—"}</div>
+            <div>Wykorzystanie w przestępstwie: {record.crimeUsage || "—"}</div>
             <div>Data: {record.date || "—"} • Godzina: {record.time || "—"}</div>
             <div>Cena kupna: {record.purchasePrice || "—"}</div>
             <div>Wartość czarnorynkowa: {record.blackMarketValue || "—"}</div>
+            {record.controlledTransaction ? (
+              <span className="inline-flex mt-1 px-2 py-1 rounded-full bg-orange-500/30 text-xs font-semibold text-orange-100">
+                Transakcja kontrolowana
+              </span>
+            ) : null}
           </div>
         );
       case "drug":
@@ -1876,7 +1923,7 @@ export default function DossierPage() {
                   }
                 />
                 <div className="flex gap-2">
-                  <button className="btn" onClick={addNote} disabled={noteSaving}>
+                  <button className="btn btn--note" onClick={addNote} disabled={noteSaving}>
                     {noteSaving ? "Dodawanie..." : "Dodaj notatkę"}
                   </button>
                   <button
@@ -1893,7 +1940,7 @@ export default function DossierPage() {
             ) : null}
 
             <div className="grid gap-2">
-              {records.map((record) => {
+              {timelineRecords.map((record) => {
                 const createdAt = record.createdAt?.toDate?.();
                 const dateLabel = createdAt ? new Date(createdAt).toLocaleString() : new Date().toLocaleString();
                 const style = resolveRecordStyle(record);
@@ -1921,7 +1968,7 @@ export default function DossierPage() {
                   </div>
                 );
               })}
-              {records.length === 0 && <div className="card p-3">Brak wpisów.</div>}
+              {timelineRecords.length === 0 && <div className="card p-3">Brak wpisów.</div>}
             </div>
           </div>
 
