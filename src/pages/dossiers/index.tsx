@@ -1,6 +1,7 @@
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import Head from "next/head";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   addDoc,
@@ -24,6 +25,7 @@ export default function Dossiers() {
   const [list, setList] = useState<any[]>([]);
   const [qtxt, setQ] = useState("");
   const [form, setForm] = useState({ first: "", last: "", cid: "" });
+  const [groups, setGroups] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -36,6 +38,11 @@ export default function Dossiers() {
   useEffect(() => {
     const q = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
     return onSnapshot(q, (snap) => setList(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))));
+  }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, "criminalGroups"), orderBy("name"));
+    return onSnapshot(q, (snap) => setGroups(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) }))));
   }, []);
 
   const filtered = useMemo(() => {
@@ -194,7 +201,49 @@ export default function Dossiers() {
                 {filtered.length===0 && <p>Brak teczek.</p>}
               </div>
             </div>
-        
+
+            <div className="card p-4">
+              <h2 className="text-xl font-bold mb-2">Grupy przestępcze</h2>
+              <p className="text-sm text-beige-700 mb-3">
+                Zobacz teczki operacyjne organizacji — członków, zasoby i zebrane dowody.
+              </p>
+              <div className="grid gap-3 md:grid-cols-2">
+                  {groups.map((group) => {
+                    const color = group.colorHex || "#6d28d9";
+                    return (
+                      <Link
+                        key={group.id}
+                        href={`/criminal-groups/${group.id}`}
+                        className="card p-4 text-white transition hover:shadow-xl"
+                        style={{
+                          backgroundImage: `linear-gradient(135deg, ${color}dd, ${color}aa)`,
+                          borderColor: `${color}aa`,
+                          boxShadow: `0 20px 45px -30px ${color}`,
+                        }}
+                        onClick={() => {
+                          if (!session) return;
+                          void logActivity({ type: "criminal_group_from_dossiers_open", groupId: group.id });
+                        }}
+                      >
+                        <div className="text-sm uppercase tracking-[0.3em] opacity-80">
+                          {group.colorLabel || "Organizacja"}
+                        </div>
+                        <div className="text-xl font-semibold">{group.name}</div>
+                        {group.base && <div className="text-sm opacity-80">Baza: {group.base}</div>}
+                        {group.organizationType && (
+                          <div className="mt-1 text-xs uppercase tracking-widest bg-black/30 px-2 py-1 rounded-full inline-block">
+                            {group.organizationType}
+                          </div>
+                        )}
+                      </Link>
+                    );
+                  })}
+              </div>
+              {groups.length === 0 && (
+                <p className="text-sm text-beige-700">Brak zdefiniowanych grup. Utwórz je w sekcji Grupy przestępcze.</p>
+              )}
+            </div>
+
 
           <div className="card p-4">
               <h2 className="font-semibold mb-2">Załóż nową teczkę</h2>
