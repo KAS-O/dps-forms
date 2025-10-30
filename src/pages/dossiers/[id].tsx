@@ -49,7 +49,13 @@ type DossierInfo = {
   group?: GroupInfo | null;
 };
 
-type DossierRecord = Record<string, any> & { id: string };
+type DossierRecord = Record<string, any> & {
+  id: string;
+  linkedDossierId?: string;
+  linkedDossierRecordId?: string;
+  linkedVehicleId?: string;
+  linkedVehicleNoteId?: string;
+};
 
 type VehicleOption = {
   id: string;
@@ -377,8 +383,8 @@ export default function DossierPage() {
 
   const addRecordWithLog = useCallback(
     async (payload: Record<string, any>, recordType: string) => {
-      if (!id) return;
-      await addDoc(collection(db, "dossiers", id, "records"), payload);
+      if (!id) return null;
+      const recordRef = await addDoc(collection(db, "dossiers", id, "records"), payload);
       await addDoc(collection(db, "logs"), {
         type: "dossier_record_add",
         recordType,
@@ -387,6 +393,7 @@ export default function DossierPage() {
         authorUid: auth.currentUser?.uid || "",
         ts: serverTimestamp(),
       });
+      return recordRef.id;
     },
     [id]
   );
@@ -592,7 +599,7 @@ export default function DossierPage() {
       setErr(null);
       setMemberSaving(true);
       const attachments = memberForm.profileImage ? await uploadAttachments([memberForm.profileImage], "members") : [];
-      await addRecordWithLog(
+      const recordId = await addRecordWithLog(
         {
           type: "member",
           dossierId: memberForm.dossierId,
@@ -610,6 +617,40 @@ export default function DossierPage() {
         },
         "member"
       );
+      if (!recordId) {
+        throw new Error("Nie udało się zapisać wpisu organizacji.");
+      }
+
+      const groupName = info.group?.name || title || "Organizacja";
+      try {
+        const linkedNoteRef = await addDoc(collection(db, "dossiers", memberForm.dossierId, "records"), {
+          type: "note",
+          text: `Powiązano z organizacją ${groupName}.`,
+          linkedCriminalGroupId: id,
+          linkedCriminalGroupRecordId: recordId,
+          linkedCriminalGroupName: groupName,
+          relatedDossierId: id,
+          createdAt: serverTimestamp(),
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
+        });
+        await addDoc(collection(db, "logs"), {
+          type: "dossier_record_link_add",
+          dossierId: memberForm.dossierId,
+          relatedDossierId: id,
+          recordType: "member",
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
+          ts: serverTimestamp(),
+        });
+        await updateDoc(doc(db, "dossiers", id, "records", recordId), {
+          linkedDossierId: memberForm.dossierId,
+          linkedDossierRecordId: linkedNoteRef.id,
+        });
+      } catch (linkErr) {
+        await deleteDoc(doc(db, "dossiers", id, "records", recordId));
+        throw linkErr;
+      }
       setMemberForm({
         dossierId: "",
         name: "",
@@ -627,7 +668,7 @@ export default function DossierPage() {
     } finally {
       setMemberSaving(false);
     }
-  }, [addRecordWithLog, id, memberForm, memberSaving, uploadAttachments]);
+  }, [addRecordWithLog, id, info.group, memberForm, memberSaving, title, uploadAttachments]);
 
   const addVehicle = useCallback(async (): Promise<boolean> => {
     if (!id || vehicleSaving) return false;
@@ -643,7 +684,7 @@ export default function DossierPage() {
     try {
       setErr(null);
       setVehicleSaving(true);
-      await addRecordWithLog(
+      const recordId = await addRecordWithLog(
         {
           type: "vehicle",
           vehicleId: vehicle.id,
@@ -658,6 +699,38 @@ export default function DossierPage() {
         },
         "vehicle"
       );
+      if (!recordId) {
+        throw new Error("Nie udało się zapisać wpisu organizacji.");
+      }
+
+      const groupName = info.group?.name || title || "Organizacja";
+      try {
+        const vehicleNoteRef = await addDoc(collection(db, "vehicleFolders", vehicle.id, "notes"), {
+          text: `Pojazd powiązano z organizacją ${groupName}.`,
+          linkedCriminalGroupId: id,
+          linkedCriminalGroupRecordId: recordId,
+          linkedCriminalGroupName: groupName,
+          relatedDossierId: id,
+          createdAt: serverTimestamp(),
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
+        });
+        await addDoc(collection(db, "logs"), {
+          type: "vehicle_note_link_add",
+          vehicleId: vehicle.id,
+          relatedDossierId: id,
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
+          ts: serverTimestamp(),
+        });
+        await updateDoc(doc(db, "dossiers", id, "records", recordId), {
+          linkedVehicleId: vehicle.id,
+          linkedVehicleNoteId: vehicleNoteRef.id,
+        });
+      } catch (linkErr) {
+        await deleteDoc(doc(db, "dossiers", id, "records", recordId));
+        throw linkErr;
+      }
       setVehicleForm({ vehicleId: "" });
       return true;
     } catch (e: any) {
@@ -666,7 +739,7 @@ export default function DossierPage() {
     } finally {
       setVehicleSaving(false);
     }
-  }, [addRecordWithLog, id, vehicleForm.vehicleId, vehicleOptions, vehicleSaving]);
+  }, [addRecordWithLog, id, info.group, title, vehicleForm.vehicleId, vehicleOptions, vehicleSaving]);
 
   const handleNoteModalSubmit = useCallback(async () => {
     const ok = await addNote();
@@ -1246,24 +1319,66 @@ export default function DossierPage() {
   );
 
   const deleteRecord = useCallback(
-    async (rid: string) => {
+    async (record: DossierRecord) => {
+      const label = resolveRecordLabel(record);
+      const hasLinked = Boolean(record.linkedDossierId || record.linkedVehicleId);
       const ok = await confirm({
         title: "Usuń wpis",
-        message: "Czy na pewno chcesz usunąć ten wpis z teczki?",
+        message: hasLinked
+          ? `Czy na pewno chcesz usunąć wpis "${label}"? Powiązane informacje w innych teczkach zostaną także usunięte.`
+          : `Czy na pewno chcesz usunąć wpis "${label}" z teczki?`,
         confirmLabel: "Usuń",
         tone: "danger",
       });
       if (!ok) return;
-      await deleteDoc(doc(db, "dossiers", id, "records", rid));
+
+      const batch = writeBatch(db);
+      batch.delete(doc(db, "dossiers", id, "records", record.id));
+      if (record.linkedDossierId && record.linkedDossierRecordId) {
+        batch.delete(doc(db, "dossiers", record.linkedDossierId, "records", record.linkedDossierRecordId));
+      }
+      if (record.linkedVehicleId && record.linkedVehicleNoteId) {
+        batch.delete(doc(db, "vehicleFolders", record.linkedVehicleId, "notes", record.linkedVehicleNoteId));
+      }
+      await batch.commit();
+
       await addDoc(collection(db, "logs"), {
         type: "dossier_record_delete",
         dossierId: id,
-        recordId: rid,
+        recordId: record.id,
+        recordType: record.type || "note",
         author: auth.currentUser?.email || "",
+        authorUid: auth.currentUser?.uid || "",
         ts: serverTimestamp(),
       });
+
+      if (record.linkedDossierId && record.linkedDossierRecordId) {
+        await addDoc(collection(db, "logs"), {
+          type: "dossier_record_link_delete",
+          dossierId: record.linkedDossierId,
+          relatedDossierId: id,
+          recordId: record.linkedDossierRecordId,
+          sourceRecordId: record.id,
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
+          ts: serverTimestamp(),
+        });
+      }
+
+      if (record.linkedVehicleId && record.linkedVehicleNoteId) {
+        await addDoc(collection(db, "logs"), {
+          type: "vehicle_note_link_delete",
+          vehicleId: record.linkedVehicleId,
+          relatedDossierId: id,
+          noteId: record.linkedVehicleNoteId,
+          sourceRecordId: record.id,
+          author: auth.currentUser?.email || "",
+          authorUid: auth.currentUser?.uid || "",
+          ts: serverTimestamp(),
+        });
+      }
     },
-    [confirm, id]
+    [confirm, id, resolveRecordLabel]
   );
 
   const deleteDossier = useCallback(async () => {
@@ -1309,16 +1424,16 @@ export default function DossierPage() {
   }, [info, isCriminalGroup, title]);
 
   const groupSummaryGradient = useMemo(
-    () => `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.55)}, rgba(8, 12, 28, 0.9))`,
+    () => `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.4)}, rgba(8, 12, 24, 0.88))`,
     [groupColorHex]
   );
-  const groupSummaryBorder = useMemo(() => withAlpha(groupColorHex, 0.6), [groupColorHex]);
+  const groupSummaryBorder = useMemo(() => withAlpha(groupColorHex, 0.48), [groupColorHex]);
   const groupSummaryShadow = useMemo(
-    () => `0 36px 90px -28px ${withAlpha(groupColorHex, 0.75)}`,
+    () => `0 28px 78px -30px ${withAlpha(groupColorHex, 0.65)}`,
     [groupColorHex]
   );
   const groupSummaryGlow = useMemo(
-    () => `radial-gradient(circle at 18% 20%, ${withAlpha(groupColorHex, 0.45)}, transparent 60%)`,
+    () => `radial-gradient(circle at 18% 20%, ${withAlpha(groupColorHex, 0.3)}, transparent 62%)`,
     [groupColorHex]
   );
 
@@ -1480,7 +1595,10 @@ export default function DossierPage() {
     return { background, borderColor };
   };
 
-  const resolveRecordLabel = (record: DossierRecord) => RECORD_LABELS[record.type || "note"] || "Wpis";
+  const resolveRecordLabel = useCallback(
+    (record: DossierRecord) => RECORD_LABELS[record.type || "note"] || "Wpis",
+    []
+  );
 
   const renderRecordDetails = (record: DossierRecord) => {
     switch (record.type) {
@@ -1759,15 +1877,22 @@ export default function DossierPage() {
                           key={member.id}
                           className="relative rounded-2xl border p-4 flex gap-4 overflow-hidden"
                           style={{
-                            borderColor: withAlpha(member.rankColor || groupColorHex, 0.6),
-                            background: `linear-gradient(140deg, ${withAlpha(member.rankColor || groupColorHex, 0.35)}, rgba(10, 14, 28, 0.75))`,
-                            boxShadow: `0 24px 60px -28px ${withAlpha(member.rankColor || groupColorHex, 0.8)}`,
+                            borderColor: withAlpha(member.rankColor || groupColorHex, 0.45),
+                            background: `linear-gradient(140deg, ${withAlpha(member.rankColor || groupColorHex, 0.22)}, rgba(9, 12, 24, 0.82))`,
+                            boxShadow: `0 20px 52px -30px ${withAlpha(member.rankColor || groupColorHex, 0.6)}`,
                           }}
                         >
+                          <button
+                            type="button"
+                            onClick={() => deleteRecord(member)}
+                            className="absolute right-3 top-3 z-20 inline-flex items-center rounded-md bg-black/40 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-red-100 transition hover:bg-red-600/60 hover:text-white"
+                          >
+                            Usuń
+                          </button>
                           <span
-                            className="absolute inset-0 opacity-40"
+                            className="pointer-events-none absolute inset-0 opacity-35"
                             style={{
-                              background: `radial-gradient(circle at 18% 20%, ${withAlpha(member.rankColor || groupColorHex, 0.4)}, transparent 65%)`,
+                              background: `radial-gradient(circle at 18% 22%, ${withAlpha(member.rankColor || groupColorHex, 0.28)}, transparent 68%)`,
                             }}
                           />
                           {member.profileImageUrl ? (
@@ -1828,15 +1953,26 @@ export default function DossierPage() {
                           href={vehicle.vehicleId ? `/vehicle-archive/${vehicle.vehicleId}` : undefined}
                           className="relative rounded-2xl border p-4 hover:-translate-y-0.5 transition"
                           style={{
-                            borderColor: withAlpha(groupColorHex, 0.6),
-                            background: `linear-gradient(140deg, ${withAlpha(groupColorHex, 0.35)}, rgba(8, 12, 24, 0.75))`,
-                            boxShadow: `0 24px 56px -26px ${withAlpha(groupColorHex, 0.75)}`,
+                            borderColor: withAlpha(groupColorHex, 0.45),
+                            background: `linear-gradient(140deg, ${withAlpha(groupColorHex, 0.22)}, rgba(7, 10, 20, 0.82))`,
+                            boxShadow: `0 20px 48px -28px ${withAlpha(groupColorHex, 0.6)}`,
                           }}
                           onClick={() => {
                             if (!vehicle.vehicleId || !session) return;
                             void logActivity({ type: "vehicle_from_dossier_open", dossierId: id, vehicleId: vehicle.vehicleId });
                           }}
                         >
+                          <button
+                            type="button"
+                            className="absolute right-3 top-3 z-20 inline-flex items-center rounded-md bg-black/35 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-red-100 transition hover:bg-red-600/60 hover:text-white"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              deleteRecord(vehicle);
+                            }}
+                          >
+                            Usuń
+                          </button>
                           <div className="font-semibold text-lg text-white flex items-center gap-2">
                             <span aria-hidden>🚗</span>
                             {vehicle.registration || "Pojazd"}
@@ -1960,7 +2096,7 @@ export default function DossierPage() {
                     {canEditRecord(record) && (
                       <div className="mt-2 flex gap-2">
                         <button className="btn" onClick={() => editRecord(record.id, record.text || "", record.type || "note")}>Edytuj</button>
-                        <button className="btn bg-red-700 text-white" onClick={() => deleteRecord(record.id)}>
+                        <button className="btn bg-red-700 text-white" onClick={() => deleteRecord(record)}>
                           Usuń
                         </button>
                       </div>
@@ -1997,8 +2133,8 @@ export default function DossierPage() {
                       onClick={() => openForm(action.type)}
                       className="w-full rounded-xl border px-3 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-xl"
                       style={{
-                        background: `linear-gradient(135deg, ${withAlpha(RECORD_COLORS[action.type], 0.28)}, rgba(5, 10, 20, 0.7))`,
-                        borderColor: withAlpha(RECORD_COLORS[action.type], 0.5),
+                        background: `linear-gradient(135deg, ${withAlpha(RECORD_COLORS[action.type], 0.22)}, rgba(5, 10, 20, 0.72))`,
+                        borderColor: withAlpha(RECORD_COLORS[action.type], 0.45),
                       }}
                     >
                       <div className="font-semibold text-white flex items-center gap-2">

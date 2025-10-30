@@ -89,8 +89,8 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.4rem 0.95rem;
-  border-radius: 9999px;
+  padding: 0.55rem 1.1rem;
+  border-radius: 0.85rem;
   border: 1.5px solid rgba(255, 255, 255, 0.2);
   background: rgba(9, 16, 32, 0.65);
   color: inherit;
@@ -98,7 +98,9 @@ body {
   letter-spacing: 0.03em;
   text-decoration: none;
   position: relative;
-  overflow: hidden;
+  white-space: nowrap;
+  line-height: 1.2;
+  min-height: 2.5rem;
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease, filter 0.25s ease;
 }
 
@@ -206,12 +208,12 @@ body {
 }
 
 .card[data-section="criminal-groups"] {
-  --section-glow: radial-gradient(circle at 18% 20%, rgba(236, 72, 153, 0.4), transparent 62%),
-    radial-gradient(circle at 88% 16%, rgba(59, 130, 246, 0.4), transparent 65%),
-    radial-gradient(circle at 50% 85%, rgba(16, 185, 129, 0.32), transparent 70%);
-  border-color: rgba(236, 72, 153, 0.55);
-  box-shadow: 0 32px 76px -24px rgba(236, 72, 153, 0.55);
-  background: linear-gradient(135deg, rgba(20, 8, 40, 0.94), rgba(26, 21, 46, 0.82));
+  --section-glow: radial-gradient(circle at 18% 20%, rgba(190, 24, 93, 0.28), transparent 65%),
+    radial-gradient(circle at 82% 28%, rgba(59, 130, 246, 0.25), transparent 68%),
+    radial-gradient(circle at 52% 82%, rgba(16, 185, 129, 0.22), transparent 72%);
+  border-color: rgba(190, 24, 93, 0.45);
+  box-shadow: 0 24px 60px -26px rgba(190, 24, 93, 0.45);
+  background: linear-gradient(138deg, rgba(14, 10, 26, 0.95), rgba(18, 14, 28, 0.88));
 }
 
 .card[data-section="vehicle"] {
