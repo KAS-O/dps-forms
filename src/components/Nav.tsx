@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { useProfile, can } from "@/hooks/useProfile";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -18,6 +19,16 @@ export default function Nav() {
   const roleLabel = role ? (ROLE_LABELS[role] || role) : "";
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
+  const router = useRouter();
+
+  const navLinks = [
+    { href: "/dashboard", label: "Dokumenty", color: "#38bdf8" },
+    { href: "/dossiers", label: "Teczki", color: "#a855f7" },
+    { href: "/criminal-groups", label: "Grupy przestępcze", color: "#f97316" },
+    { href: "/vehicle-archive", label: "Archiwum pojazdów", color: "#10b981" },
+  ];
+  const archiveActive = router.pathname.startsWith("/archive");
+  const adminActive = router.pathname.startsWith("/admin");
 
   const logout = async () => {
     const ok = await confirm({
@@ -43,16 +54,64 @@ export default function Nav() {
           </span>
         </div>
 
-        <div className="flex items-center gap-4 text-sm">
-          <Link href="/dashboard" className="hover:text-beige-800 transition-colors">Dokumenty</Link>
-          <Link href="/dossiers" className="hover:text-beige-800 transition-colors">Teczki</Link>
-          <Link href="/criminal-groups" className="hover:text-beige-800 transition-colors">Grupy przestępcze</Link>
-          <Link href="/vehicle-archive" className="hover:text-beige-800 transition-colors">Archiwum pojazdów</Link>
+        <div className="flex items-center gap-3 text-sm">
+          {navLinks.map((link) => {
+            const isActive = router.pathname.startsWith(link.href);
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`rounded-full border px-3 py-1.5 font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  isActive ? "shadow-lg" : "hover:-translate-y-0.5"
+                }`}
+                style={{
+                  borderColor: `${link.color}80`,
+                  background: isActive
+                    ? `linear-gradient(135deg, ${link.color}30, ${link.color}55)`
+                    : `linear-gradient(135deg, ${link.color}14, transparent)`,
+                  color: isActive ? "#0f172a" : link.color,
+                  boxShadow: isActive ? `0 12px 32px -20px ${link.color}aa` : undefined,
+                }}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
           {can.seeArchive(role) && (
-            <Link href="/archive" className="hover:text-beige-800 transition-colors">Archiwum</Link>
+            <Link
+              href="/archive"
+              className={`rounded-full border px-3 py-1.5 font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                archiveActive ? "shadow-lg" : "hover:-translate-y-0.5"
+              }`}
+              style={{
+                borderColor: "#facc1580",
+                background: archiveActive
+                  ? "linear-gradient(135deg, #facc1530, #facc1555)"
+                  : "linear-gradient(135deg, #facc1526, transparent)",
+                color: archiveActive ? "#0f172a" : "#facc15",
+                boxShadow: archiveActive ? "0 12px 32px -20px #facc15aa" : undefined,
+              }}
+            >
+              Archiwum
+            </Link>
           )}
           {role === "director" && (
-               <Link href="/admin" className="hover:text-beige-800 transition-colors">Panel zarządu</Link>
+               <Link
+                 href="/admin"
+                 className={`rounded-full border px-3 py-1.5 font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                   adminActive ? "shadow-lg" : "hover:-translate-y-0.5"
+                 }`}
+                 style={{
+                   borderColor: "#ef444480",
+                   background: adminActive
+                     ? "linear-gradient(135deg, #ef444430, #ef444455)"
+                     : "linear-gradient(135deg, #ef444426, transparent)",
+                   color: adminActive ? "#0f172a" : "#ef4444",
+                   boxShadow: adminActive ? "0 12px 32px -20px #ef4444aa" : undefined,
+                 }}
+               >
+                 Panel zarządu
+               </Link>
           )}
           <span className="ml-2 px-2 py-1 rounded bg-white/10 text-beige-900">
             {fullName || "—"}{role ? ` • ${roleLabel}` : ""}
