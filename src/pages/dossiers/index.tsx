@@ -1,7 +1,7 @@
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import Head from "next/head";
-import { useEffect, useMemo, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useState } from "react";
 import {
   addDoc,
   collection,
@@ -20,6 +20,60 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 
+type CrimeGroupSeed = {
+  id: string;
+  displayName: string;
+  category: string;
+  color: string;
+  organizationType: string;
+  gangColor: string;
+  base: string;
+  operations: string[];
+};
+
+const DEFAULT_CRIME_GROUPS: CrimeGroupSeed[] = [
+  {
+    id: "ballas",
+    displayName: "Ballas",
+    category: "Grupy przestępcze",
+    color: "#7c3aed",
+    organizationType: "Gang uliczny",
+    gangColor: "Fioletowa",
+    base: "Grove Street",
+    operations: [
+      "Handel narkotykami",
+      "Handel bronią",
+      "Handel materiałami wybuchowymi",
+      "Tworzenie materiałów wybuchowych",
+      "Napady",
+      "Wyłudzenia",
+      "Porwania",
+      "Strzelaniny",
+      "Pranie pieniędzy",
+    ],
+  },
+];
+
+function hexToRgba(hex: string, alpha: number): string {
+  const raw = hex.replace(/#/g, "");
+  const bigint = Number.parseInt(raw.length === 3 ? raw.replace(/(.)/g, "$1$1") : raw, 16);
+  // eslint-disable-next-line no-bitwise
+  const r = (bigint >> 16) & 255;
+  // eslint-disable-next-line no-bitwise
+  const g = (bigint >> 8) & 255;
+  // eslint-disable-next-line no-bitwise
+  const b = bigint & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function buildGroupCardStyle(color: string): CSSProperties {
+  const base = color || "#312e81";
+  return {
+    background: `linear-gradient(135deg, ${hexToRgba(base, 0.2)}, ${hexToRgba(base, 0.5)})`,
+    borderLeft: `4px solid ${base}`,
+  };
+}
+
 export default function Dossiers() {
   const [list, setList] = useState<any[]>([]);
   const [qtxt, setQ] = useState("");
@@ -35,18 +89,60 @@ export default function Dossiers() {
 
   useEffect(() => {
     const q = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
-    return onSnapshot(q, (snap) => setList(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))));
+    return onSnapshot(q, (snap) => setList(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))));
+  }, []);
+
+  useEffect(() => {
+    const ensureGroups = async () => {
+      await Promise.all(
+        DEFAULT_CRIME_GROUPS.map(async (group) => {
+          const dossierRef = doc(db, "dossiers", group.id);
+          await runTransaction(db, async (tx) => {
+            const existing = await tx.get(dossierRef);
+            if (existing.exists()) return;
+            tx.set(dossierRef, {
+              type: "group",
+              category: group.category,
+              displayName: group.displayName,
+              title: `Organizacja ${group.displayName}`,
+              color: group.color,
+              organizationType: group.organizationType,
+              gangColor: group.gangColor,
+              base: group.base,
+              operations: group.operations,
+              createdAt: serverTimestamp(),
+              createdBy: auth.currentUser?.email || "system",
+              createdByUid: auth.currentUser?.uid || "system",
+            });
+          });
+        })
+      );
+    };
+
+    void ensureGroups();
   }, []);
 
   const filtered = useMemo(() => {
     const l = qtxt.toLowerCase();
-    return list.filter(x =>
-      (x.first||"").toLowerCase().includes(l) ||
-      (x.last||"").toLowerCase().includes(l) ||
-      (x.cid||"").toLowerCase().includes(l) ||
-      (x.title||"").toLowerCase().includes(l)
-    );
+    return list.filter((x) => {
+      const title = (x.title || "").toLowerCase();
+      const first = (x.first || "").toLowerCase();
+      const last = (x.last || "").toLowerCase();
+      const cid = (x.cid || "").toLowerCase();
+      const displayName = (x.displayName || "").toLowerCase();
+      return [title, first, last, cid, displayName].some((value) => value.includes(l));
+    });
   }, [qtxt, list]);
+
+  const groupDossiers = useMemo(
+    () => filtered.filter((item) => item.type === "group"),
+    [filtered]
+  );
+
+  const personDossiers = useMemo(
+    () => filtered.filter((item) => item.type !== "group"),
+    [filtered]
+  );
 
   const create = async () => {
     try {
@@ -162,10 +258,53 @@ export default function Dossiers() {
               </div>
               {err && <div className="card p-3 bg-red-50 text-red-700 mb-3">{err}</div>}
               {ok && <div className="card p-3 bg-green-50 text-green-700 mb-3">{ok}</div>}
+              {groupDossiers.length > 0 && (
+                <div className="grid gap-3 mb-6">
+                  <h2 className="text-lg font-semibold">Grupy przestępcze</h2>
+                  <div className="grid gap-3">
+                    {groupDossiers.map((group) => (
+                      <a
+                        key={group.id}
+                        href={`/dossiers/${group.id}`}
+                        className="card p-4 text-white shadow-lg transition hover:shadow-xl"
+                        style={buildGroupCardStyle(group.color || "#7c3aed")}
+                        onClick={() => {
+                          if (!session) return;
+                          void logActivity({ type: "dossier_link_open", dossierId: group.id });
+                        }}
+                      >
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <div className="text-xs uppercase tracking-[0.3em] opacity-80">{group.category || "Organizacja"}</div>
+                            <div className="text-2xl font-bold">{group.displayName || group.title || group.id}</div>
+                          </div>
+                          <div className="text-right text-sm opacity-80">
+                            <div>Kolorystyka: {group.gangColor || "—"}</div>
+                            <div>Rodzaj: {group.organizationType || "—"}</div>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-1 text-sm">
+                          <div><span className="font-semibold">Baza:</span> {group.base || "Brak danych"}</div>
+                          <div className="font-semibold mt-2">Zakres działalności:</div>
+                          <ul className="list-disc list-inside space-y-1">
+                            {(group.operations || []).map((op: string) => (
+                              <li key={op}>{op}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-2">
-                {filtered.map(d => (
-                  <div key={d.id} className="card p-3 hover:shadow flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                   <a
+                {personDossiers.map((d) => (
+                  <div
+                    key={d.id}
+                    className="card p-3 hover:shadow flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
+                  >
+                    <a
                       className="flex-1"
                       href={`/dossiers/${d.id}`}
                       onClick={() => {
@@ -191,7 +330,10 @@ export default function Dossiers() {
                     )}
                   </div>
                 ))}
-                {filtered.length===0 && <p>Brak teczek.</p>}
+                {personDossiers.length === 0 && filtered.length === 0 && <p>Brak teczek.</p>}
+                {personDossiers.length === 0 && filtered.length > 0 && groupDossiers.length > 0 && (
+                  <p>Brak teczek osób spełniających kryteria wyszukiwania.</p>
+                )}
               </div>
             </div>
         
