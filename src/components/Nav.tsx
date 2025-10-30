@@ -46,6 +46,7 @@ export default function Nav() {
         <div className="flex items-center gap-4 text-sm">
           <Link href="/dashboard" className="hover:text-beige-800 transition-colors">Dokumenty</Link>
           <Link href="/dossiers" className="hover:text-beige-800 transition-colors">Teczki</Link>
+          <Link href="/criminal-groups" className="hover:text-beige-800 transition-colors">Grupy przestępcze</Link>
           <Link href="/vehicle-archive" className="hover:text-beige-800 transition-colors">Archiwum pojazdów</Link>
           {can.seeArchive(role) && (
             <Link href="/archive" className="hover:text-beige-800 transition-colors">Archiwum</Link>
