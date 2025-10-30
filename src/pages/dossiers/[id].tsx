@@ -75,6 +75,7 @@ const RECORD_LABELS: Record<string, string> = {
   explosive: "Dowód — Materiały wybuchowe",
   member: "Członek grupy",
   vehicle: "Pojazd organizacji",
+  "group-link": "Powiązanie z organizacją",
 };
 
 const RECORD_COLORS: Record<string, string> = {
@@ -84,6 +85,7 @@ const RECORD_COLORS: Record<string, string> = {
   explosive: "#f97316",
   member: "#6366f1",
   vehicle: "#0ea5e9",
+  "group-link": "#facc15",
 };
 
 const CONTROLLED_COLOR = "#fb923c";
@@ -297,6 +299,10 @@ export default function DossierPage() {
   const isCriminalGroup = info.category === "criminal-group";
   const canDeleteDossier = role === "director" && !isCriminalGroup;
   const groupColorHex = info.group?.colorHex || "#7c3aed";
+  const groupDisplayName = useMemo(
+    () => info.group?.name || title || "Grupa przestępcza",
+    [info.group, title]
+  );
 
   useEffect(() => {
     if (!id) return;
@@ -377,8 +383,8 @@ export default function DossierPage() {
 
   const addRecordWithLog = useCallback(
     async (payload: Record<string, any>, recordType: string) => {
-      if (!id) return;
-      await addDoc(collection(db, "dossiers", id, "records"), payload);
+      if (!id) return null;
+      const recordRef = await addDoc(collection(db, "dossiers", id, "records"), payload);
       await addDoc(collection(db, "logs"), {
         type: "dossier_record_add",
         recordType,
@@ -387,6 +393,7 @@ export default function DossierPage() {
         authorUid: auth.currentUser?.uid || "",
         ts: serverTimestamp(),
       });
+      return recordRef;
     },
     [id]
   );
@@ -592,7 +599,7 @@ export default function DossierPage() {
       setErr(null);
       setMemberSaving(true);
       const attachments = memberForm.profileImage ? await uploadAttachments([memberForm.profileImage], "members") : [];
-      await addRecordWithLog(
+      const memberRecordRef = await addRecordWithLog(
         {
           type: "member",
           dossierId: memberForm.dossierId,
@@ -610,6 +617,33 @@ export default function DossierPage() {
         },
         "member"
       );
+      if (!memberRecordRef) {
+        throw new Error("Nie udało się utworzyć wpisu członka.");
+      }
+      const memberLinkRef = await addDoc(collection(db, "dossiers", memberForm.dossierId, "records"), {
+        type: "group-link",
+        linkedGroupId: id,
+        linkedGroupRecordId: memberRecordRef.id,
+        linkedGroupName: groupDisplayName,
+        linkedGroupColor: groupColorHex,
+        memberRank: memberForm.rank,
+        memberRankColor: rank.color,
+        memberName: memberForm.name,
+        createdAt: serverTimestamp(),
+        author: auth.currentUser?.email || "",
+        authorUid: auth.currentUser?.uid || "",
+      });
+      await updateDoc(memberRecordRef, {
+        linkedDossierRecordId: memberLinkRef.id,
+      });
+      await addDoc(collection(db, "logs"), {
+        type: "dossier_group_link_add",
+        dossierId: memberForm.dossierId,
+        groupId: id,
+        author: auth.currentUser?.email || "",
+        authorUid: auth.currentUser?.uid || "",
+        ts: serverTimestamp(),
+      });
       setMemberForm({
         dossierId: "",
         name: "",
@@ -627,7 +661,15 @@ export default function DossierPage() {
     } finally {
       setMemberSaving(false);
     }
-  }, [addRecordWithLog, id, memberForm, memberSaving, uploadAttachments]);
+  }, [
+    addRecordWithLog,
+    groupColorHex,
+    groupDisplayName,
+    id,
+    memberForm,
+    memberSaving,
+    uploadAttachments,
+  ]);
 
   const addVehicle = useCallback(async (): Promise<boolean> => {
     if (!id || vehicleSaving) return false;
@@ -643,7 +685,7 @@ export default function DossierPage() {
     try {
       setErr(null);
       setVehicleSaving(true);
-      await addRecordWithLog(
+      const vehicleRecordRef = await addRecordWithLog(
         {
           type: "vehicle",
           vehicleId: vehicle.id,
@@ -658,6 +700,30 @@ export default function DossierPage() {
         },
         "vehicle"
       );
+      if (!vehicleRecordRef) {
+        throw new Error("Nie udało się utworzyć wpisu pojazdu.");
+      }
+      const vehicleNoteRef = await addDoc(collection(db, "vehicleFolders", vehicle.id, "notes"), {
+        text: `Powiązanie z organizacją ${groupDisplayName}.`,
+        linkedGroupId: id,
+        linkedGroupRecordId: vehicleRecordRef.id,
+        linkedGroupName: groupDisplayName,
+        noteType: "criminal-group-link",
+        createdAt: serverTimestamp(),
+        author: auth.currentUser?.email || "",
+        authorUid: auth.currentUser?.uid || "",
+      });
+      await updateDoc(vehicleRecordRef, {
+        linkedVehicleNoteId: vehicleNoteRef.id,
+      });
+      await addDoc(collection(db, "logs"), {
+        type: "vehicle_group_link_add",
+        vehicleId: vehicle.id,
+        groupId: id,
+        author: auth.currentUser?.email || "",
+        authorUid: auth.currentUser?.uid || "",
+        ts: serverTimestamp(),
+      });
       setVehicleForm({ vehicleId: "" });
       return true;
     } catch (e: any) {
@@ -666,7 +732,7 @@ export default function DossierPage() {
     } finally {
       setVehicleSaving(false);
     }
-  }, [addRecordWithLog, id, vehicleForm.vehicleId, vehicleOptions, vehicleSaving]);
+  }, [addRecordWithLog, groupDisplayName, id, vehicleForm.vehicleId, vehicleOptions, vehicleSaving]);
 
   const handleNoteModalSubmit = useCallback(async () => {
     const ok = await addNote();
@@ -1247,6 +1313,7 @@ export default function DossierPage() {
 
   const deleteRecord = useCallback(
     async (rid: string) => {
+      const record = records.find((r) => r.id === rid);
       const ok = await confirm({
         title: "Usuń wpis",
         message: "Czy na pewno chcesz usunąć ten wpis z teczki?",
@@ -1254,16 +1321,64 @@ export default function DossierPage() {
         tone: "danger",
       });
       if (!ok) return;
-      await deleteDoc(doc(db, "dossiers", id, "records", rid));
-      await addDoc(collection(db, "logs"), {
-        type: "dossier_record_delete",
-        dossierId: id,
-        recordId: rid,
-        author: auth.currentUser?.email || "",
-        ts: serverTimestamp(),
-      });
+      try {
+        setErr(null);
+        await deleteDoc(doc(db, "dossiers", id, "records", rid));
+
+        if (record?.type === "member" && record?.dossierId) {
+          if (record.linkedDossierRecordId) {
+            await deleteDoc(doc(db, "dossiers", record.dossierId, "records", record.linkedDossierRecordId));
+          } else {
+            const q = query(
+              collection(db, "dossiers", record.dossierId, "records"),
+              where("linkedGroupRecordId", "==", rid)
+            );
+            const snap = await getDocs(q);
+            await Promise.all(snap.docs.map((docSnap) => deleteDoc(docSnap.ref)));
+          }
+          await addDoc(collection(db, "logs"), {
+            type: "dossier_group_link_remove",
+            dossierId: record.dossierId,
+            groupId: id,
+            author: auth.currentUser?.email || "",
+            authorUid: auth.currentUser?.uid || "",
+            ts: serverTimestamp(),
+          });
+        }
+
+        if (record?.type === "vehicle" && record?.vehicleId) {
+          if (record.linkedVehicleNoteId) {
+            await deleteDoc(doc(db, "vehicleFolders", record.vehicleId, "notes", record.linkedVehicleNoteId));
+          } else {
+            const q = query(
+              collection(db, "vehicleFolders", record.vehicleId, "notes"),
+              where("linkedGroupRecordId", "==", rid)
+            );
+            const snap = await getDocs(q);
+            await Promise.all(snap.docs.map((docSnap) => deleteDoc(docSnap.ref)));
+          }
+          await addDoc(collection(db, "logs"), {
+            type: "vehicle_group_link_remove",
+            vehicleId: record.vehicleId,
+            groupId: id,
+            author: auth.currentUser?.email || "",
+            authorUid: auth.currentUser?.uid || "",
+            ts: serverTimestamp(),
+          });
+        }
+
+        await addDoc(collection(db, "logs"), {
+          type: "dossier_record_delete",
+          dossierId: id,
+          recordId: rid,
+          author: auth.currentUser?.email || "",
+          ts: serverTimestamp(),
+        });
+      } catch (e: any) {
+        setErr(e?.message || "Nie udało się usunąć wpisu.");
+      }
     },
-    [confirm, id]
+    [confirm, id, records]
   );
 
   const deleteDossier = useCallback(async () => {
@@ -1309,16 +1424,16 @@ export default function DossierPage() {
   }, [info, isCriminalGroup, title]);
 
   const groupSummaryGradient = useMemo(
-    () => `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.55)}, rgba(8, 12, 28, 0.9))`,
+    () => `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.42)}, rgba(6, 10, 22, 0.94))`,
     [groupColorHex]
   );
-  const groupSummaryBorder = useMemo(() => withAlpha(groupColorHex, 0.6), [groupColorHex]);
+  const groupSummaryBorder = useMemo(() => withAlpha(groupColorHex, 0.48), [groupColorHex]);
   const groupSummaryShadow = useMemo(
-    () => `0 36px 90px -28px ${withAlpha(groupColorHex, 0.75)}`,
+    () => `0 30px 78px -28px ${withAlpha(groupColorHex, 0.62)}`,
     [groupColorHex]
   );
   const groupSummaryGlow = useMemo(
-    () => `radial-gradient(circle at 18% 20%, ${withAlpha(groupColorHex, 0.45)}, transparent 60%)`,
+    () => `radial-gradient(circle at 18% 20%, ${withAlpha(groupColorHex, 0.32)}, transparent 62%)`,
     [groupColorHex]
   );
 
@@ -1589,6 +1704,37 @@ export default function DossierPage() {
             ) : null}
           </div>
         );
+      case "group-link":
+        return (
+          <div className="grid gap-1 text-sm">
+            <div className="font-semibold text-base">Powiązanie z organizacją</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span>Organizacja:</span>
+              {record.linkedGroupId ? (
+                <a href={`/criminal-groups/${record.linkedGroupId}`} className="underline text-blue-200">
+                  {record.linkedGroupName || "—"}
+                </a>
+              ) : (
+                <strong>{record.linkedGroupName || "—"}</strong>
+              )}
+            </div>
+            {record.memberRank ? (
+              <div className="flex items-center gap-2">
+                <span
+                  className="px-2 py-0.5 rounded-full text-xs font-semibold"
+                  style={{
+                    background: withAlpha(record.memberRankColor || record.linkedGroupColor || "#64748b", 0.22),
+                    color: record.memberRankColor || record.linkedGroupColor || "#e2e8f0",
+                  }}
+                >
+                  {record.memberRank}
+                </span>
+                <span>Rola w organizacji</span>
+              </div>
+            ) : null}
+            {record.memberName ? <div>Członek: {record.memberName}</div> : null}
+          </div>
+        );
       default:
         return record.text ? (
           <div className="whitespace-pre-wrap text-sm">{record.text}</div>
@@ -1642,9 +1788,9 @@ export default function DossierPage() {
               style={
                 isCriminalGroup
                   ? {
-                      borderColor: withAlpha(groupColorHex, 0.65),
-                      boxShadow: `0 32px 80px -28px ${withAlpha(groupColorHex, 0.7)}`,
-                      background: `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.55)}, rgba(8, 14, 32, 0.92))`,
+                      borderColor: withAlpha(groupColorHex, 0.5),
+                      boxShadow: `0 28px 74px -28px ${withAlpha(groupColorHex, 0.6)}`,
+                      background: `linear-gradient(135deg, ${withAlpha(groupColorHex, 0.44)}, rgba(8, 14, 32, 0.95))`,
                     }
                   : undefined
               }
@@ -1722,9 +1868,9 @@ export default function DossierPage() {
                       key={stat.key}
                       className="stat-card"
                       style={{
-                        borderColor: `${stat.accent}66`,
-                        background: `linear-gradient(140deg, ${stat.accent}22, rgba(5, 11, 24, 0.6))`,
-                        boxShadow: `0 26px 60px -28px ${stat.accent}aa`,
+                        borderColor: `${stat.accent}44`,
+                        background: `linear-gradient(140deg, ${stat.accent}18, rgba(5, 11, 24, 0.72))`,
+                        boxShadow: `0 22px 52px -28px ${stat.accent}77`,
                       }}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -1754,58 +1900,74 @@ export default function DossierPage() {
                   </div>
                   {organizationMembers.length ? (
                     <div className="grid gap-3 md:grid-cols-2">
-                      {organizationMembers.map((member) => (
-                        <div
-                          key={member.id}
-                          className="relative rounded-2xl border p-4 flex gap-4 overflow-hidden"
-                          style={{
-                            borderColor: withAlpha(member.rankColor || groupColorHex, 0.6),
-                            background: `linear-gradient(140deg, ${withAlpha(member.rankColor || groupColorHex, 0.35)}, rgba(10, 14, 28, 0.75))`,
-                            boxShadow: `0 24px 60px -28px ${withAlpha(member.rankColor || groupColorHex, 0.8)}`,
-                          }}
-                        >
-                          <span
-                            className="absolute inset-0 opacity-40"
+                      {organizationMembers.map((member) => {
+                        const allowRemove = canEditRecord(member);
+                        return (
+                          <div
+                            key={member.id}
+                            className="relative rounded-2xl border p-4 flex gap-4 overflow-hidden transition hover:-translate-y-0.5"
                             style={{
-                              background: `radial-gradient(circle at 18% 20%, ${withAlpha(member.rankColor || groupColorHex, 0.4)}, transparent 65%)`,
+                              borderColor: withAlpha(member.rankColor || groupColorHex, 0.45),
+                              background: `linear-gradient(150deg, ${withAlpha(member.rankColor || groupColorHex, 0.22)}, rgba(10, 14, 28, 0.85))`,
+                              boxShadow: `0 20px 48px -26px ${withAlpha(member.rankColor || groupColorHex, 0.55)}`,
                             }}
-                          />
-                          {member.profileImageUrl ? (
-                            <img
-                              src={member.profileImageUrl}
-                              alt={member.name || "Profil"}
-                              className="w-16 h-16 rounded-lg object-cover relative z-10"
+                          >
+                            <span
+                              className="absolute inset-0 opacity-30"
+                              style={{
+                                background: `radial-gradient(circle at 18% 20%, ${withAlpha(member.rankColor || groupColorHex, 0.28)}, transparent 68%)`,
+                              }}
                             />
-                          ) : (
-                            <div className="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center text-2xl relative z-10">
-                              👤
-                            </div>
-                          )}
-                          <div className="flex-1 relative z-10">
-                            <div className="font-semibold text-lg text-white">{member.name || "Nieznany"}</div>
-                            <div className="text-xs text-white/70">CID: {member.cid || "—"}</div>
-                            <div className="mt-2 flex flex-wrap gap-1 items-center">
-                              <span
-                                className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
-                                style={{ background: withAlpha(member.rankColor || "#64748b", 0.3), color: member.rankColor || "#e2e8f0" }}
+                            {allowRemove ? (
+                              <button
+                                type="button"
+                                className="criminal-group-remove z-20"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  void deleteRecord(member.id);
+                                }}
                               >
-                                {member.rank || "Brak informacji"}
-                              </span>
-                              {member.skinColor ? (
-                                <span className="text-xs text-white/75">Kolor skóry: {member.skinColor}</span>
+                                Usuń
+                              </button>
+                            ) : null}
+                            {member.profileImageUrl ? (
+                              <img
+                                src={member.profileImageUrl}
+                                alt={member.name || "Profil"}
+                                className="w-16 h-16 rounded-lg object-cover relative z-10"
+                              />
+                            ) : (
+                              <div className="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center text-2xl relative z-10">
+                                👤
+                              </div>
+                            )}
+                            <div className="flex-1 relative z-10">
+                              <div className="font-semibold text-lg text-white">{member.name || "Nieznany"}</div>
+                              <div className="text-xs text-white/70">CID: {member.cid || "—"}</div>
+                              <div className="mt-2 flex flex-wrap gap-1 items-center">
+                                <span
+                                  className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                                  style={{ background: withAlpha(member.rankColor || "#64748b", 0.24), color: member.rankColor || "#e2e8f0" }}
+                                >
+                                  {member.rank || "Brak informacji"}
+                                </span>
+                                {member.skinColor ? (
+                                  <span className="text-xs text-white/75">Kolor skóry: {member.skinColor}</span>
+                                ) : null}
+                              </div>
+                              {member.traits ? (
+                                <div className="text-xs text-white/70 mt-2 leading-relaxed">Cechy: {member.traits}</div>
+                              ) : null}
+                              {member.dossierId ? (
+                                <a href={`/dossiers/${member.dossierId}`} className="text-xs underline text-blue-100 mt-2 inline-block">
+                                  Przejdź do teczki
+                                </a>
                               ) : null}
                             </div>
-                            {member.traits ? (
-                              <div className="text-xs text-white/70 mt-2 leading-relaxed">Cechy: {member.traits}</div>
-                            ) : null}
-                            {member.dossierId ? (
-                              <a href={`/dossiers/${member.dossierId}`} className="text-xs underline text-blue-100 mt-2 inline-block">
-                                Przejdź do teczki
-                              </a>
-                            ) : null}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="text-sm text-white/75">Brak dodanych członków organizacji.</p>
@@ -1822,37 +1984,67 @@ export default function DossierPage() {
                   </div>
                   {organizationVehicles.length ? (
                     <div className="grid gap-3 md:grid-cols-2">
-                      {organizationVehicles.map((vehicle) => (
-                        <a
-                          key={vehicle.id}
-                          href={vehicle.vehicleId ? `/vehicle-archive/${vehicle.vehicleId}` : undefined}
-                          className="relative rounded-2xl border p-4 hover:-translate-y-0.5 transition"
-                          style={{
-                            borderColor: withAlpha(groupColorHex, 0.6),
-                            background: `linear-gradient(140deg, ${withAlpha(groupColorHex, 0.35)}, rgba(8, 12, 24, 0.75))`,
-                            boxShadow: `0 24px 56px -26px ${withAlpha(groupColorHex, 0.75)}`,
-                          }}
-                          onClick={() => {
-                            if (!vehicle.vehicleId || !session) return;
-                            void logActivity({ type: "vehicle_from_dossier_open", dossierId: id, vehicleId: vehicle.vehicleId });
-                          }}
-                        >
-                          <div className="font-semibold text-lg text-white flex items-center gap-2">
-                            <span aria-hidden>🚗</span>
-                            {vehicle.registration || "Pojazd"}
-                          </div>
-                          <div className="text-sm text-white/80">
-                            {vehicle.brand || "—"} • Kolor: {vehicle.color || "—"}
-                          </div>
-                          <div className="text-xs text-white/70 mt-1">Właściciel: {vehicle.ownerName || "—"}</div>
-                          {vehicle.vehicleId ? (
-                            <div className="mt-2 inline-flex items-center gap-2 text-xs text-white/80">
-                              <span aria-hidden>🔗</span>
-                              <span>Otwórz teczkę pojazdu</span>
+                      {organizationVehicles.map((vehicle) => {
+                        const allowRemove = canEditRecord(vehicle);
+                        return (
+                          <div
+                            key={vehicle.id}
+                            className="relative rounded-2xl border p-4 transition hover:-translate-y-0.5 overflow-hidden"
+                            style={{
+                              borderColor: withAlpha(groupColorHex, 0.45),
+                              background: `linear-gradient(150deg, ${withAlpha(groupColorHex, 0.2)}, rgba(8, 12, 24, 0.88))`,
+                              boxShadow: `0 20px 46px -26px ${withAlpha(groupColorHex, 0.55)}`,
+                            }}
+                          >
+                            <span
+                              className="absolute inset-0 opacity-25"
+                              style={{
+                                background: `radial-gradient(circle at 22% 18%, ${withAlpha(groupColorHex, 0.26)}, transparent 70%)`,
+                              }}
+                            />
+                            {allowRemove ? (
+                              <button
+                                type="button"
+                                className="criminal-group-remove z-20"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  void deleteRecord(vehicle.id);
+                                }}
+                              >
+                                Usuń
+                              </button>
+                            ) : null}
+                            <div className="relative z-10 font-semibold text-lg text-white flex items-center gap-2">
+                              <span aria-hidden>🚗</span>
+                              {vehicle.registration || "Pojazd"}
                             </div>
-                          ) : null}
-                        </a>
-                      ))}
+                            <div className="relative z-10 text-sm text-white/80">
+                              {vehicle.brand || "—"} • Kolor: {vehicle.color || "—"}
+                            </div>
+                            <div className="relative z-10 text-xs text-white/70 mt-1">
+                              Właściciel: {vehicle.ownerName || "—"}
+                            </div>
+                            {vehicle.vehicleId ? (
+                              <a
+                                href={`/vehicle-archive/${vehicle.vehicleId}`}
+                                className="relative z-10 mt-2 inline-flex items-center gap-2 text-xs text-white/80 underline-offset-4 hover:underline"
+                                onClick={() => {
+                                  if (!session) return;
+                                  void logActivity({
+                                    type: "vehicle_from_dossier_open",
+                                    dossierId: id,
+                                    vehicleId: vehicle.vehicleId,
+                                  });
+                                }}
+                              >
+                                <span aria-hidden>🔗</span>
+                                <span>Otwórz teczkę pojazdu</span>
+                              </a>
+                            ) : null}
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="text-sm text-white/75">Brak przypisanych pojazdów.</p>
