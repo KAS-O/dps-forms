@@ -161,7 +161,10 @@ export default function CriminalGroupsPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 {sortedGroups.map((group) => {
                   const color = group.group?.colorHex || "#7c3aed";
-                  const glow = withAlpha(color, 0.35);
+                  const glow = withAlpha(color, 0.22);
+                  const background = `linear-gradient(135deg, ${withAlpha(color, 0.32)}, rgba(6, 10, 24, 0.95))`;
+                  const border = withAlpha(color, 0.5);
+                  const shadow = `0 28px 64px -30px ${withAlpha(color, 0.65)}`;
                   return (
                     <a
                       key={group.id}
@@ -169,9 +172,9 @@ export default function CriminalGroupsPage() {
                       className="card p-5 transition hover:-translate-y-1"
                       data-section="criminal-groups"
                       style={{
-                        borderColor: `${color}b0`,
-                        boxShadow: `0 32px 72px -32px ${color}d5`,
-                        background: `linear-gradient(135deg, ${withAlpha(color, 0.55)}, rgba(10, 16, 34, 0.92))`,
+                        borderColor: border,
+                        boxShadow: shadow,
+                        background,
                       }}
                       onClick={() => {
                         if (!session) return;
