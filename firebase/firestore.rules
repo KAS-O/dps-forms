@@ -42,7 +42,7 @@ service cloud.firestore {
     }
 
     function isCriminalGroupContext() {
-      return (resource.data.category == "criminal-group") ||
+      return ((resource != null) && (resource.data.category == "criminal-group")) ||
         (request.resource.data.category == "criminal-group");
     }
 
