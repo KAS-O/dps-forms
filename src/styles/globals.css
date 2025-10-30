@@ -85,6 +85,90 @@ body {
   transform: translateY(1px) scale(0.99);
 }
 
+.nav-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.95rem;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  background: rgba(9, 16, 32, 0.65);
+  color: inherit;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-decoration: none;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease, filter 0.25s ease;
+}
+
+.nav-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 36px -22px rgba(59, 130, 246, 0.45);
+  filter: brightness(1.05);
+}
+
+.nav-pill__dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+
+.nav-pill--active {
+  transform: translateY(-1px);
+}
+
+.btn--note {
+  background-image: linear-gradient(135deg, #c084fc, #7c3aed);
+  color: #fdf4ff;
+  box-shadow: 0 20px 40px -18px rgba(126, 34, 206, 0.65);
+}
+
+.btn--weapon {
+  background-image: linear-gradient(135deg, #fca5a5, #ef4444);
+  color: #fff1f2;
+  box-shadow: 0 20px 40px -18px rgba(239, 68, 68, 0.7);
+}
+
+.btn--drug {
+  background-image: linear-gradient(135deg, #6ee7b7, #10b981);
+  color: #022c22;
+  box-shadow: 0 20px 40px -18px rgba(16, 185, 129, 0.6);
+}
+
+.btn--explosive {
+  background-image: linear-gradient(135deg, #fdba74, #f97316);
+  color: #431407;
+  box-shadow: 0 20px 40px -18px rgba(249, 115, 22, 0.65);
+}
+
+.btn--member {
+  background-image: linear-gradient(135deg, #f9a8d4, #ec4899);
+  color: #4f0f2a;
+  box-shadow: 0 20px 40px -18px rgba(236, 72, 153, 0.65);
+}
+
+.btn--vehicle {
+  background-image: linear-gradient(135deg, #93c5fd, #3b82f6);
+  color: #0b1220;
+  box-shadow: 0 20px 40px -18px rgba(59, 130, 246, 0.6);
+}
+
+.btn--control {
+  background-image: linear-gradient(135deg, rgba(251, 146, 60, 0.25), rgba(15, 23, 42, 0.6));
+  color: #fb923c;
+  border-color: rgba(251, 146, 60, 0.45);
+  box-shadow: 0 18px 32px -22px rgba(251, 146, 60, 0.5);
+}
+
+.btn--control-active {
+  background-image: linear-gradient(135deg, #fb923c, #f97316);
+  color: #0b1120;
+  box-shadow: 0 20px 36px -20px rgba(251, 146, 60, 0.75);
+}
+
 .card[data-section] {
   border-width: 1.5px;
 }
