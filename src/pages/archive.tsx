@@ -496,8 +496,19 @@ export default function ArchivePage() {
     });
     if (!confirmed) return;
     
+    const entry = items.find((item) => item.id === id);
     await deleteDoc(doc(db, "archives", id));
-    await addDoc(collection(db, "logs"), { type: "archive_delete", id, by: login, ts: serverTimestamp() });
+    await addDoc(collection(db, "logs"), {
+      type: "archive_delete",
+      archiveId: id,
+      templateName: entry?.templateName || "",
+      entryAuthor: entry?.userLogin || "",
+      imageCount: Array.isArray(entry?.imageUrls) ? entry?.imageUrls?.length : 0,
+      vehicleFolderRegistration: entry?.vehicleFolderRegistration || "",
+      by: login,
+      login,
+      ts: serverTimestamp(),
+    });
     setItems((prev) => prev.filter((entry) => entry.id !== id));
     setSelectedIds((prev) => prev.filter((entry) => entry !== id));
   };
@@ -542,6 +553,7 @@ export default function ArchivePage() {
         type: "archive_clear",
         by: login,
         removed: snapshot.size,
+        login,
         ts: serverTimestamp(),
       });
       

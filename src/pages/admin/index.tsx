@@ -18,13 +18,16 @@ import {
   Timestamp,
   serverTimestamp,
   writeBatch,
-  onSnapshot,
   orderBy,
   limit,
+  startAfter,
 } from "firebase/firestore";
+import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useAnnouncement } from "@/hooks/useAnnouncement";
+import { VEHICLE_FLAGS } from "@/lib/vehicleFlags";
+import { deriveLoginFromEmail } from "@/lib/login";
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
@@ -63,6 +66,108 @@ const ANNOUNCEMENT_WINDOWS: { value: string; label: string; ms: number | null }[
   { value: "forever", label: "Do czasu usunięcia", ms: null },
 ];
 
+const LOG_PAGE_SIZE = 150;
+const LOG_FETCH_BATCH = 200;
+
+type LogCategory =
+  | "session"
+  | "navigation"
+  | "documents"
+  | "archive"
+  | "vehicles"
+  | "dossiers"
+  | "administration"
+  | "other";
+
+const LOG_CATEGORY_LABELS: Record<LogCategory, string> = {
+  session: "Sesje i logowania",
+  navigation: "Nawigacja",
+  documents: "Dokumenty",
+  archive: "Archiwum",
+  vehicles: "Pojazdy",
+  dossiers: "Teczki i organizacje",
+  administration: "Administracja",
+  other: "Pozostałe",
+};
+
+const LOG_TYPE_META: Record<string, { label: string; category: LogCategory }> = {
+  session_start: { label: "Rozpoczęcie sesji", category: "session" },
+  session_end: { label: "Zakończenie sesji", category: "session" },
+  logout: { label: "Wylogowanie", category: "session" },
+  login_success: { label: "Udane logowanie", category: "session" },
+  login_fail: { label: "Nieudane logowanie", category: "session" },
+  page_view: { label: "Wejście na stronę", category: "navigation" },
+  template_view: { label: "Podgląd szablonu", category: "documents" },
+  doc_sent: { label: "Wysłanie dokumentu", category: "documents" },
+  archive_view: { label: "Podgląd archiwum", category: "archive" },
+  archive_image_open: { label: "Podgląd obrazu archiwum", category: "archive" },
+  archive_delete: { label: "Usunięcie wpisu archiwum", category: "archive" },
+  archive_clear: { label: "Czyszczenie archiwum", category: "archive" },
+  vehicle_archive_view: { label: "Lista pojazdów", category: "vehicles" },
+  vehicle_folder_view: { label: "Teczka pojazdu", category: "vehicles" },
+  vehicle_create: { label: "Utworzenie teczki pojazdu", category: "vehicles" },
+  vehicle_update: { label: "Aktualizacja pojazdu", category: "vehicles" },
+  vehicle_delete: { label: "Usunięcie teczki pojazdu", category: "vehicles" },
+  vehicle_flag_update: { label: "Zmiana oznaczenia pojazdu", category: "vehicles" },
+  vehicle_note_add: { label: "Dodanie notatki pojazdu", category: "vehicles" },
+  vehicle_note_edit: { label: "Edycja notatki pojazdu", category: "vehicles" },
+  vehicle_note_delete: { label: "Usunięcie notatki pojazdu", category: "vehicles" },
+  vehicle_note_from_doc: { label: "Notatka z dokumentu", category: "vehicles" },
+  vehicle_note_payment: { label: "Rozliczenie płatności", category: "vehicles" },
+  vehicle_group_link_add: { label: "Powiązanie pojazdu z grupą", category: "vehicles" },
+  vehicle_group_link_remove: { label: "Usunięcie powiązania pojazdu", category: "vehicles" },
+  vehicle_from_dossier_open: { label: "Pojazd z teczki", category: "vehicles" },
+  dossier_view: { label: "Podgląd teczki", category: "dossiers" },
+  dossier_link_open: { label: "Przejście do teczki", category: "dossiers" },
+  dossier_evidence_open: { label: "Podgląd dowodu w teczce", category: "dossiers" },
+  dossier_record_add: { label: "Dodanie wpisu do teczki", category: "dossiers" },
+  dossier_record_edit: { label: "Edycja wpisu w teczce", category: "dossiers" },
+  dossier_record_delete: { label: "Usunięcie wpisu z teczki", category: "dossiers" },
+  dossier_group_link_add: { label: "Powiązanie grupy z teczką", category: "dossiers" },
+  dossier_group_link_remove: { label: "Usunięcie powiązania grupy", category: "dossiers" },
+  dossier_create: { label: "Utworzenie teczki", category: "dossiers" },
+  dossier_delete: { label: "Usunięcie teczki", category: "dossiers" },
+  criminal_group_open: { label: "Podgląd organizacji", category: "dossiers" },
+  stats_clear: { label: "Wyczyszczenie statystyk", category: "administration" },
+};
+
+const VEHICLE_FLAG_LABELS: Record<string, string> = VEHICLE_FLAGS.reduce((acc, flag) => {
+  acc[flag.key] = flag.label;
+  return acc;
+}, {} as Record<string, string>);
+
+const DEFAULT_LOG_FILTERS = {
+  account: "",
+  category: "all",
+  type: "all",
+  dateFrom: "",
+  dateTo: "",
+} as const;
+
+const VEHICLE_FIELD_LABELS: Record<string, string> = {
+  registration: "Numer rejestracyjny",
+  brand: "Marka",
+  color: "Kolor",
+  ownerName: "Właściciel",
+  ownerCid: "CID właściciela",
+};
+
+const DOSSIER_RECORD_LABELS: Record<string, string> = {
+  note: "Notatka",
+  weapon: "Broń",
+  drug: "Narkotyk",
+  explosive: "Materiał wybuchowy",
+  member: "Członek organizacji",
+  vehicle: "Pojazd",
+  "group-link": "Powiązanie z organizacją",
+};
+
+const USD_FORMATTER = new Intl.NumberFormat("pl-PL", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+});
+
 async function readErrorResponse(res: Response, fallback: string) {
   const contentType = res.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
@@ -99,6 +204,10 @@ export default function Admin() {
   const [section, setSection] = useState<AdminSection>("overview");
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
+  const [logsCursor, setLogsCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [logsExhausted, setLogsExhausted] = useState(false);
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsFilters, setLogsFilters] = useState(() => ({ ...DEFAULT_LOG_FILTERS }));
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   // ogólne
@@ -115,6 +224,61 @@ export default function Admin() {
   const [people, setPeople] = useState<Person[]>([]);
   const [person, setPerson] = useState<string>(""); // uid
   const [pStats, setPStats] = useState({ m: 0, k: 0, a: 0, income: 0 });
+
+  const accountOptions = useMemo(() => {
+    const entries = [...people];
+    entries.sort((a, b) => {
+      const nameA = (a.fullName || a.login || a.uid || "").toLowerCase();
+      const nameB = (b.fullName || b.login || b.uid || "").toLowerCase();
+      return nameA.localeCompare(nameB, "pl");
+    });
+    return entries.map((p) => {
+      const loginValue = normalizeLoginValue(p.login);
+      const value = loginValue ? `login:${loginValue}` : `uid:${p.uid}`;
+      const labelBase = p.fullName || p.login || p.uid;
+      const secondary = loginValue ? loginValue : p.uid;
+      return {
+        value,
+        label: `${labelBase || secondary} (${secondary})`,
+      };
+    });
+  }, [people]);
+
+  const peopleByLogin = useMemo(() => {
+    const map = new Map<string, Person>();
+    people.forEach((p) => {
+      const loginValue = normalizeLoginValue(p.login);
+      if (loginValue) {
+        map.set(loginValue, p);
+      }
+    });
+    return map;
+  }, [people]);
+
+  const peopleByUid = useMemo(() => {
+    const map = new Map<string, Person>();
+    people.forEach((p) => {
+      if (p.uid) {
+        map.set(p.uid, p);
+      }
+    });
+    return map;
+  }, [people]);
+
+  const categoryOptions = useMemo(() => {
+    const categories = new Set<LogCategory>();
+    Object.values(LOG_TYPE_META).forEach((meta) => categories.add(meta.category));
+    return Array.from(categories)
+      .sort((a, b) => LOG_CATEGORY_LABELS[a].localeCompare(LOG_CATEGORY_LABELS[b], "pl"))
+      .map((category) => ({ value: category, label: LOG_CATEGORY_LABELS[category] }));
+  }, []);
+
+  const typeOptions = useMemo(() => {
+    return Object.entries(LOG_TYPE_META)
+      .filter(([, meta]) => logsFilters.category === "all" || meta.category === logsFilters.category)
+      .sort((a, b) => a[1].label.localeCompare(b[1].label, "pl"))
+      .map(([value, meta]) => ({ value, label: meta.label }));
+  }, [logsFilters.category]);
 
   // dzial kadr
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -154,24 +318,6 @@ export default function Admin() {
       setAnnouncementMessage("");
     }
   }, [announcement, announcementSaving]);
-
-  useEffect(() => {
-    if (role !== "director") return;
-    setLogsLoading(true);
-    const q = query(collection(db, "logs"), orderBy("ts", "desc"), limit(250));
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        setActivityLogs(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
-        setLogsLoading(false);
-      },
-      (error) => {
-        console.error("Nie udało się pobrać logów aktywności:", error);
-        setLogsLoading(false);
-      }
-    );
-    return () => unsub();
-  }, [role]);
 
   useEffect(() => {
     if (section !== "logs") return;
@@ -562,6 +708,79 @@ export default function Admin() {
         : "bg-white/5 border-white/10 hover:bg-white/15"
     }`;
 
+  const normalizeLoginValue = (value?: string | null) => {
+    if (!value) return "";
+    const trimmed = String(value).trim();
+    if (!trimmed) return "";
+    return deriveLoginFromEmail(trimmed).toLowerCase();
+  };
+
+  const extractLogLogin = (log: any): string | null => {
+    const candidates = [
+      typeof log?.login === "string" ? log.login : null,
+      typeof log?.by === "string" ? log.by : null,
+      typeof log?.author === "string" ? log.author : null,
+      typeof log?.authorLogin === "string" ? log.authorLogin : null,
+      typeof log?.account?.login === "string" ? log.account.login : null,
+    ];
+    for (const candidate of candidates) {
+      const normalized = normalizeLoginValue(candidate);
+      if (normalized) return normalized;
+    }
+    return null;
+  };
+
+  const extractLogUid = (log: any): string | null => {
+    const candidates = [
+      typeof log?.uid === "string" ? log.uid : null,
+      typeof log?.authorUid === "string" ? log.authorUid : null,
+      typeof log?.userId === "string" ? log.userId : null,
+      typeof log?.account?.uid === "string" ? log.account.uid : null,
+    ];
+    for (const candidate of candidates) {
+      if (candidate && candidate.trim()) return candidate.trim();
+    }
+    return null;
+  };
+
+  const formatLogTypeLabel = (type?: string | null) => {
+    if (!type) return "—";
+    return LOG_TYPE_META[type]?.label || type;
+  };
+
+  const getLogCategory = (type?: string | null): LogCategory => {
+    if (!type) return "other";
+    return LOG_TYPE_META[type]?.category || "other";
+  };
+
+  const parseAccountFilter = (value: string): { kind: "login" | "uid" | null; value: string } => {
+    if (!value) return { kind: null, value: "" };
+    if (value.startsWith("uid:")) {
+      return { kind: "uid", value: value.slice(4) };
+    }
+    if (value.startsWith("login:")) {
+      return { kind: "login", value: value.slice(6) };
+    }
+    return { kind: "login", value: value };
+  };
+
+  const resolveLogUser = (log: any) => {
+    const loginValue = extractLogLogin(log);
+    const uidValue = extractLogUid(log);
+    const person = loginValue ? peopleByLogin.get(loginValue) || null : null;
+    const personByUid = !person && uidValue ? peopleByUid.get(uidValue) || null : null;
+    const resolved = person || personByUid;
+    const fullName = resolved?.fullName?.trim() || "";
+    const loginFromPerson = resolved?.login ? normalizeLoginValue(resolved.login) : "";
+    const finalLogin = loginFromPerson || loginValue || "";
+    return {
+      fullName: fullName || null,
+      login: finalLogin || null,
+      uid: uidValue || resolved?.uid || null,
+      sessionId: typeof log?.sessionId === "string" && log.sessionId.trim() ? log.sessionId : null,
+    };
+  };
+
   const getLogTimestampMs = (log: any): number | null => {
     const raw = log?.ts || log?.createdAt;
     if (raw?.toDate && typeof raw.toDate === "function") {
@@ -617,28 +836,322 @@ export default function Admin() {
     }
   };
 
+  const ensureLogsForPage = useCallback(
+    async (page: number, reset = false) => {
+      if (role !== "director") return;
+      const required = page * LOG_PAGE_SIZE;
+      if (!reset && activityLogs.length >= required) {
+        setLogsLoading(false);
+        return;
+      }
+
+      setLogsLoading(true);
+
+      try {
+        let items = reset ? [] : [...activityLogs];
+        let cursor: QueryDocumentSnapshot<DocumentData> | null = reset ? null : logsCursor;
+        let exhausted = reset ? false : logsExhausted;
+
+        const { kind: accountFilterKind, value: rawAccountValue } = parseAccountFilter(logsFilters.account);
+        const accountValue = accountFilterKind === "login" ? rawAccountValue.toLowerCase() : rawAccountValue;
+        const categoryFilter = logsFilters.category !== "all" ? logsFilters.category : null;
+        const typeFilter = logsFilters.type !== "all" ? logsFilters.type : null;
+        const fromParsed = logsFilters.dateFrom ? Date.parse(logsFilters.dateFrom) : NaN;
+        const toParsed = logsFilters.dateTo ? Date.parse(logsFilters.dateTo) : NaN;
+        const dateFromMs = Number.isNaN(fromParsed) ? null : fromParsed;
+        const dateToMs = Number.isNaN(toParsed) ? null : toParsed + 59_999;
+
+        const matches = (log: any) => {
+          if (typeFilter && (log?.type || "") !== typeFilter) return false;
+          if (categoryFilter && getLogCategory(log?.type) !== categoryFilter) return false;
+          if (accountFilterKind === "login") {
+            const loginValue = extractLogLogin(log);
+            if (!loginValue || loginValue !== accountValue) return false;
+          } else if (accountFilterKind === "uid") {
+            const uidValue = extractLogUid(log);
+            if (!uidValue || uidValue !== accountValue) return false;
+          }
+          if (dateFromMs != null || dateToMs != null) {
+            const ts = getLogTimestampMs(log);
+            if (dateFromMs != null && (ts == null || ts < dateFromMs)) return false;
+            if (dateToMs != null && (ts == null || ts > dateToMs)) return false;
+          }
+          return true;
+        };
+
+        while (items.length < required && !exhausted) {
+          const constraints = [orderBy("ts", "desc"), limit(LOG_FETCH_BATCH)] as const;
+          const q = cursor
+            ? query(collection(db, "logs"), orderBy("ts", "desc"), startAfter(cursor), limit(LOG_FETCH_BATCH))
+            : query(collection(db, "logs"), ...constraints);
+          const snap = await getDocs(q);
+          if (snap.empty) {
+            exhausted = true;
+            break;
+          }
+          cursor = snap.docs[snap.docs.length - 1];
+          let reachedOlderThanFrom = false;
+          for (const docSnap of snap.docs) {
+            const data = { id: docSnap.id, ...(docSnap.data() as any) };
+            const ts = getLogTimestampMs(data);
+            if (dateToMs != null && ts != null && ts > dateToMs) {
+              continue;
+            }
+            if (dateFromMs != null && ts != null && ts < dateFromMs) {
+              reachedOlderThanFrom = true;
+              break;
+            }
+            if (matches(data)) {
+              items.push(data);
+            }
+          }
+          if (reachedOlderThanFrom) {
+            exhausted = true;
+            break;
+          }
+          if (snap.docs.length < LOG_FETCH_BATCH) {
+            exhausted = true;
+          }
+        }
+
+        setActivityLogs(items);
+        setLogsCursor(cursor);
+        setLogsExhausted(exhausted);
+      } catch (error) {
+        console.error("Nie udało się pobrać logów aktywności:", error);
+      } finally {
+        setLogsLoading(false);
+      }
+    },
+    [
+      activityLogs,
+      extractLogLogin,
+      extractLogUid,
+      getLogTimestampMs,
+      logsCursor,
+      logsExhausted,
+      logsFilters,
+      parseAccountFilter,
+      role,
+    ]
+  );
+
+  useEffect(() => {
+    if (!ready || role !== "director") return;
+    if (section !== "logs") return;
+    setLogsPage(1);
+    void ensureLogsForPage(1, true);
+  }, [ensureLogsForPage, ready, role, section, logsFilters]);
+
+  useEffect(() => {
+    if (!ready || role !== "director") return;
+    if (section !== "logs") return;
+    if (activityLogs.length >= logsPage * LOG_PAGE_SIZE) return;
+    if (logsExhausted) return;
+    void ensureLogsForPage(logsPage, false);
+  }, [activityLogs.length, ensureLogsForPage, logsExhausted, logsPage, ready, role, section]);
+
   const describeLog = (log: any) => {
-    switch (log?.type) {
-      case "session_start":
-        return `Start sesji • ID: ${log.sessionId || "—"}`;
-      case "session_end":
-        return `Koniec sesji • ID: ${log.sessionId || "—"} • Powód: ${formatReason(log.reason)}`;
-      case "logout":
-        return `Wylogowanie • Powód: ${formatReason(log.reason)}`;
-      case "page_view":
-        return `Strona: ${log.path || "—"}${log.title ? ` • ${log.title}` : ""}`;
+    const type = log?.type || "";
+    switch (type) {
+      case "session_start": {
+        const sessionId = log.sessionId || "—";
+        return `Rozpoczęto sesję (ID: ${sessionId}).`;
+      }
+      case "session_end": {
+        const sessionId = log.sessionId || "—";
+        const reason = formatReason(log.reason);
+        return `Zamknięto sesję (ID: ${sessionId}, powód: ${reason}).`;
+      }
+      case "logout": {
+        const reason = formatReason(log.reason);
+        return `Wylogowanie użytkownika (powód: ${reason}).`;
+      }
+      case "login_success": {
+        const loginValue = extractLogLogin(log) || log.login || "—";
+        return `Udane logowanie jako ${loginValue}.`;
+      }
+      case "login_fail": {
+        const loginValue = extractLogLogin(log) || log.login || "—";
+        return `Nieudana próba logowania jako ${loginValue}.`;
+      }
+      case "page_view": {
+        const path = log.path || "—";
+        const title = log.title ? ` (${log.title})` : "";
+        return `Odwiedzono stronę ${path}${title}.`;
+      }
       case "template_view":
-        return `Szablon: ${log.template || log.slug || "—"}`;
+        return `Podgląd szablonu: ${log.template || log.slug || "—"}.`;
+      case "doc_sent": {
+        const officers: string[] = Array.isArray(log.officers) ? log.officers : [];
+        const officersText = officers.length ? officers.join(", ") : "—";
+        return `Wysłano dokument "${log.template || "—"}". Funkcjonariusze: ${officersText}.`;
+      }
       case "archive_view":
-        return "Przegląd zasobów archiwum";
+        return "Podgląd listy dokumentów w archiwum.";
       case "archive_image_open":
-        return `Otwarcie obrazu archiwum • ID: ${log.archiveId || "—"}`;
+        return `Podgląd pliku archiwalnego (ID: ${log.archiveId || "—"}).`;
+      case "archive_delete": {
+        const title = log.archiveTitle || log.title || log.templateName || log.id || "—";
+        return `Usunięto wpis z archiwum: ${title}.`;
+      }
+      case "archive_clear":
+        return `Wyczyszczono archiwum (usunięto ${log.removed ?? 0} wpisów).`;
+      case "vehicle_archive_view":
+        return "Przegląd listy teczek pojazdów.";
+      case "vehicle_folder_view": {
+        const registration = log.registration || log.vehicleRegistration || log.vehicleId || "—";
+        return `Otworzono teczkę pojazdu ${registration}.`;
+      }
+      case "vehicle_create": {
+        const registration = log.registration || "—";
+        const owner = log.ownerName || "nieznany właściciel";
+        const cid = log.ownerCid ? ` (CID ${log.ownerCid})` : "";
+        return `Utworzono teczkę pojazdu ${registration} — właściciel ${owner}${cid}.`;
+      }
+      case "vehicle_update": {
+        const registration = log.registration || log.vehicleId || "—";
+        const changes = Array.isArray(log.changes) ? log.changes : [];
+        if (changes.length) {
+          const changeText = changes
+            .map((change: any) => {
+              const key = change?.field as string;
+              const label = VEHICLE_FIELD_LABELS[key] || key;
+              const before = change?.before ?? "—";
+              const after = change?.after ?? "—";
+              return `${label}: ${before} → ${after}`;
+            })
+            .join(" • ");
+          return `Zmieniono dane pojazdu ${registration}. ${changeText}`;
+        }
+        return `Zaktualizowano dane pojazdu ${registration}.`;
+      }
+      case "vehicle_delete": {
+        const registration = log.registration || log.vehicleId || "—";
+        return `Usunięto teczkę pojazdu ${registration}.`;
+      }
+      case "vehicle_flag_update": {
+        const flagKey = log.flag || "";
+        const label = VEHICLE_FLAG_LABELS[flagKey] || flagKey || "oznaczenie";
+        const value = typeof log.value === "boolean" ? (log.value ? "włączono" : "wyłączono") : "zaktualizowano";
+        return `Oznaczenie pojazdu ${label} — ${value}.`;
+      }
+      case "vehicle_note_add": {
+        const preview = log.notePreview ? ` "${log.notePreview}"` : "";
+        return `Dodano notatkę do pojazdu.${preview}`;
+      }
+      case "vehicle_note_edit": {
+        const before = log.previousPreview ? `z "${log.previousPreview}" ` : "";
+        const after = log.notePreview ? `na "${log.notePreview}"` : "na nową treść";
+        return `Zmieniono notatkę pojazdu ${before}${after}.`;
+      }
+      case "vehicle_note_delete": {
+        const preview = log.notePreview ? ` "${log.notePreview}"` : "";
+        return `Usunięto notatkę pojazdu${preview}.`;
+      }
+      case "vehicle_note_from_doc":
+        return `Utworzono notatkę w pojeździe na podstawie dokumentu "${log.template || "—"}" (archiwum: ${log.archiveId || "—"}).`;
+      case "vehicle_note_payment": {
+        const status = log.status === "paid" ? "opłacono" : log.status === "unpaid" ? "oznaczono jako nieopłacone" : "zaktualizowano";
+        const amount = typeof log.amount === "number" && Number.isFinite(log.amount) ? `, kwota ${USD_FORMATTER.format(log.amount)}` : "";
+        return `Zmieniono status płatności notatki — ${status}${amount}.`;
+      }
+      case "vehicle_group_link_add": {
+        const registration = log.vehicleRegistration || log.registration || log.vehicleId || "—";
+        const group = log.groupName || log.groupId || "—";
+        const details = [
+          log.vehicleBrand ? `Model: ${log.vehicleBrand}` : null,
+          log.vehicleColor ? `Kolor: ${log.vehicleColor}` : null,
+          log.vehicleOwnerName
+            ? `Właściciel: ${log.vehicleOwnerName}${log.vehicleOwnerCid ? ` (CID ${log.vehicleOwnerCid})` : ""}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" • ");
+        const suffix = details ? ` ${details}.` : "";
+        return `Powiązano pojazd ${registration} z organizacją ${group}.${suffix}`;
+      }
+      case "vehicle_group_link_remove": {
+        const registration = log.vehicleRegistration || log.registration || log.vehicleId || "—";
+        const group = log.groupName || log.groupId || "—";
+        const details = [
+          log.vehicleBrand ? `Model: ${log.vehicleBrand}` : null,
+          log.vehicleColor ? `Kolor: ${log.vehicleColor}` : null,
+          log.vehicleOwnerName
+            ? `Właściciel: ${log.vehicleOwnerName}${log.vehicleOwnerCid ? ` (CID ${log.vehicleOwnerCid})` : ""}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" • ");
+        const suffix = details ? ` ${details}.` : "";
+        return `Usunięto powiązanie pojazdu ${registration} z organizacją ${group}.${suffix}`;
+      }
+      case "vehicle_from_dossier_open": {
+        const dossier = log.dossierId || "—";
+        const vehicle = log.vehicleId || log.registration || "—";
+        return `Podgląd pojazdu ${vehicle} z teczki ${dossier}.`;
+      }
       case "dossier_view":
-        return `Podgląd teczki • CID: ${log.dossierId || "—"}`;
+        return `Podgląd teczki CID ${log.dossierId || "—"}.`;
       case "dossier_link_open":
-        return `Przejście do teczki • CID: ${log.dossierId || "—"}`;
+        return `Przejście do teczki CID ${log.dossierId || "—"}.`;
       case "dossier_evidence_open":
-        return `Załącznik w teczce • CID: ${log.dossierId || "—"} • Wpis: ${log.recordId || "—"}`;
+        return `Podgląd dowodu ${log.recordId || "—"} w teczce CID ${log.dossierId || "—"}.`;
+      case "dossier_record_add": {
+        const recordType = log.recordType ? DOSSIER_RECORD_LABELS[log.recordType] || log.recordType : "wpis";
+        const details = log.recordSummary ? ` Szczegóły: ${log.recordSummary}` : "";
+        return `Dodano wpis (${recordType}) w teczce CID ${log.dossierId || "—"}.${details}`;
+      }
+      case "dossier_record_edit": {
+        const recordType = log.recordType ? DOSSIER_RECORD_LABELS[log.recordType] || log.recordType : null;
+        const typeSuffix = recordType ? ` (${recordType})` : "";
+        const before = log.previousPreview ? ` z "${log.previousPreview}"` : "";
+        const after = log.notePreview ? ` na "${log.notePreview}"` : " na nową treść";
+        return `Zmieniono wpis${typeSuffix} ${log.recordId || "—"} w teczce CID ${log.dossierId || "—"}${before}${after}.`;
+      }
+      case "dossier_record_delete": {
+        const recordType = log.recordType ? DOSSIER_RECORD_LABELS[log.recordType] || log.recordType : "wpis";
+        const details = log.recordSummary ? ` Szczegóły: ${log.recordSummary}` : "";
+        return `Usunięto wpis (${recordType}) z teczki CID ${log.dossierId || "—"}.${details}`;
+      }
+      case "dossier_group_link_add": {
+        const group = log.groupName || log.groupId || "—";
+        const memberDetails = [
+          log.memberName || null,
+          log.memberCid ? `CID ${log.memberCid}` : null,
+          log.memberRankLabel || log.memberRank ? `Ranga: ${log.memberRankLabel || log.memberRank}` : null,
+        ]
+          .filter(Boolean)
+          .join(" • ");
+        const member = memberDetails ? ` Członek: ${memberDetails}.` : "";
+        return `Powiązano teczkę CID ${log.dossierId || "—"} z organizacją ${group}.${member}`;
+      }
+      case "dossier_group_link_remove": {
+        const group = log.groupName || log.groupId || "—";
+        const memberParts = [
+          log.memberName ? `Członek: ${log.memberName}` : null,
+          log.memberCid ? `CID ${log.memberCid}` : null,
+          log.memberRankLabel || log.memberRank ? `Ranga: ${log.memberRankLabel || log.memberRank}` : null,
+        ].filter(Boolean);
+        const memberText = memberParts.length ? ` (${memberParts.join(" • ")})` : "";
+        return `Usunięto powiązanie teczki CID ${log.dossierId || "—"} z organizacją ${group}.${memberText}`;
+      }
+      case "dossier_create": {
+        const first = log.first || "";
+        const last = log.last || "";
+        const cid = log.cid || "—";
+        const name = `${first} ${last}`.trim() || "Nowa teczka";
+        return `Utworzono teczkę dla ${name} (CID ${cid}).`;
+      }
+      case "dossier_delete":
+        return `Usunięto teczkę CID ${log.dossierId || "—"}.`;
+      case "criminal_group_open":
+        return `Podgląd organizacji ${log.dossierId || "—"}.`;
+      case "stats_clear": {
+        const days = log.days != null ? log.days : "?";
+        const removed = log.removed ?? 0;
+        return `Wyczyszczono statystyki z ostatnich ${days} dni (usunięto ${removed} wpisów).`;
+      }
       default: {
         const entries = Object.entries(log || {})
           .filter(([key]) => !["type", "ts", "createdAt", "login", "uid", "sessionId"].includes(key))
@@ -683,6 +1196,31 @@ export default function Admin() {
     },
     [activeSessionStarts, nowMs]
   );
+
+  const paginatedLogs = useMemo(() => {
+    const start = (logsPage - 1) * LOG_PAGE_SIZE;
+    const end = start + LOG_PAGE_SIZE;
+    return activityLogs.slice(start, end);
+  }, [activityLogs, logsPage]);
+
+  const hasPrevPage = logsPage > 1;
+  const hasNextPage = useMemo(() => {
+    if (activityLogs.length > logsPage * LOG_PAGE_SIZE) return true;
+    return !logsExhausted;
+  }, [activityLogs.length, logsExhausted, logsPage]);
+
+  const goToPrevPage = () => {
+    setLogsPage((prev) => Math.max(1, prev - 1));
+  };
+
+  const goToNextPage = () => {
+    setLogsPage((prev) => prev + 1);
+  };
+
+  const logsStartIndex = (logsPage - 1) * LOG_PAGE_SIZE;
+  const logsDisplayedFrom = paginatedLogs.length ? logsStartIndex + 1 : 0;
+  const logsDisplayedTo = logsStartIndex + paginatedLogs.length;
+  const logsTotalLabel = logsExhausted ? `${activityLogs.length}` : `${activityLogs.length}+`;
 
 
   // lifecycle
@@ -1130,9 +1668,91 @@ export default function Admin() {
                 <div className="card bg-gradient-to-br from-amber-900/85 via-amber-800/85 to-stone-900/80 text-white p-6 shadow-xl">
                   <h2 className="text-xl font-semibold">Monitor aktywności</h2>
                   <p className="text-sm text-white/70">
-                    Historia logowań, wylogowań oraz odwiedzanych sekcji panelu. Dostępna wyłącznie dla Director.
+                    Historia logowań, zmian i operacji wykonanych w panelu. Dostępna wyłącznie dla Director.
                   </p>
-                  <p className="mt-2 text-xs text-white/60">Rejestrowanych jest maksymalnie 250 ostatnich zdarzeń.</p>
+                  <p className="mt-2 text-xs text-white/60">
+                    Na każdej stronie prezentujemy maksymalnie {LOG_PAGE_SIZE} wpisów. Skorzystaj z filtrów, aby szybko odnaleźć konkretne zdarzenia.
+                  </p>
+                </div>
+
+                <div className="card bg-white/70 p-5">
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wide text-beige-700">Funkcjonariusz</label>
+                      <select
+                        className="input mt-1 bg-white text-black"
+                        value={logsFilters.account}
+                        onChange={(e) => setLogsFilters((prev) => ({ ...prev, account: e.target.value }))}
+                      >
+                        <option value="">Wszyscy</option>
+                        {accountOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wide text-beige-700">Sekcja</label>
+                      <select
+                        className="input mt-1 bg-white text-black"
+                        value={logsFilters.category}
+                        onChange={(e) =>
+                          setLogsFilters((prev) => ({ ...prev, category: e.target.value, type: "all" }))
+                        }
+                      >
+                        <option value="all">Wszystkie sekcje</option>
+                        {categoryOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wide text-beige-700">Czynność</label>
+                      <select
+                        className="input mt-1 bg-white text-black"
+                        value={logsFilters.type}
+                        onChange={(e) => setLogsFilters((prev) => ({ ...prev, type: e.target.value }))}
+                      >
+                        <option value="all">Wszystkie czynności</option>
+                        {typeOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wide text-beige-700">Od daty</label>
+                      <input
+                        type="datetime-local"
+                        className="input mt-1 bg-white text-black"
+                        value={logsFilters.dateFrom}
+                        onChange={(e) => setLogsFilters((prev) => ({ ...prev, dateFrom: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wide text-beige-700">Do daty</label>
+                      <input
+                        type="datetime-local"
+                        className="input mt-1 bg-white text-black"
+                        value={logsFilters.dateTo}
+                        onChange={(e) => setLogsFilters((prev) => ({ ...prev, dateTo: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-beige-700">
+                    <span>Zakres czasu jest interpretowany według lokalnej strefy czasowej urządzenia.</span>
+                    <button
+                      type="button"
+                      className="rounded-full border border-beige-300 bg-white px-3 py-1 text-sm font-medium text-beige-800 hover:bg-beige-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => setLogsFilters({ ...DEFAULT_LOG_FILTERS })}
+                    >
+                      Wyczyść filtry
+                    </button>
+                  </div>
                 </div>
 
                 <div className="card p-0 overflow-hidden">
@@ -1148,37 +1768,98 @@ export default function Admin() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-beige-100 bg-white/60">
-                        {logsLoading ? (
+                        {logsLoading && paginatedLogs.length === 0 ? (
                           <tr>
                             <td colSpan={5} className="px-4 py-6 text-center">Ładowanie logów…</td>
                           </tr>
-                        ) : activityLogs.length === 0 ? (
+                        ) : paginatedLogs.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="px-4 py-6 text-center">Brak zarejestrowanych zdarzeń.</td>
+                            <td colSpan={5} className="px-4 py-6 text-center">Brak zarejestrowanych zdarzeń dla wybranych filtrów.</td>
                           </tr>
                         ) : (
-                          activityLogs.map((log, idx) => (
-                            <tr key={log.id ?? idx} className="align-top">
-                              <td className="px-4 py-3 whitespace-nowrap">{formatLogTimestamp(log)}</td>
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <div className="font-semibold">{log.login || "—"}</div>
-                                <div className="text-xs text-beige-700">{log.uid || "—"}</div>
-                                {log.sessionId && (
-                                  <div className="text-[11px] text-beige-500">Sesja: {log.sessionId}</div>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <span className="inline-flex items-center rounded-full bg-beige-200 px-2 py-0.5 text-xs font-semibold text-beige-900">
-                                  {log.type || "—"}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3">{describeLog(log)}</td>
-                              <td className="px-4 py-3 whitespace-nowrap">{formatDuration(resolveDurationMs(log) ?? undefined)}</td>
-                            </tr>
-                          ))
+                          <>
+                            {paginatedLogs.map((log, idx) => {
+                              const userInfo = resolveLogUser(log);
+                              const rawLoginCandidate =
+                                typeof log?.login === "string" && log.login.trim()
+                                  ? log.login
+                                  : typeof log?.by === "string" && log.by.trim()
+                                  ? log.by
+                                  : typeof log?.author === "string" && log.author.trim()
+                                  ? log.author
+                                  : "";
+                              const fallbackLogin = normalizeLoginValue(rawLoginCandidate);
+                              const displayName =
+                                userInfo.fullName || userInfo.login || fallbackLogin || userInfo.uid || "—";
+                              const loginLabel = userInfo.login || fallbackLogin || null;
+                              const uidLabel = userInfo.uid || null;
+                              return (
+                                <tr key={log.id ?? idx} className="align-top">
+                                  <td className="px-4 py-3 whitespace-nowrap">{formatLogTimestamp(log)}</td>
+                                  <td className="px-4 py-3 whitespace-nowrap">
+                                    <div className="font-semibold">{displayName}</div>
+                                    {loginLabel && (
+                                      <div className="text-xs text-beige-700">Login: {loginLabel}</div>
+                                    )}
+                                    {uidLabel && <div className="text-[11px] text-beige-500">UID: {uidLabel}</div>}
+                                    {userInfo.sessionId && (
+                                      <div className="text-[11px] text-beige-500">Sesja: {userInfo.sessionId}</div>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 whitespace-nowrap">
+                                    <span
+                                      className="inline-flex items-center rounded-full bg-beige-200 px-2 py-0.5 text-xs font-semibold text-beige-900"
+                                      title={log.type || undefined}
+                                    >
+                                      {formatLogTypeLabel(log.type)}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 align-top">{describeLog(log)}</td>
+                                  <td className="px-4 py-3 whitespace-nowrap">
+                                    {formatDuration(resolveDurationMs(log) ?? undefined)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            {logsLoading && (
+                              <tr>
+                                <td colSpan={5} className="px-4 py-3 text-center text-xs text-beige-600">
+                                  Wczytywanie kolejnych logów…
+                                </td>
+                              </tr>
+                            )}
+                          </>
                         )}
                       </tbody>
                     </table>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-beige-200 bg-beige-50 px-4 py-3 text-xs text-beige-700">
+                    <div>
+                      {paginatedLogs.length
+                        ? `Wyświetlane ${logsDisplayedFrom}–${logsDisplayedTo} z ${logsTotalLabel} wpisów`
+                        : logsLoading
+                        ? "Ładowanie logów..."
+                        : "Brak zdarzeń dla wybranych filtrów."}
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <button
+                        type="button"
+                        className="rounded-full border border-beige-300 bg-white px-3 py-1 font-medium text-beige-800 hover:bg-beige-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={goToPrevPage}
+                        disabled={!hasPrevPage}
+                      >
+                        Poprzednia
+                      </button>
+                      <span className="text-xs font-semibold text-beige-700">Strona {logsPage}</span>
+                      <button
+                        type="button"
+                        className="rounded-full border border-beige-300 bg-white px-3 py-1 font-medium text-beige-800 hover:bg-beige-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={goToNextPage}
+                        disabled={!hasNextPage}
+                      >
+                        Następna
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

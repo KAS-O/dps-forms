@@ -24,6 +24,7 @@ import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { VEHICLE_FLAGS, getActiveVehicleFlags, getVehicleHighlightStyle } from "@/lib/vehicleFlags";
+import { deriveLoginFromEmail } from "@/lib/login";
 import type { VehicleFlagsState, VehicleFlagKey } from "@/lib/vehicleFlags";
 
 interface VehicleFolder {
@@ -172,6 +173,39 @@ export default function VehicleFolderPage() {
       }
       const registrationNormalized = registration.replace(/\s+/g, "");
       const ownerCidNormalized = ownerCid.toLowerCase();
+      const changeEntries = [
+        {
+          field: "registration",
+          before: (vehicle?.registration || "").trim().toUpperCase(),
+          after: registration,
+        },
+        {
+          field: "brand",
+          before: (vehicle?.brand || "").trim(),
+          after: brand,
+        },
+        {
+          field: "color",
+          before: (vehicle?.color || "").trim(),
+          after: color,
+        },
+        {
+          field: "ownerName",
+          before: (vehicle?.ownerName || "").trim(),
+          after: ownerName,
+        },
+        {
+          field: "ownerCid",
+          before: (vehicle?.ownerCid || "").trim(),
+          after: ownerCid,
+        },
+      ]
+        .filter((entry) => entry.before !== entry.after)
+        .map((entry) => ({
+          field: entry.field,
+          before: entry.before || "—",
+          after: entry.after || "—",
+        }));
       await updateDoc(doc(db, "vehicleFolders", id), {
         registration,
         registrationNormalized,
@@ -186,9 +220,14 @@ export default function VehicleFolderPage() {
         type: "vehicle_update",
         vehicleId: id,
         registration,
+        brand,
+        color,
+        ownerName,
         ownerCid,
+        changes: changeEntries,
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
+        login: deriveLoginFromEmail(auth.currentUser?.email || ""),
         ts: serverTimestamp(),
       });
       setOk("Zapisano zmiany w teczce pojazdu.");
@@ -220,8 +259,11 @@ export default function VehicleFolderPage() {
         type: "vehicle_delete",
         vehicleId: id,
         registration: vehicle?.registration || "",
+        ownerCid: vehicle?.ownerCid || "",
+        removedNotes: notesSnap.size,
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
+        login: deriveLoginFromEmail(auth.currentUser?.email || ""),
         ts: serverTimestamp(),
       });
       await router.replace("/vehicle-archive");
@@ -241,13 +283,17 @@ export default function VehicleFolderPage() {
         [`statuses.${flagKey}`]: !current,
         updatedAt: serverTimestamp(),
       });
+      const flagMeta = VEHICLE_FLAGS.find((flag) => flag.key === flagKey);
       await addDoc(collection(db, "logs"), {
         type: "vehicle_flag_update",
         vehicleId: id,
         flag: flagKey,
+        flagLabel: flagMeta?.label || "",
         value: !current,
+        registration: vehicle?.registration || "",
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
+        login: deriveLoginFromEmail(auth.currentUser?.email || ""),
         ts: serverTimestamp(),
       });
     } catch (e: any) {
@@ -264,17 +310,24 @@ export default function VehicleFolderPage() {
     try {
       setErr(null);
       setNoteSaving(true);
-      await addDoc(collection(db, "vehicleFolders", id, "notes"), {
-        text: noteText.trim(),
+      const content = noteText.trim();
+      const noteRef = await addDoc(collection(db, "vehicleFolders", id, "notes"), {
+        text: content,
         createdAt: serverTimestamp(),
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
       });
+      const preview = content.length > 120 ? `${content.slice(0, 120)}…` : content;
       await addDoc(collection(db, "logs"), {
         type: "vehicle_note_add",
         vehicleId: id,
+        noteId: noteRef.id,
+        notePreview: preview,
+        noteLength: content.length,
+        registration: vehicle?.registration || "",
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
+        login: deriveLoginFromEmail(auth.currentUser?.email || ""),
         ts: serverTimestamp(),
       });
       setNoteText("");
@@ -285,7 +338,8 @@ export default function VehicleFolderPage() {
     }
   };
 
-  const editNote = async (noteId: string, currentText: string) => {
+  const editNote = async (note: VehicleNote) => {
+    const currentText = note.text || "";
     const newText = await prompt({
       title: "Edytuj notatkę",
       message: "Zaktualizuj treść notatki pojazdu.",
@@ -302,18 +356,25 @@ export default function VehicleFolderPage() {
       });
       return;
     }
-    if (!id) return;
+    if (!id || !note?.id) return;
     try {
       setErr(null);
-      await updateDoc(doc(db, "vehicleFolders", id, "notes", noteId), {
+      const trimmed = newText.trim();
+      await updateDoc(doc(db, "vehicleFolders", id, "notes", note.id), {
         text: newText.trim(),
       });
+      const previousPreview = currentText.trim().length > 120 ? `${currentText.trim().slice(0, 120)}…` : currentText.trim();
+      const nextPreview = trimmed.length > 120 ? `${trimmed.slice(0, 120)}…` : trimmed;
       await addDoc(collection(db, "logs"), {
         type: "vehicle_note_edit",
         vehicleId: id,
-        noteId,
+        noteId: note.id,
+        previousPreview,
+        notePreview: nextPreview,
+        registration: vehicle?.registration || "",
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
+        login: deriveLoginFromEmail(auth.currentUser?.email || ""),
         ts: serverTimestamp(),
       });
     } catch (e: any) {
@@ -321,23 +382,28 @@ export default function VehicleFolderPage() {
     }
   };
 
-  const removeNote = async (noteId: string) => {
+  const removeNote = async (note: VehicleNote) => {
     const okDialog = await confirm({
       title: "Usuń notatkę",
       message: "Czy na pewno chcesz usunąć tę notatkę?",
       confirmLabel: "Usuń",
       tone: "danger",
     });
-    if (!okDialog || !id) return;
+    if (!okDialog || !id || !note?.id) return;
     try {
       setErr(null);
-      await deleteDoc(doc(db, "vehicleFolders", id, "notes", noteId));
+      await deleteDoc(doc(db, "vehicleFolders", id, "notes", note.id));
+      const preview = (note.text || "").trim();
+      const normalizedPreview = preview.length > 120 ? `${preview.slice(0, 120)}…` : preview;
       await addDoc(collection(db, "logs"), {
         type: "vehicle_note_delete",
         vehicleId: id,
-        noteId,
+        noteId: note.id,
+        notePreview: normalizedPreview,
+        registration: vehicle?.registration || "",
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
+        login: deriveLoginFromEmail(auth.currentUser?.email || ""),
         ts: serverTimestamp(),
       });
     } catch (e: any) {
@@ -372,14 +438,19 @@ export default function VehicleFolderPage() {
       updates.paymentCredited = status === "paid" && amount > 0;
 
       await updateDoc(doc(db, "vehicleFolders", id, "notes", note.id), updates);
+      const paymentPreview = (note.text || "").trim();
+      const normalizedPaymentPreview = paymentPreview.length > 120 ? `${paymentPreview.slice(0, 120)}…` : paymentPreview;
       await addDoc(collection(db, "logs"), {
         type: "vehicle_note_payment",
         vehicleId: id,
         noteId: note.id,
         status,
         amount: Number.isFinite(amount) ? amount : 0,
+        notePreview: normalizedPaymentPreview,
+        registration: vehicle?.registration || "",
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
+        login: deriveLoginFromEmail(auth.currentUser?.email || ""),
         ts: serverTimestamp(),
       });
 
@@ -586,8 +657,8 @@ export default function VehicleFolderPage() {
                         </button>
                       </>
                     )}
-                    <button className="btn" onClick={() => editNote(note.id, note.text)}>Edytuj</button>
-                    <button className="btn bg-red-700 text-white" onClick={() => removeNote(note.id)}>Usuń</button>
+                    <button className="btn" onClick={() => editNote(note)}>Edytuj</button>
+                    <button className="btn bg-red-700 text-white" onClick={() => removeNote(note)}>Usuń</button>
                   </div>
                 </div>
                );

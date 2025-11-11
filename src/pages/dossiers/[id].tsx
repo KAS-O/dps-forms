@@ -4,6 +4,7 @@ import Nav from "@/components/Nav";
 import AuthGate from "@/components/AuthGate";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { auth, db, storage } from "@/lib/firebase";
+import { deriveLoginFromEmail } from "@/lib/login";
 import {
   addDoc,
   collection,
@@ -24,6 +25,55 @@ import { useProfile } from "@/hooks/useProfile";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { getActiveVehicleFlags, getVehicleHighlightStyle } from "@/lib/vehicleFlags";
+
+function buildRecordSummary(recordType: string, data: Record<string, any> = {}) {
+  const typeKey = recordType || data.type || "";
+  switch (typeKey) {
+    case "note": {
+      const text = (data.text || "").toString().trim();
+      if (!text) return "Notatka";
+      return text.length > 120 ? `${text.slice(0, 120)}…` : text;
+    }
+    case "weapon": {
+      const model = data.weaponModel || data.model || "Broń";
+      const serial = data.serialNumbers || data.serial || data.serialNumber || "—";
+      return `${model}${serial ? ` • Numery: ${serial}` : ""}`.trim();
+    }
+    case "drug": {
+      const type = data.drugType || data.type || "Substancja";
+      const qty = data.quantityGrams || data.quantity || data.amount || "—";
+      return `${type} • Ilość: ${qty}`;
+    }
+    case "explosive": {
+      const type = data.explosiveType || data.type || "Ładunek";
+      const qty = data.quantity || data.amount || "—";
+      return `${type} • Ilość: ${qty}`;
+    }
+    case "member": {
+      const name = data.name || "Członek";
+      const cid = data.cid || data.memberCid || "—";
+      return `${name} (CID ${cid})`;
+    }
+    case "vehicle": {
+      const registration = data.registration || data.vehicleRegistration || data.vehicleId || "—";
+      const brand = data.brand || data.vehicleBrand || "";
+      const color = data.color || data.vehicleColor || "";
+      const owner = data.ownerName || data.vehicleOwnerName || "";
+      const suffix = [brand, color, owner].filter(Boolean).join(" • ");
+      return suffix ? `${registration} • ${suffix}` : registration;
+    }
+    case "group-link": {
+      const target = data.linkedGroupName || data.memberName || data.dossierTitle || data.dossierId || "powiązanie";
+      return `Powiązanie z ${target}`;
+    }
+    default: {
+      const label = data.title || data.name || data.summary || data.recordSummary;
+      if (label) return String(label);
+      if (data.id) return `Wpis ${data.id}`;
+      return "Wpis";
+    }
+  }
+}
 
 type RecordAttachment = {
   url: string;
@@ -385,12 +435,16 @@ export default function DossierPage() {
     async (payload: Record<string, any>, recordType: string) => {
       if (!id) return null;
       const recordRef = await addDoc(collection(db, "dossiers", id, "records"), payload);
+      const loginValue = deriveLoginFromEmail(auth.currentUser?.email || "");
+      const recordSummary = buildRecordSummary(recordType, payload);
       await addDoc(collection(db, "logs"), {
         type: "dossier_record_add",
         recordType,
         dossierId: id,
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
+        login: loginValue,
+        recordSummary,
         ts: serverTimestamp(),
       });
       return recordRef;
@@ -640,8 +694,14 @@ export default function DossierPage() {
         type: "dossier_group_link_add",
         dossierId: memberForm.dossierId,
         groupId: id,
+        groupName: groupDisplayName,
+        memberName: memberForm.name,
+        memberCid: memberForm.cid,
+        memberRank: memberForm.rank,
+        memberRankLabel: rank.label,
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
+        login: deriveLoginFromEmail(auth.currentUser?.email || ""),
         ts: serverTimestamp(),
       });
       setMemberForm({
@@ -720,8 +780,15 @@ export default function DossierPage() {
         type: "vehicle_group_link_add",
         vehicleId: vehicle.id,
         groupId: id,
+        vehicleRegistration: vehicle.registration || "",
+        vehicleBrand: vehicle.brand || "",
+        vehicleColor: vehicle.color || "",
+        vehicleOwnerName: vehicle.ownerName || "",
+        vehicleOwnerCid: vehicle.ownerCid || "",
+        groupName: groupDisplayName,
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
+        login: deriveLoginFromEmail(auth.currentUser?.email || ""),
         ts: serverTimestamp(),
       });
       setVehicleForm({ vehicleId: "" });
@@ -1299,12 +1366,19 @@ export default function DossierPage() {
         });
         return;
       }
-      await updateDoc(doc(db, "dossiers", id, "records", rid), { text: t });
+      const trimmed = t.trim();
+      await updateDoc(doc(db, "dossiers", id, "records", rid), { text: trimmed });
       await addDoc(collection(db, "logs"), {
         type: "dossier_record_edit",
         dossierId: id,
         recordId: rid,
+        previousPreview:
+          currentText.trim().length > 120 ? `${currentText.trim().slice(0, 120)}…` : currentText.trim(),
+        notePreview: trimmed.length > 120 ? `${trimmed.slice(0, 120)}…` : trimmed,
+        recordType: type,
         author: auth.currentUser?.email || "",
+        authorUid: auth.currentUser?.uid || "",
+        login: deriveLoginFromEmail(auth.currentUser?.email || ""),
         ts: serverTimestamp(),
       });
     },
@@ -1321,11 +1395,20 @@ export default function DossierPage() {
         tone: "danger",
       });
       if (!ok) return;
+      const authorEmail = auth.currentUser?.email || "";
+      const authorUid = auth.currentUser?.uid || "";
+      const loginValue = deriveLoginFromEmail(authorEmail);
+      const recordType = (record?.type as string) || record?.recordType || "note";
+      const recordSummary = record ? buildRecordSummary(recordType, record) : "";
       try {
         setErr(null);
         await deleteDoc(doc(db, "dossiers", id, "records", rid));
 
         if (record?.type === "member" && record?.dossierId) {
+          const memberRankLabel =
+            (record.rank && MEMBER_RANKS.find((r) => r.value === record.rank)?.label) ||
+            record.memberRankLabel ||
+            "";
           if (record.linkedDossierRecordId) {
             await deleteDoc(doc(db, "dossiers", record.dossierId, "records", record.linkedDossierRecordId));
           } else {
@@ -1340,8 +1423,14 @@ export default function DossierPage() {
             type: "dossier_group_link_remove",
             dossierId: record.dossierId,
             groupId: id,
-            author: auth.currentUser?.email || "",
-            authorUid: auth.currentUser?.uid || "",
+            groupName: groupDisplayName,
+            memberName: record.name || record.memberName || "",
+            memberCid: record.cid || record.memberCid || "",
+            memberRank: record.rank || record.memberRank || "",
+            memberRankLabel,
+            author: authorEmail,
+            authorUid,
+            login: loginValue,
             ts: serverTimestamp(),
           });
         }
@@ -1360,9 +1449,16 @@ export default function DossierPage() {
           await addDoc(collection(db, "logs"), {
             type: "vehicle_group_link_remove",
             vehicleId: record.vehicleId,
+            vehicleRegistration: record.registration || record.vehicleRegistration || record.vehicleId,
+            vehicleBrand: record.brand || record.vehicleBrand || "",
+            vehicleColor: record.color || record.vehicleColor || "",
+            vehicleOwnerName: record.ownerName || record.vehicleOwnerName || "",
+            vehicleOwnerCid: record.ownerCid || record.vehicleOwnerCid || "",
             groupId: id,
-            author: auth.currentUser?.email || "",
-            authorUid: auth.currentUser?.uid || "",
+            groupName: groupDisplayName,
+            author: authorEmail,
+            authorUid,
+            login: loginValue,
             ts: serverTimestamp(),
           });
         }
@@ -1371,14 +1467,18 @@ export default function DossierPage() {
           type: "dossier_record_delete",
           dossierId: id,
           recordId: rid,
-          author: auth.currentUser?.email || "",
+          recordType,
+          recordSummary,
+          author: authorEmail,
+          authorUid,
+          login: loginValue,
           ts: serverTimestamp(),
         });
       } catch (e: any) {
         setErr(e?.message || "Nie udało się usunąć wpisu.");
       }
     },
-    [confirm, id, records]
+    [confirm, groupDisplayName, id, records]
   );
 
   const deleteDossier = useCallback(async () => {

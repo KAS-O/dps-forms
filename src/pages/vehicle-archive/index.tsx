@@ -15,6 +15,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { deriveLoginFromEmail } from "@/lib/login";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
@@ -122,9 +123,13 @@ export default function VehicleArchivePage() {
       await addDoc(collection(db, "logs"), {
         type: "vehicle_create",
         registration,
+        brand,
+        color,
+        ownerName,
         ownerCid,
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
+        login: deriveLoginFromEmail(auth.currentUser?.email || ""),
         ts: serverTimestamp(),
       });
       resetForm();
@@ -157,8 +162,10 @@ export default function VehicleArchivePage() {
         type: "vehicle_delete",
         vehicleId,
         registration,
+        removedNotes: notesSnap.size,
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
+        login: deriveLoginFromEmail(auth.currentUser?.email || ""),
         ts: serverTimestamp(),
       });
       setOk("Teczka pojazdu została usunięta.");
