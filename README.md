@@ -27,6 +27,10 @@ firebase deploy --only storage:rules
 
 Reguły obejmują m.in. możliwość zakładania teczek (`/dossiers/{id}`) przez zalogowanych funkcjonariuszy oraz modyfikację wpisów tylko przez autora lub kadrę kierowniczą.
 
+### Panel kadr — numery odznak
+- Numery odznak są przechowywane w polu `badgeNumber` dokumentu profilu (`/profiles/{uid}`).
+- Istniejące reguły Firestore już pozwalają kadrze (rangi od `staff-commander` wzwyż) na odczyt i zapis profili, dlatego nie są wymagane dodatkowe uprawnienia ani indeksy.
+
 ## Zmiany w v2
 - Wysyłka **obrazu (PNG)** zamiast PDF – podgląd A4 robiony z HTML przez `html2canvas`.
 - Wiadomość na Discord zawiera **embed** z:
