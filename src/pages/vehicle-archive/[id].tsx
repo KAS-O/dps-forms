@@ -2,7 +2,7 @@ import { useRouter } from "next/router";
 import Head from "next/head";
 import Nav from "@/components/Nav";
 import AuthGate from "@/components/AuthGate";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import type { CSSProperties } from "react";
 import {
   addDoc,
@@ -23,6 +23,7 @@ import {
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
+import { useProfile } from "@/hooks/useProfile";
 import { VEHICLE_FLAGS, getActiveVehicleFlags, getVehicleHighlightStyle } from "@/lib/vehicleFlags";
 import type { VehicleFlagsState, VehicleFlagKey } from "@/lib/vehicleFlags";
 
@@ -73,6 +74,17 @@ export default function VehicleFolderPage() {
   const { id } = router.query as { id: string };
   const { confirm, prompt, alert } = useDialog();
   const { session, logActivity } = useSessionActivity();
+  const { login: profileLogin, fullName: profileFullName } = useProfile();
+
+  const buildActor = useCallback(
+    () => ({
+      author: auth.currentUser?.email || "",
+      authorUid: auth.currentUser?.uid || "",
+      authorLogin: profileLogin || "",
+      authorFullName: profileFullName || "",
+    }),
+    [profileFullName, profileLogin]
+  );
 
   const [vehicle, setVehicle] = useState<VehicleFolder | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -172,6 +184,17 @@ export default function VehicleFolderPage() {
       }
       const registrationNormalized = registration.replace(/\s+/g, "");
       const ownerCidNormalized = ownerCid.toLowerCase();
+      const changes: Record<string, { before: string; after: string }> = {};
+      const current = vehicle || ({} as VehicleFolder);
+      const nextValues: Record<string, string> = { registration, brand, color, ownerName, ownerCid };
+      (Object.keys(nextValues) as (keyof typeof nextValues)[]).forEach((key) => {
+        const after = nextValues[key];
+        const before = (current as any)?.[key] || "";
+        if (before !== after) {
+          changes[key] = { before, after };
+        }
+      });
+
       await updateDoc(doc(db, "vehicleFolders", id), {
         registration,
         registrationNormalized,
@@ -187,8 +210,11 @@ export default function VehicleFolderPage() {
         vehicleId: id,
         registration,
         ownerCid,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        ownerName,
+        brand,
+        color,
+        changes,
+        ...buildActor(),
         ts: serverTimestamp(),
       });
       setOk("Zapisano zmiany w teczce pojazdu.");
@@ -220,8 +246,10 @@ export default function VehicleFolderPage() {
         type: "vehicle_delete",
         vehicleId: id,
         registration: vehicle?.registration || "",
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        brand: vehicle?.brand || "",
+        ownerName: vehicle?.ownerName || "",
+        ownerCid: vehicle?.ownerCid || "",
+        ...buildActor(),
         ts: serverTimestamp(),
       });
       await router.replace("/vehicle-archive");
@@ -246,8 +274,8 @@ export default function VehicleFolderPage() {
         vehicleId: id,
         flag: flagKey,
         value: !current,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        flagLabel: VEHICLE_FLAGS[flagKey]?.label || flagKey,
+        ...buildActor(),
         ts: serverTimestamp(),
       });
     } catch (e: any) {
@@ -273,8 +301,8 @@ export default function VehicleFolderPage() {
       await addDoc(collection(db, "logs"), {
         type: "vehicle_note_add",
         vehicleId: id,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        notePreview: noteText.trim(),
+        ...buildActor(),
         ts: serverTimestamp(),
       });
       setNoteText("");
@@ -312,8 +340,10 @@ export default function VehicleFolderPage() {
         type: "vehicle_note_edit",
         vehicleId: id,
         noteId,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        previousText: currentText,
+        nextText: newText.trim(),
+        notePreview: newText.trim(),
+        ...buildActor(),
         ts: serverTimestamp(),
       });
     } catch (e: any) {
@@ -331,13 +361,14 @@ export default function VehicleFolderPage() {
     if (!okDialog || !id) return;
     try {
       setErr(null);
+      const existing = notes.find((n) => n.id === noteId);
       await deleteDoc(doc(db, "vehicleFolders", id, "notes", noteId));
       await addDoc(collection(db, "logs"), {
         type: "vehicle_note_delete",
         vehicleId: id,
         noteId,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        notePreview: existing?.text || "",
+        ...buildActor(),
         ts: serverTimestamp(),
       });
     } catch (e: any) {
@@ -378,8 +409,7 @@ export default function VehicleFolderPage() {
         noteId: note.id,
         status,
         amount: Number.isFinite(amount) ? amount : 0,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        ...buildActor(),
         ts: serverTimestamp(),
       });
 

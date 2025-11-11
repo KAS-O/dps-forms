@@ -706,6 +706,8 @@ export default function DocPage() {
           template: template.slug,
           author: auth.currentUser?.email || "",
           authorUid: auth.currentUser?.uid || "",
+          authorLogin: authorDetails.login || "",
+          authorFullName: authorDetails.fullName || authorDisplayName || "",
           ts: serverTimestamp(),
         });
       }
@@ -717,6 +719,7 @@ export default function DocPage() {
         login: userLogin,
         officers: selectedNames,
         officersUid: selectedUids,
+        authorFullName: authorDetails.fullName || authorDisplayName || "",
         ts: serverTimestamp(),
       });
 

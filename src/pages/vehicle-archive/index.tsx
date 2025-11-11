@@ -1,7 +1,7 @@
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import Head from "next/head";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   addDoc,
   collection,
@@ -18,6 +18,7 @@ import { auth, db } from "@/lib/firebase";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
+import { useProfile } from "@/hooks/useProfile";
 import { getActiveVehicleFlags, getVehicleHighlightStyle } from "@/lib/vehicleFlags";
 import type { VehicleFlagsState } from "@/lib/vehicleFlags";
 
@@ -53,7 +54,18 @@ export default function VehicleArchivePage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const { confirm } = useDialog();
   const { session, logActivity } = useSessionActivity();
+  const { login: profileLogin, fullName: profileFullName } = useProfile();
   const accentColor = "#0ea5e9";
+
+  const buildActor = useCallback(
+    () => ({
+      author: auth.currentUser?.email || "",
+      authorUid: auth.currentUser?.uid || "",
+      authorLogin: profileLogin || "",
+      authorFullName: profileFullName || "",
+    }),
+    [profileFullName, profileLogin]
+  );
 
   useEffect(() => {
     const q = query(collection(db, "vehicleFolders"), orderBy("createdAt", "desc"));
@@ -117,14 +129,19 @@ export default function VehicleArchivePage() {
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.email || "",
         createdByUid: auth.currentUser?.uid || "",
+        createdByLogin: profileLogin || "",
+        createdByFullName: profileFullName || "",
       };
-      await addDoc(collection(db, "vehicleFolders"), payload);
+      const folderRef = await addDoc(collection(db, "vehicleFolders"), payload);
       await addDoc(collection(db, "logs"), {
         type: "vehicle_create",
+        vehicleId: folderRef.id,
         registration,
+        brand,
+        color,
+        ownerName,
         ownerCid,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        ...buildActor(),
         ts: serverTimestamp(),
       });
       resetForm();
@@ -148,6 +165,7 @@ export default function VehicleArchivePage() {
       setErr(null);
       setOk(null);
       setDeletingId(vehicleId);
+      const vehicle = vehicles.find((v) => v.id === vehicleId);
       const notesSnap = await getDocs(collection(db, "vehicleFolders", vehicleId, "notes"));
       const batch = writeBatch(db);
       notesSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
@@ -157,8 +175,11 @@ export default function VehicleArchivePage() {
         type: "vehicle_delete",
         vehicleId,
         registration,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        brand: vehicle?.brand || "",
+        color: vehicle?.color || "",
+        ownerName: vehicle?.ownerName || "",
+        ownerCid: vehicle?.ownerCid || "",
+        ...buildActor(),
         ts: serverTimestamp(),
       });
       setOk("Teczka pojazdu została usunięta.");

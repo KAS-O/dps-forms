@@ -1,6 +1,7 @@
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, onIdTokenChanged, signOut, User } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 import { deriveLoginFromEmail } from "@/lib/login";
 import { useRouter } from "next/router";
 
@@ -11,6 +12,7 @@ type SessionInfo = {
   login: string;
   sessionId: string;
   startedAt: number;
+  fullName?: string;
 };
 
 type SessionActivityContextValue = {
@@ -41,6 +43,7 @@ function readStoredSession(): SessionInfo | null {
       login: parsed.login || "",
       sessionId: parsed.sessionId,
       startedAt: Number(parsed.startedAt) || Date.now(),
+      fullName: parsed.fullName || undefined,
     };
   } catch (error) {
     console.warn("Nie udało się odczytać sesji aktywności:", error);
@@ -51,7 +54,10 @@ function readStoredSession(): SessionInfo | null {
 function storeSession(info: SessionInfo) {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(info));
+    window.sessionStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ ...info, fullName: info.fullName || undefined })
+    );
   } catch (error) {
     console.warn("Nie udało się zapisać sesji aktywności:", error);
   }
@@ -131,6 +137,7 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
         login: current.login,
         uid: current.uid,
         sessionId: current.sessionId,
+        fullName: current.fullName,
       }));
     },
     []
@@ -241,9 +248,22 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
       const login = deriveLoginFromEmail(user.email || "");
       const stored = readStoredSession();
 
+      let fullName: string | undefined = stored?.fullName;
+      if (db) {
+        try {
+          const snap = await getDoc(doc(db, "profiles", user.uid));
+          const data = snap.data() as { fullName?: string } | undefined;
+          if (data?.fullName) {
+            fullName = data.fullName;
+          }
+        } catch (error) {
+          console.warn("Nie udało się pobrać profilu użytkownika dla logów aktywności:", error);
+        }
+      }
+
       const info: SessionInfo = stored && stored.uid === user.uid
-        ? { ...stored, login }
-        : { uid: user.uid, login, sessionId: createSessionId(), startedAt: Date.now() };
+        ? { ...stored, login, fullName: fullName || stored.fullName }
+        : { uid: user.uid, login, sessionId: createSessionId(), startedAt: Date.now(), fullName };
 
       sessionRef.current = info;
       setSession(info);

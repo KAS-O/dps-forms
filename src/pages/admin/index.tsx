@@ -18,9 +18,11 @@ import {
   Timestamp,
   serverTimestamp,
   writeBatch,
-  onSnapshot,
   orderBy,
   limit,
+  startAfter,
+  QueryDocumentSnapshot,
+  DocumentData,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
@@ -63,6 +65,125 @@ const ANNOUNCEMENT_WINDOWS: { value: string; label: string; ms: number | null }[
   { value: "forever", label: "Do czasu usunięcia", ms: null },
 ];
 
+const LOG_PAGE_SIZE = 150;
+const LOG_FETCH_BATCH_SIZE = 300;
+
+type LogSectionKey =
+  | "session"
+  | "navigation"
+  | "documents"
+  | "archive"
+  | "dossiers"
+  | "vehicles"
+  | "accounts"
+  | "other";
+
+const LOG_SECTION_OPTIONS: { value: "all" | LogSectionKey; label: string }[] = [
+  { value: "all", label: "Wszystkie sekcje" },
+  { value: "session", label: "Sesje i logowania" },
+  { value: "navigation", label: "Nawigacja po panelu" },
+  { value: "documents", label: "Dokumenty i raporty" },
+  { value: "archive", label: "Archiwum" },
+  { value: "dossiers", label: "Teczki" },
+  { value: "vehicles", label: "Pojazdy" },
+  { value: "accounts", label: "Administracja" },
+  { value: "other", label: "Inne działania" },
+];
+
+const RECORD_TYPE_LABELS: Record<string, string> = {
+  note: "Notatka",
+  weapon: "Dowód — Broń",
+  drug: "Dowód — Narkotyki",
+  explosive: "Dowód — Materiały wybuchowe",
+  member: "Członek grupy",
+  vehicle: "Pojazd organizacji",
+  "group-link": "Powiązanie z organizacją",
+};
+
+const VEHICLE_FIELD_LABELS: Record<string, string> = {
+  registration: "Numer rejestracyjny",
+  brand: "Marka",
+  color: "Kolor",
+  ownerName: "Właściciel",
+  ownerCid: "CID właściciela",
+};
+
+type LogTypeConfig = {
+  label: string;
+  section: LogSectionKey;
+};
+
+const LOG_TYPE_CONFIG: Record<string, LogTypeConfig> = {
+  session_start: { label: "Rozpoczęcie sesji", section: "session" },
+  session_end: { label: "Zakończenie sesji", section: "session" },
+  logout: { label: "Wylogowanie", section: "session" },
+  login_success: { label: "Logowanie udane", section: "session" },
+  login_fail: { label: "Logowanie nieudane", section: "session" },
+  page_view: { label: "Wejście na stronę", section: "navigation" },
+  template_view: { label: "Podgląd szablonu", section: "documents" },
+  doc_sent: { label: "Wysłanie dokumentu", section: "documents" },
+  archive_view: { label: "Przegląd archiwum", section: "archive" },
+  archive_image_open: { label: "Podgląd pliku archiwum", section: "archive" },
+  archive_delete: { label: "Usunięcie wpisu archiwum", section: "archive" },
+  archive_clear: { label: "Wyczyszczenie archiwum", section: "archive" },
+  archive_link: { label: "Połączenie z archiwum", section: "archive" },
+  stats_clear: { label: "Wyzerowanie statystyk", section: "accounts" },
+  criminal_group_open: { label: "Podgląd grupy", section: "dossiers" },
+  dossier_create: { label: "Utworzenie teczki", section: "dossiers" },
+  dossier_delete: { label: "Usunięcie teczki", section: "dossiers" },
+  dossier_view: { label: "Podgląd teczki", section: "dossiers" },
+  dossier_link_open: { label: "Wejście do teczki", section: "dossiers" },
+  dossier_evidence_open: { label: "Otwarcie dowodu w teczce", section: "dossiers" },
+  dossier_record_add: { label: "Dodanie wpisu do teczki", section: "dossiers" },
+  dossier_record_edit: { label: "Edycja wpisu w teczce", section: "dossiers" },
+  dossier_record_delete: { label: "Usunięcie wpisu z teczki", section: "dossiers" },
+  dossier_group_link_add: { label: "Powiązanie z organizacją", section: "dossiers" },
+  dossier_group_link_remove: { label: "Usunięcie powiązania z organizacją", section: "dossiers" },
+  vehicle_archive_view: { label: "Przegląd bazy pojazdów", section: "vehicles" },
+  vehicle_folder_view: { label: "Podgląd teczki pojazdu", section: "vehicles" },
+  vehicle_from_dossier_open: { label: "Pojazd z teczki", section: "vehicles" },
+  vehicle_create: { label: "Utworzenie teczki pojazdu", section: "vehicles" },
+  vehicle_update: { label: "Aktualizacja danych pojazdu", section: "vehicles" },
+  vehicle_delete: { label: "Usunięcie teczki pojazdu", section: "vehicles" },
+  vehicle_flag_update: { label: "Zmiana oznaczenia pojazdu", section: "vehicles" },
+  vehicle_note_add: { label: "Dodanie notatki o pojeździe", section: "vehicles" },
+  vehicle_note_edit: { label: "Edycja notatki o pojeździe", section: "vehicles" },
+  vehicle_note_delete: { label: "Usunięcie notatki o pojeździe", section: "vehicles" },
+  vehicle_note_payment: { label: "Aktualizacja płatności pojazdu", section: "vehicles" },
+  vehicle_note_from_doc: { label: "Notatka utworzona z dokumentu", section: "vehicles" },
+  vehicle_group_link_add: { label: "Powiązanie pojazdu z grupą", section: "vehicles" },
+  vehicle_group_link_remove: { label: "Usunięcie powiązania pojazdu", section: "vehicles" },
+};
+
+type LogPageData = {
+  entries: any[];
+  endCursor: QueryDocumentSnapshot<DocumentData> | null;
+  hasMore: boolean;
+};
+
+function formatTypeFallback(type: string) {
+  if (!type) return "Inne zdarzenie";
+  return type
+    .replace(/[_-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function shortenText(value: string | null | undefined, max = 160) {
+  if (!value) return "";
+  const text = String(value).trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1)}…`;
+}
+
+function formatList(values: string[] | undefined, fallback = "—") {
+  if (!values || values.length === 0) return fallback;
+  const filtered = values.map((v) => (typeof v === "string" ? v.trim() : String(v))).filter(Boolean);
+  return filtered.length ? filtered.join(", ") : fallback;
+}
+
 async function readErrorResponse(res: Response, fallback: string) {
   const contentType = res.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
@@ -99,6 +220,13 @@ export default function Admin() {
   const [section, setSection] = useState<AdminSection>("overview");
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
+  const [logPages, setLogPages] = useState<LogPageData[]>([]);
+  const [logPageIndex, setLogPageIndex] = useState(0);
+  const [logPersonFilter, setLogPersonFilter] = useState<string>("all");
+  const [logSectionFilter, setLogSectionFilter] = useState<"all" | LogSectionKey>("all");
+  const [logTypeFilter, setLogTypeFilter] = useState<string>("all");
+  const [logFrom, setLogFrom] = useState("");
+  const [logTo, setLogTo] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   // ogólne
@@ -138,11 +266,351 @@ export default function Admin() {
         return "Ostatnie 30 dni";
       case "7":
         return "Ostatnie 7 dni";
-      default:
-        return "Od początku";
-    }
-  }, [range]);
+    default:
+      return "Od początku";
+  }
+}, [range]);
 
+  const sortedPeople = useMemo(() => {
+    const copy = [...people];
+    copy.sort((a, b) => {
+      const aLabel = (a.fullName || a.login || a.uid || "").toLocaleLowerCase("pl-PL");
+      const bLabel = (b.fullName || b.login || b.uid || "").toLocaleLowerCase("pl-PL");
+      return aLabel.localeCompare(bLabel, "pl-PL");
+    });
+    return copy;
+  }, [people]);
+
+  const personByUid = useMemo(() => {
+    const map = new Map<string, Person>();
+    people.forEach((p) => map.set(p.uid, p));
+    return map;
+  }, [people]);
+
+  const personByLogin = useMemo(() => {
+    const map = new Map<string, Person>();
+    people.forEach((p) => {
+      if (p.login) {
+        map.set(p.login.toLowerCase(), p);
+      }
+    });
+    return map;
+  }, [people]);
+
+  const normalizeLogin = useCallback((value: string | null | undefined) => {
+    if (!value) return "";
+    const trimmed = String(value).trim();
+    if (!trimmed) return "";
+    const lower = trimmed.toLowerCase();
+    const at = lower.indexOf("@");
+    return at >= 0 ? lower.slice(0, at) : lower;
+  }, []);
+
+  const resolveLogSection = useCallback(
+    (type: string): LogSectionKey => LOG_TYPE_CONFIG[type]?.section || "other",
+    []
+  );
+
+  const getLogTypeLabel = useCallback(
+    (type: string) => LOG_TYPE_CONFIG[type]?.label || formatTypeFallback(type),
+    []
+  );
+
+  const selectedLogPerson = useMemo(() => {
+    if (logPersonFilter === "all") return null;
+    return personByUid.get(logPersonFilter) || null;
+  }, [logPersonFilter, personByUid]);
+
+  const matchesPerson = useCallback(
+    (log: any) => {
+      if (logPersonFilter === "all") return true;
+      if (!selectedLogPerson) return false;
+      const uidCandidates = [
+        log?.uid,
+        log?.authorUid,
+        log?.byUid,
+        log?.paymentResolvedByUid,
+        log?.author?.uid,
+      ].filter((uid): uid is string => typeof uid === "string" && !!uid);
+      if (uidCandidates.some((uid) => uid === selectedLogPerson.uid)) return true;
+
+      const loginCandidates = [
+        normalizeLogin(log?.login),
+        normalizeLogin(log?.authorLogin),
+        normalizeLogin(log?.by),
+        normalizeLogin(log?.author),
+        normalizeLogin(log?.createdByLogin),
+      ].filter(Boolean) as string[];
+
+      const acceptableLogins = new Set<string>();
+      if (selectedLogPerson.login) acceptableLogins.add(selectedLogPerson.login.toLowerCase());
+      if (selectedLogPerson.fullName) acceptableLogins.add(selectedLogPerson.fullName.toLowerCase());
+
+      return loginCandidates.some((login) => acceptableLogins.has(login));
+    },
+    [logPersonFilter, normalizeLogin, selectedLogPerson]
+  );
+
+  const matchesSection = useCallback(
+    (log: any) => logSectionFilter === "all" || resolveLogSection(log?.type) === logSectionFilter,
+    [logSectionFilter, resolveLogSection]
+  );
+
+  const matchesType = useCallback(
+    (log: any) => logTypeFilter === "all" || log?.type === logTypeFilter,
+    [logTypeFilter]
+  );
+
+  const matchesFilters = useCallback(
+    (log: any) => matchesPerson(log) && matchesSection(log) && matchesType(log),
+    [matchesPerson, matchesSection, matchesType]
+  );
+
+  const availableTypeOptions = useMemo(() => {
+    const map = new Map<string, { value: string; label: string; section: LogSectionKey }>();
+    Object.entries(LOG_TYPE_CONFIG).forEach(([type, cfg]) => {
+      map.set(type, { value: type, label: cfg.label, section: cfg.section });
+    });
+    logPages.forEach((page) => {
+      page?.entries?.forEach((log) => {
+        if (!log?.type || map.has(log.type)) return;
+        const section = resolveLogSection(log.type);
+        map.set(log.type, { value: log.type, label: formatTypeFallback(log.type), section });
+      });
+    });
+    const filtered = Array.from(map.values()).filter(
+      (opt) => logSectionFilter === "all" || opt.section === logSectionFilter
+    );
+    return filtered.sort((a, b) => a.label.localeCompare(b.label, "pl-PL"));
+  }, [logPages, logSectionFilter, resolveLogSection]);
+
+  useEffect(() => {
+    if (logTypeFilter === "all") return;
+    if (!availableTypeOptions.some((opt) => opt.value === logTypeFilter)) {
+      setLogTypeFilter("all");
+    }
+  }, [availableTypeOptions, logTypeFilter]);
+
+  const resolveLogPersonName = useCallback(
+    (log: any) => {
+      const direct = log?.fullName || log?.authorFullName || log?.byFullName;
+      if (typeof direct === "string" && direct.trim()) {
+        return direct.trim();
+      }
+
+      const uidCandidates = [
+        log?.uid,
+        log?.authorUid,
+        log?.byUid,
+        log?.paymentResolvedByUid,
+      ].filter((uid): uid is string => typeof uid === "string" && !!uid);
+      for (const uid of uidCandidates) {
+        const person = personByUid.get(uid);
+        if (person) {
+          return person.fullName || person.login || uid;
+        }
+      }
+
+      const loginCandidates = [
+        normalizeLogin(log?.login),
+        normalizeLogin(log?.authorLogin),
+        normalizeLogin(log?.by),
+        normalizeLogin(log?.author),
+        normalizeLogin(log?.createdByLogin),
+      ].filter(Boolean) as string[];
+      for (const login of loginCandidates) {
+        const person = personByLogin.get(login);
+        if (person) {
+          return person.fullName || person.login || login;
+        }
+      }
+
+      if (loginCandidates[0]) {
+        return loginCandidates[0];
+      }
+      if (typeof log?.author === "string" && log.author.includes("@")) {
+        return normalizeLogin(log.author) || log.author;
+      }
+      return "—";
+    },
+    [normalizeLogin, personByLogin, personByUid]
+  );
+
+  const resolveLogLogin = useCallback(
+    (log: any) => {
+      const login =
+        normalizeLogin(log?.login) ||
+        normalizeLogin(log?.authorLogin) ||
+        normalizeLogin(log?.by) ||
+        normalizeLogin(log?.author) ||
+        normalizeLogin(log?.createdByLogin);
+      return login || "";
+    },
+    [normalizeLogin]
+  );
+
+  const resolveLogUid = useCallback(
+    (log: any) => log?.uid || log?.authorUid || log?.byUid || log?.paymentResolvedByUid || "",
+    []
+  );
+
+  const formatRecordLabel = useCallback(
+    (type: string) => RECORD_TYPE_LABELS[type] || type || "Wpis",
+    []
+  );
+
+  const formatVehicleChanges = useCallback(
+    (changes: Record<string, { before: string; after: string }> | undefined) => {
+      if (!changes) return "";
+      const entries = Object.entries(changes).map(([field, diff]) => {
+        const label = VEHICLE_FIELD_LABELS[field] || field;
+        const before = diff?.before ? String(diff.before) : "—";
+        const after = diff?.after ? String(diff.after) : "—";
+        return `${label}: ${before} → ${after}`;
+      });
+      return entries.join(" • ");
+    },
+    []
+  );
+
+  const fetchLogPageData = useCallback(
+    async (
+      startAfterDoc: QueryDocumentSnapshot<DocumentData> | null
+    ): Promise<LogPageData> => {
+      if (role !== "director") {
+        return { entries: [], endCursor: null, hasMore: false };
+      }
+
+      let cursor = startAfterDoc;
+      let lastDoc: QueryDocumentSnapshot<DocumentData> | null = startAfterDoc;
+      const collected: any[] = [];
+      let exhausted = false;
+
+      let fromTimestamp: Timestamp | null = null;
+      if (logFrom) {
+        const fromDate = new Date(logFrom);
+        if (!Number.isNaN(fromDate.getTime())) {
+          fromTimestamp = Timestamp.fromDate(fromDate);
+        }
+      }
+
+      let toTimestamp: Timestamp | null = null;
+      if (logTo) {
+        const toDate = new Date(logTo);
+        if (!Number.isNaN(toDate.getTime())) {
+          toTimestamp = Timestamp.fromDate(toDate);
+        }
+      }
+
+      const baseConstraints = [orderBy("ts", "desc")];
+      if (fromTimestamp) baseConstraints.push(where("ts", ">=", fromTimestamp));
+      if (toTimestamp) baseConstraints.push(where("ts", "<=", toTimestamp));
+
+      while (collected.length < LOG_PAGE_SIZE && !exhausted) {
+        const constraints = [...baseConstraints];
+        if (cursor) {
+          constraints.push(startAfter(cursor));
+        }
+        constraints.push(limit(LOG_FETCH_BATCH_SIZE));
+
+        const snap = await getDocs(query(collection(db, "logs"), ...constraints));
+        if (snap.empty) {
+          exhausted = true;
+          break;
+        }
+
+        snap.docs.forEach((docSnap) => {
+          const data = docSnap.data() as DocumentData;
+          const entry = { id: docSnap.id, ...data };
+          if (matchesFilters(entry)) {
+            collected.push(entry);
+          }
+        });
+
+        lastDoc = snap.docs[snap.docs.length - 1];
+        cursor = lastDoc;
+        if (snap.docs.length < LOG_FETCH_BATCH_SIZE) {
+          exhausted = true;
+        }
+      }
+
+      return {
+        entries: collected.slice(0, LOG_PAGE_SIZE),
+        endCursor: lastDoc ?? null,
+        hasMore: !exhausted && collected.length >= LOG_PAGE_SIZE && !!lastDoc,
+      };
+    },
+    [logFrom, logTo, matchesFilters, role]
+  );
+
+  useEffect(() => {
+    if (!ready || role !== "director") return;
+    let cancelled = false;
+    setLogsLoading(true);
+    setLogPages([]);
+    setActivityLogs([]);
+    setLogPageIndex(0);
+
+    const load = async () => {
+      try {
+        const page = await fetchLogPageData(null);
+        if (cancelled) return;
+        setLogPages(page.entries.length || page.hasMore ? [page] : [page]);
+        setActivityLogs(page.entries);
+        setLogPageIndex(0);
+      } catch (error) {
+        console.error("Nie udało się pobrać logów aktywności:", error);
+      } finally {
+        if (!cancelled) {
+          setLogsLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchLogPageData, ready, role]);
+
+  const handleNextLogPage = useCallback(async () => {
+    const current = logPages[logPageIndex];
+    if (!current) return;
+
+    const cached = logPages[logPageIndex + 1];
+    if (cached) {
+      setLogPageIndex(logPageIndex + 1);
+      setActivityLogs(cached.entries);
+      return;
+    }
+
+    if (!current.hasMore || !current.endCursor) return;
+    setLogsLoading(true);
+    try {
+      const nextPage = await fetchLogPageData(current.endCursor);
+      setLogPages((prev) => {
+        const next = [...prev];
+        next[logPageIndex + 1] = nextPage;
+        return next;
+      });
+      setActivityLogs(nextPage.entries);
+      setLogPageIndex(logPageIndex + 1);
+    } catch (error) {
+      console.error("Nie udało się pobrać kolejnej strony logów:", error);
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [fetchLogPageData, logPageIndex, logPages]);
+
+  const handlePrevLogPage = useCallback(() => {
+    if (logPageIndex === 0) return;
+    const prevIndex = logPageIndex - 1;
+    const page = logPages[prevIndex];
+    if (!page) return;
+    setLogPageIndex(prevIndex);
+    setActivityLogs(page.entries);
+  }, [logPageIndex, logPages]);
   useEffect(() => {
     if (announcementSaving) return;
     if (announcement?.message) {
@@ -154,24 +622,6 @@ export default function Admin() {
       setAnnouncementMessage("");
     }
   }, [announcement, announcementSaving]);
-
-  useEffect(() => {
-    if (role !== "director") return;
-    setLogsLoading(true);
-    const q = query(collection(db, "logs"), orderBy("ts", "desc"), limit(250));
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        setActivityLogs(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
-        setLogsLoading(false);
-      },
-      (error) => {
-        console.error("Nie udało się pobrać logów aktywności:", error);
-        setLogsLoading(false);
-      }
-    );
-    return () => unsub();
-  }, [role]);
 
   useEffect(() => {
     if (section !== "logs") return;
@@ -620,28 +1070,147 @@ export default function Admin() {
   const describeLog = (log: any) => {
     switch (log?.type) {
       case "session_start":
-        return `Start sesji • ID: ${log.sessionId || "—"}`;
+        return "Rozpoczęto nową sesję w panelu.";
       case "session_end":
-        return `Koniec sesji • ID: ${log.sessionId || "—"} • Powód: ${formatReason(log.reason)}`;
+        return `Sesja zakończona (powód: ${formatReason(log.reason)}).`;
       case "logout":
-        return `Wylogowanie • Powód: ${formatReason(log.reason)}`;
+        return `Wylogowanie (powód: ${formatReason(log.reason)}).`;
+      case "login_success":
+        return `Pomyślne logowanie jako ${log.login || "—"}.`;
+      case "login_fail": {
+        const error = typeof log.error === "string" && log.error ? ` • Błąd: ${log.error}` : "";
+        return `Nieudane logowanie jako ${log.login || "—"}${error}.`;
+      }
       case "page_view":
-        return `Strona: ${log.path || "—"}${log.title ? ` • ${log.title}` : ""}`;
+        return `Odwiedzono stronę ${log.path || "—"}${log.title ? ` (${log.title})` : ""}.`;
       case "template_view":
-        return `Szablon: ${log.template || log.slug || "—"}`;
+        return `Otworzono szablon ${log.template || log.slug || "—"}.`;
+      case "doc_sent":
+        return `Wysłano dokument ${log.template || "—"}${log.officers ? ` • Funkcjonariusze: ${formatList(log.officers)}` : ""}.`;
       case "archive_view":
-        return "Przegląd zasobów archiwum";
-      case "archive_image_open":
-        return `Otwarcie obrazu archiwum • ID: ${log.archiveId || "—"}`;
+        return "Przeglądano zasoby archiwum.";
+      case "archive_image_open": {
+        const summaryParts: string[] = [];
+        if (log.template) summaryParts.push(log.template);
+        if (log.archiveSummary) summaryParts.push(shortenText(log.archiveSummary));
+        if (log.dossierId) summaryParts.push(`CID: ${log.dossierId}`);
+        if (log.vehicleRegistration) summaryParts.push(`Pojazd: ${log.vehicleRegistration}`);
+        const summary = summaryParts.length ? ` — ${summaryParts.join(" • ")}` : "";
+        return `Otworzono plik archiwum${summary || ""}.`;
+      }
+      case "archive_delete": {
+        const summaryParts: string[] = [];
+        if (log.template) summaryParts.push(log.template);
+        if (log.archiveSummary) summaryParts.push(shortenText(log.archiveSummary));
+        if (log.dossierId) summaryParts.push(`CID: ${log.dossierId}`);
+        if (log.vehicleRegistration) summaryParts.push(`Pojazd: ${log.vehicleRegistration}`);
+        const summary = summaryParts.length ? ` — ${summaryParts.join(" • ")}` : "";
+        return `Usunięto wpis archiwum${summary || ""}.`;
+      }
+      case "archive_clear":
+        return `Wyczyszczono archiwum (${log.removed || 0} wpisów).`;
+      case "archive_link":
+        return "Powiązano dokument z archiwum.";
+      case "stats_clear":
+        return "Wyzerowano liczniki statystyk.";
+      case "dossier_create": {
+        const label = log.dossierTitle || `${log.first || ""} ${log.last || ""}`.trim() || "teczka";
+        return `Utworzono teczkę ${label}${log.cid ? ` (CID: ${log.cid})` : ""}.`;
+      }
+      case "dossier_delete":
+        return `Usunięto teczkę (CID: ${log.dossierId || "—"}).`;
       case "dossier_view":
-        return `Podgląd teczki • CID: ${log.dossierId || "—"}`;
+        return `Podglądano teczkę (CID: ${log.dossierId || "—"}).`;
       case "dossier_link_open":
-        return `Przejście do teczki • CID: ${log.dossierId || "—"}`;
+        return `Przejście do teczki (CID: ${log.dossierId || "—"}).`;
       case "dossier_evidence_open":
-        return `Załącznik w teczce • CID: ${log.dossierId || "—"} • Wpis: ${log.recordId || "—"}`;
+        return `Otworzono dowód w teczce (CID: ${log.dossierId || "—"}${log.recordId ? ` • Wpis: ${log.recordId}` : ""}).`;
+      case "dossier_record_add": {
+        const label = formatRecordLabel(log.recordType || "");
+        const summary = log.recordSummary ? ` — ${shortenText(log.recordSummary)}` : "";
+        return `Dodano wpis „${label}” w teczce (CID: ${log.dossierId || "—"})${summary}.`;
+      }
+      case "dossier_record_edit": {
+        const label = formatRecordLabel(log.recordType || "");
+        const changes: string[] = [];
+        if (log.previousText) changes.push(`Przed: ${shortenText(log.previousText)}`);
+        if (log.nextText) changes.push(`Po: ${shortenText(log.nextText)}`);
+        const summary = changes.length ? ` — ${changes.join(" • ")}` : log.recordSummary ? ` — ${shortenText(log.recordSummary)}` : "";
+        return `Zmieniono wpis „${label}” w teczce (CID: ${log.dossierId || "—"})${summary}.`;
+      }
+      case "dossier_record_delete": {
+        const label = formatRecordLabel(log.recordType || "");
+        const summary = log.recordSummary ? ` — ${shortenText(log.recordSummary)}` : "";
+        return `Usunięto wpis „${label}” z teczki (CID: ${log.dossierId || "—"})${summary}.`;
+      }
+      case "dossier_group_link_add": {
+        const member = log.memberName ? ` • Członek: ${log.memberName}${log.memberRank ? ` (${log.memberRank})` : ""}` : "";
+        return `Powiązano teczkę (CID: ${log.dossierId || "—"}) z organizacją ${log.groupName || "—"}${member}.`;
+      }
+      case "dossier_group_link_remove": {
+        const member = log.memberName ? ` • Członek: ${log.memberName}` : "";
+        return `Usunięto powiązanie z organizacją ${log.groupName || "—"} dla teczki (CID: ${log.dossierId || "—"})${member}.`;
+      }
+      case "vehicle_archive_view":
+        return "Przeglądano bazę pojazdów.";
+      case "vehicle_folder_view":
+        return `Otworzono teczkę pojazdu ${log.vehicleId || "—"}.`;
+      case "vehicle_from_dossier_open":
+        return `Otworzono pojazd powiązany z teczką (CID: ${log.dossierId || "—"})${log.vehicleId ? ` • Pojazd: ${log.vehicleId}` : ""}.`;
+      case "vehicle_create":
+        return `Utworzono teczkę pojazdu ${log.registration || "—"}${log.brand ? ` (${log.brand})` : ""}.`;
+      case "vehicle_update": {
+        const summary = formatVehicleChanges(log.changes);
+        const header = log.registration ? `Zaktualizowano dane pojazdu ${log.registration}` : "Zaktualizowano dane pojazdu";
+        return summary ? `${header} — ${summary}.` : `${header}.`;
+      }
+      case "vehicle_delete":
+        return `Usunięto teczkę pojazdu ${log.registration || "—"}${log.ownerName ? ` • Właściciel: ${log.ownerName}` : ""}.`;
+      case "vehicle_flag_update": {
+        const state = log.value ? "AKTYWNE" : "NIEAKTYWNE";
+        return `Ustawiono oznaczenie „${log.flagLabel || log.flag || "—"}” na ${state}${log.vehicleRegistration ? ` • Pojazd: ${log.vehicleRegistration}` : log.vehicleId ? ` • Pojazd: ${log.vehicleId}` : ""}.`;
+      }
+      case "vehicle_note_add":
+        return `Dodano notatkę o pojeździe${log.notePreview ? `: ${shortenText(log.notePreview)}` : "."}`;
+      case "vehicle_note_edit": {
+        const preview = log.notePreview ? `: ${shortenText(log.notePreview)}` : ".";
+        return `Zmieniono notatkę o pojeździe${preview}`;
+      }
+      case "vehicle_note_delete":
+        return `Usunięto notatkę o pojeździe${log.notePreview ? `: ${shortenText(log.notePreview)}` : "."}`;
+      case "vehicle_note_payment": {
+        const amountValue = Number(log.amount);
+        const amount = Number.isFinite(amountValue) && amountValue > 0 ? ` • Kwota: ${amountValue.toLocaleString("pl-PL")} $` : "";
+        const status = log.status === "paid" ? "opłacono mandat/grzywnę" : log.status === "unpaid" ? "oznaczono jako nieopłacone" : "zaktualizowano status płatności";
+        return `Zaktualizowano płatność — ${status}${amount}.`;
+      }
+      case "vehicle_note_from_doc":
+        return `Utworzono notatkę pojazdu na podstawie dokumentu ${log.template || "—"}.`;
+      case "vehicle_group_link_add":
+        return `Powiązano pojazd ${log.vehicleRegistration || log.vehicleId || "—"} z organizacją ${log.groupName || "—"}.`;
+      case "vehicle_group_link_remove":
+        return `Usunięto powiązanie pojazdu ${log.vehicleRegistration || log.vehicleId || "—"} z organizacją ${log.groupName || "—"}.`;
       default: {
         const entries = Object.entries(log || {})
-          .filter(([key]) => !["type", "ts", "createdAt", "login", "uid", "sessionId"].includes(key))
+          .filter(([key]) =>
+            ![
+              "type",
+              "ts",
+              "createdAt",
+              "login",
+              "uid",
+              "sessionId",
+              "author",
+              "authorUid",
+              "authorLogin",
+              "authorFullName",
+              "fullName",
+              "by",
+              "byFullName",
+              "byUid",
+              "durationMs",
+            ].includes(key)
+          )
           .map(([key, value]) => {
             if (value == null) return `${key}: —`;
             if (Array.isArray(value)) return `${key}: ${value.join(", ")}`;
@@ -649,7 +1218,7 @@ export default function Admin() {
             return `${key}: ${value}`;
           })
           .join(" • ");
-        return entries || "—";
+        return entries || "Szczegóły niedostępne.";
       }
     }
   };
@@ -815,7 +1384,11 @@ export default function Admin() {
   };
 
 
-  // UI
+    const currentLogPage = logPages[logPageIndex] || null;
+    const hasPrevLogPage = logPageIndex > 0;
+    const hasNextLogPage = Boolean(logPages[logPageIndex + 1] || currentLogPage?.hasMore);
+
+    // UI
   if (!ready) {
     return (
       <AuthGate>
@@ -1125,64 +1698,203 @@ export default function Admin() {
               </div>
             )}
             
-            {section === "logs" && (
-              <div className="grid gap-5">
-                <div className="card bg-gradient-to-br from-amber-900/85 via-amber-800/85 to-stone-900/80 text-white p-6 shadow-xl">
-                  <h2 className="text-xl font-semibold">Monitor aktywności</h2>
-                  <p className="text-sm text-white/70">
-                    Historia logowań, wylogowań oraz odwiedzanych sekcji panelu. Dostępna wyłącznie dla Director.
-                  </p>
-                  <p className="mt-2 text-xs text-white/60">Rejestrowanych jest maksymalnie 250 ostatnich zdarzeń.</p>
-                </div>
+              {section === "logs" && (
+                <div className="grid gap-5">
+                  <div className="card bg-gradient-to-br from-amber-900/85 via-amber-800/85 to-stone-900/80 text-white p-6 shadow-xl">
+                    <h2 className="text-xl font-semibold">Monitor aktywności</h2>
+                    <p className="text-sm text-white/70">
+                      Historia logowań, wylogowań oraz wszystkich akcji wykonywanych w panelu. Dostępna wyłącznie dla Director.
+                    </p>
+                    <p className="mt-2 text-xs text-white/60">Na każdej stronie wyświetlamy maksymalnie {LOG_PAGE_SIZE} wpisów. Użyj filtrów, aby zawęzić wyniki.</p>
+                  </div>
 
-                <div className="card p-0 overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-beige-200 text-sm">
-                      <thead className="bg-beige-100">
-                        <tr className="text-left">
-                          <th className="px-4 py-3 font-semibold">Data</th>
-                          <th className="px-4 py-3 font-semibold">Użytkownik</th>
-                          <th className="px-4 py-3 font-semibold">Typ</th>
-                          <th className="px-4 py-3 font-semibold">Szczegóły</th>
-                          <th className="px-4 py-3 font-semibold">Czas sesji</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-beige-100 bg-white/60">
-                        {logsLoading ? (
-                          <tr>
-                            <td colSpan={5} className="px-4 py-6 text-center">Ładowanie logów…</td>
+                  <div className="card border border-white/10 bg-white/5 p-4">
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <label className="flex flex-col gap-2 text-sm text-white/80">
+                        <span>Użytkownik</span>
+                        <select
+                          className="input bg-white text-black text-sm"
+                          value={logPersonFilter}
+                          onChange={(e) => setLogPersonFilter(e.target.value)}
+                        >
+                          <option value="all">Wszyscy użytkownicy</option>
+                          {sortedPeople.map((person) => {
+                            const label = [person.fullName, person.login].filter(Boolean).join(" — ") || person.uid;
+                            return (
+                              <option key={person.uid} value={person.uid}>
+                                {label}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </label>
+
+                      <label className="flex flex-col gap-2 text-sm text-white/80">
+                        <span>Sekcja</span>
+                        <select
+                          className="input bg-white text-black text-sm"
+                          value={logSectionFilter}
+                          onChange={(e) => setLogSectionFilter(e.target.value as "all" | LogSectionKey)}
+                        >
+                          {LOG_SECTION_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="flex flex-col gap-2 text-sm text-white/80">
+                        <span>Czynność</span>
+                        <select
+                          className="input bg-white text-black text-sm"
+                          value={logTypeFilter}
+                          onChange={(e) => setLogTypeFilter(e.target.value)}
+                          disabled={availableTypeOptions.length === 0}
+                        >
+                          <option value="all">Wszystkie czynności</option>
+                          {availableTypeOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="flex flex-col gap-2 text-sm text-white/80">
+                        <span>Od daty</span>
+                        <input
+                          type="datetime-local"
+                          className="input bg-white text-black text-sm"
+                          value={logFrom}
+                          onChange={(e) => setLogFrom(e.target.value)}
+                        />
+                      </label>
+
+                      <label className="flex flex-col gap-2 text-sm text-white/80">
+                        <span>Do daty</span>
+                        <input
+                          type="datetime-local"
+                          className="input bg-white text-black text-sm"
+                          value={logTo}
+                          onChange={(e) => setLogTo(e.target.value)}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-white/70">
+                      <span>
+                        Wyświetlanych: {activityLogs.length} / {LOG_PAGE_SIZE}
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="btn h-8 px-3 text-[11px] font-semibold border border-white/20 bg-white/10 text-white/80 hover:bg-white/20 disabled:opacity-50"
+                          onClick={() => {
+                            setLogPersonFilter("all");
+                            setLogSectionFilter("all");
+                            setLogTypeFilter("all");
+                            setLogFrom("");
+                            setLogTo("");
+                          }}
+                        >
+                          Resetuj filtry
+                        </button>
+                        <button
+                          type="button"
+                          className="btn h-8 px-3 text-[11px] font-semibold border border-white/20 bg-white/10 text-white/80 hover:bg-white/20 disabled:opacity-50"
+                          onClick={() => {
+                            setLogFrom("");
+                            setLogTo("");
+                          }}
+                        >
+                          Wyczyść daty
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="card p-0 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-beige-200 text-sm">
+                        <thead className="bg-beige-100">
+                          <tr className="text-left">
+                            <th className="px-4 py-3 font-semibold">Data</th>
+                            <th className="px-4 py-3 font-semibold">Użytkownik</th>
+                            <th className="px-4 py-3 font-semibold">Typ</th>
+                            <th className="px-4 py-3 font-semibold">Szczegóły</th>
+                            <th className="px-4 py-3 font-semibold">Czas sesji</th>
                           </tr>
-                        ) : activityLogs.length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="px-4 py-6 text-center">Brak zarejestrowanych zdarzeń.</td>
-                          </tr>
-                        ) : (
-                          activityLogs.map((log, idx) => (
-                            <tr key={log.id ?? idx} className="align-top">
-                              <td className="px-4 py-3 whitespace-nowrap">{formatLogTimestamp(log)}</td>
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <div className="font-semibold">{log.login || "—"}</div>
-                                <div className="text-xs text-beige-700">{log.uid || "—"}</div>
-                                {log.sessionId && (
-                                  <div className="text-[11px] text-beige-500">Sesja: {log.sessionId}</div>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <span className="inline-flex items-center rounded-full bg-beige-200 px-2 py-0.5 text-xs font-semibold text-beige-900">
-                                  {log.type || "—"}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3">{describeLog(log)}</td>
-                              <td className="px-4 py-3 whitespace-nowrap">{formatDuration(resolveDurationMs(log) ?? undefined)}</td>
+                        </thead>
+                        <tbody className="divide-y divide-beige-100 bg-white/60">
+                          {logsLoading ? (
+                            <tr>
+                              <td colSpan={5} className="px-4 py-6 text-center">Ładowanie logów…</td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                          ) : activityLogs.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="px-4 py-6 text-center">Brak zarejestrowanych zdarzeń.</td>
+                            </tr>
+                          ) : (
+                            activityLogs.map((log, idx) => {
+                              const personName = resolveLogPersonName(log);
+                              const loginValue = resolveLogLogin(log);
+                              const uidValue = resolveLogUid(log);
+                              const typeLabel = getLogTypeLabel(log.type || "");
+                              return (
+                                <tr key={log.id ?? idx} className="align-top">
+                                  <td className="px-4 py-3 whitespace-nowrap">{formatLogTimestamp(log)}</td>
+                                  <td className="px-4 py-3 whitespace-nowrap">
+                                    <div className="font-semibold">{personName}</div>
+                                    {loginValue && (
+                                      <div className="text-xs text-beige-700">{`${loginValue}@${loginDomain}`}</div>
+                                    )}
+                                    {uidValue && (
+                                      <div className="text-[11px] text-beige-500">UID: {uidValue}</div>
+                                    )}
+                                    {log.sessionId && (
+                                      <div className="text-[11px] text-beige-500">Sesja: {log.sessionId}</div>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 whitespace-nowrap">
+                                    <span className="inline-flex items-center rounded-full bg-beige-200 px-2 py-0.5 text-xs font-semibold text-beige-900">
+                                      {typeLabel}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 align-top leading-relaxed text-beige-900/80">{describeLog(log)}</td>
+                                  <td className="px-4 py-3 whitespace-nowrap">{formatDuration(resolveDurationMs(log) ?? undefined)}</td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-beige-200/60 bg-white/60 px-4 py-3 text-sm text-beige-900/80">
+                      <div>Strona {logPageIndex + 1}</div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="btn h-9 px-4 text-xs font-semibold border border-white/30 bg-white/10 text-beige-900/80 hover:bg-white/20 disabled:opacity-50"
+                          onClick={handlePrevLogPage}
+                          disabled={!hasPrevLogPage || logsLoading}
+                        >
+                          Poprzednie
+                        </button>
+                        <button
+                          type="button"
+                          className="btn h-9 px-4 text-xs font-semibold border border-white/30 bg-white/10 text-beige-900/80 hover:bg-white/20 disabled:opacity-50"
+                          onClick={handleNextLogPage}
+                          disabled={!hasNextLogPage || logsLoading}
+                        >
+                          Następne
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
           </div>
         </div>
       </div>
