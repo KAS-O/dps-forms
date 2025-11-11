@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { adminAuth, adminDb, adminFieldValue, adminTimestamp } from "@/lib/firebaseAdmin";
-import { Role, normalizeRole } from "@/lib/roles";
+import { normalizeRole, BOARD_ROLES } from "@/lib/roles";
 
 const ANNOUNCEMENT_WINDOWS: Record<string, number | null> = {
   "30m": 30 * 60 * 1000,
@@ -15,8 +15,6 @@ const ANNOUNCEMENT_WINDOWS: Record<string, number | null> = {
   "7d": 7 * 24 * 60 * 60 * 1000,
   forever: null,
 };
-
-const MANAGER_ROLES: Role[] = ["director", "chief"];
 
 async function verifyManager(req: NextApiRequest) {
   if (!adminAuth || !adminDb || !adminFieldValue || !adminTimestamp) {
@@ -34,7 +32,7 @@ async function verifyManager(req: NextApiRequest) {
   const profileData = profileSnap.data() || {};
   const role = normalizeRole(profileData.role);
 
-  if (!MANAGER_ROLES.includes(role)) {
+  if (!BOARD_ROLES.includes(role)) {
     const err: Error & { code?: string } = new Error("FORBIDDEN");
     err.code = "FORBIDDEN";
     throw err;

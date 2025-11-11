@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { adminAuth, adminDb, adminFieldValue } from "@/lib/firebaseAdmin";
-import { Role, normalizeRole } from "@/lib/roles";
+import { Role, normalizeRole, BOARD_ROLES } from "@/lib/roles";
 
 if (!adminAuth || !adminDb || !adminFieldValue) {
   console.warn("Firebase Admin SDK is not configured.");
@@ -15,7 +15,7 @@ type AccountResponse = {
   createdAt?: string;
 };
 
-async function verifyDirector(req: NextApiRequest) {
+async function verifyBoardAccess(req: NextApiRequest) {
   if (!adminAuth || !adminDb) {
     throw new Error("Brak konfiguracji Firebase Admin");
   }
@@ -27,7 +27,7 @@ async function verifyDirector(req: NextApiRequest) {
   const decoded = await adminAuth.verifyIdToken(token);
   const profileSnap = await adminDb.collection("profiles").doc(decoded.uid).get();
   const role = normalizeRole(profileSnap.data()?.role);
-  if (role !== "director") {
+  if (!BOARD_ROLES.includes(role)) {
     throw new Error("FORBIDDEN");
   }
   return decoded;
@@ -144,7 +144,7 @@ function mapFirebaseAuthError(error: any): { status: number; message: string } |
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    await verifyDirector(req);
+    await verifyBoardAccess(req);
   } catch (e: any) {
     if (e.message === "FORBIDDEN") {
       return res.status(403).json({ error: "Brak uprawnień" });

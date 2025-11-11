@@ -484,7 +484,7 @@ export default function ArchivePage() {
     if (!can.deleteArchive(role)) {
       await alert({
         title: "Brak uprawnień",
-        message: "Tylko Director może usuwać wpisy z archiwum.",
+        message: "Wpisy z archiwum mogą usuwać funkcjonariusze w randze Staff Commander i wyższej.",
         tone: "info",
       });
       return;
@@ -519,7 +519,7 @@ export default function ArchivePage() {
     if (!can.deleteArchive(role)) {
       await alert({
         title: "Brak uprawnień",
-        message: "Tylko Director może czyścić archiwum.",
+        message: "Czyszczenie archiwum wymaga rangi Staff Commander lub wyższej.",
         tone: "info",
       });
       return;
