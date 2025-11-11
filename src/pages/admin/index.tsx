@@ -104,6 +104,13 @@ const RECORD_TYPE_LABELS: Record<string, string> = {
   "group-link": "Powiązanie organizacji",
 };
 
+const RECORD_ACTION_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(RECORD_TYPE_LABELS).map(([type, label]) => [
+    `dossier.record.${type}`,
+    `Wpis w teczce: ${label}`,
+  ])
+);
+
 const ACTION_LABELS: Record<string, string> = {
   "session.start": "Start sesji",
   "session.end": "Koniec sesji",
@@ -142,7 +149,17 @@ const ACTION_LABELS: Record<string, string> = {
   "stats.clear": "Czyszczenie statystyk",
   "auth.login_success": "Udane logowanie",
   "auth.login_fail": "Nieudane logowanie",
+  ...RECORD_ACTION_LABELS,
 };
+
+function pickFirstNonEmptyString(...values: Array<string | null | undefined>): string {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return "";
+}
 
 const ACTION_OPTIONS = [
   { value: "", label: "Wszystkie czynności" },
@@ -911,14 +928,30 @@ export default function Admin() {
     (log: any) => {
       const actorUid = (log?.actorUid || log?.uid || "") as string;
       const profile = actorUid ? actorProfiles.get(actorUid) : undefined;
-      let login = (log?.actorLogin as string | undefined) || (log?.login as string | undefined) || profile?.login || "";
-      if (login && login.includes("@")) {
+      const loginCandidate = pickFirstNonEmptyString(
+        log?.actorLogin as string | undefined,
+        log?.login as string | undefined,
+        profile?.login,
+        log?.details?.actorLogin,
+        log?.details?.login
+      );
+      let login = loginCandidate;
+      if (login.includes("@")) {
         login = deriveLoginFromEmail(login);
       }
-      const trimmedLogin = login?.trim();
-      const nameFromLog = (log?.actorName as string | undefined)?.trim();
-      const profileName = profile?.fullName ? profile.fullName.trim() : "";
-      const name = nameFromLog || profileName || trimmedLogin || (actorUid ? `UID: ${actorUid}` : "Nieznany użytkownik");
+      const trimmedLogin = login.trim();
+      const nameCandidate = pickFirstNonEmptyString(
+        log?.actorName as string | undefined,
+        log?.fullName as string | undefined,
+        log?.name as string | undefined,
+        profile?.fullName,
+        (profile as any)?.name,
+        (profile as any)?.displayName,
+        log?.details?.actorName,
+        log?.details?.authorName,
+        log?.details?.fullName
+      );
+      const name = nameCandidate || trimmedLogin || (actorUid ? `UID: ${actorUid}` : "Nieznany użytkownik");
 
       return {
         uid: actorUid || null,
