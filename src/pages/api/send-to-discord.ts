@@ -31,7 +31,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           { name: "Typ dokumentu", value: templateName || "—", inline: false },
         ],
         image: { url: `attachment://${filename}` },
-        footer: { text: "DPS • Panel dokumentów" }
+        footer: { text: "DPS • Mobile Data Terminal" }
       }]
     };
 

@@ -69,7 +69,8 @@ export default function LoginPage() {
               {/* Jeśli masz PNG: zmień logo.svg na logo.png */}
               <Image src="/logo.png" alt="LSPD" width={320} height={80} priority className="floating" />
               <h1 className="text-xl font-semibold text-center">
-                Los Santos Police Department — Panel dokumentów
+                <span className="block">Los Santos Police Department</span>
+                <span className="block">Mobile Data Terminal</span>
               </h1>
             </div>
 

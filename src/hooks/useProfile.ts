@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
-import { Role, normalizeRole } from "@/lib/roles";
+import { Role, normalizeRole, hasBoardAccess, DEFAULT_ROLE } from "@/lib/roles";
 export type { Role } from "@/lib/roles";
 
 export function useProfile() {
@@ -26,7 +26,7 @@ export function useProfile() {
       if (!snap.exists()) {
         await setDoc(ref, {
           login: userLogin,
-          role: "rookie" as Role,
+          role: DEFAULT_ROLE,
           fullName: userLogin, // domyślnie = login, można potem zmienić w panelu
           createdAt: serverTimestamp(),
         });
@@ -48,10 +48,10 @@ export function useProfile() {
 
 // Uprawnienia
 export const can = {
-  seeArchive: (role: Role | null) => !!role && ["director", "chief", "senior", "agent"].includes(role),
-  deleteArchive: (role: Role | null) => role === "director",
-  seeLogs: (role: Role | null) => role === "director",
-  manageRoles: (role: Role | null) => !!role && ["director", "chief"].includes(role),
-  manageFinance: (role: Role | null) => !!role && ["director"].includes(role),
-  editRecords: (role: Role | null) => !!role && ["director", "chief"].includes(role), // edycja/usuwanie wpisów w teczkach
+  seeArchive: (role: Role | null) => !!role,
+  deleteArchive: (role: Role | null) => hasBoardAccess(role),
+  seeLogs: (role: Role | null) => hasBoardAccess(role),
+  manageRoles: (role: Role | null) => hasBoardAccess(role),
+  manageFinance: (role: Role | null) => hasBoardAccess(role),
+  editRecords: (role: Role | null) => hasBoardAccess(role), // edycja/usuwanie wpisów w teczkach
 };
