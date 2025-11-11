@@ -4,6 +4,7 @@ import AuthGate from "@/components/AuthGate";
 import { TEMPLATES, Template } from "@/lib/templates";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { auth, db, storage } from "@/lib/firebase";
+import { deriveLoginFromEmail } from "@/lib/login";
 import {
   addDoc,
   collection,
@@ -679,8 +680,9 @@ export default function DocPage() {
         const rawAmount = vehicleNoteConfig ? values[vehicleNoteConfig.amountField] : undefined;
         const parsedAmount = rawAmount != null && rawAmount !== "" ? Number(rawAmount) : NaN;
         const hasAmount = Number.isFinite(parsedAmount);
+        const noteText = noteLines.join("\n");
         const notePayload: Record<string, any> = {
-          text: noteLines.join("\n"),
+          text: noteText,
           createdAt: serverTimestamp(),
           author: auth.currentUser?.email || "",
           authorUid: auth.currentUser?.uid || "",
@@ -698,14 +700,18 @@ export default function DocPage() {
         }
 
         const noteRef = await addDoc(collection(db, "vehicleFolders", vehicleFolderId, "notes"), notePayload);
+        const notePreview = noteText.length > 120 ? `${noteText.slice(0, 120)}…` : noteText;
         await addDoc(collection(db, "logs"), {
           type: "vehicle_note_from_doc",
           vehicleId: vehicleFolderId,
           noteId: noteRef.id,
           archiveId: archiveRef.id,
           template: template.slug,
+          registration: selectedVehicle?.registration || "",
+          notePreview,
           author: auth.currentUser?.email || "",
           authorUid: auth.currentUser?.uid || "",
+          login: deriveLoginFromEmail(auth.currentUser?.email || ""),
           ts: serverTimestamp(),
         });
       }
