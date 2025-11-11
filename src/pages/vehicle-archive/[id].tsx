@@ -2,7 +2,7 @@ import { useRouter } from "next/router";
 import Head from "next/head";
 import Nav from "@/components/Nav";
 import AuthGate from "@/components/AuthGate";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   addDoc,
@@ -23,6 +23,7 @@ import {
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
+import { useLogWriter } from "@/hooks/useLogWriter";
 import { VEHICLE_FLAGS, getActiveVehicleFlags, getVehicleHighlightStyle } from "@/lib/vehicleFlags";
 import type { VehicleFlagsState, VehicleFlagKey } from "@/lib/vehicleFlags";
 
@@ -73,6 +74,7 @@ export default function VehicleFolderPage() {
   const { id } = router.query as { id: string };
   const { confirm, prompt, alert } = useDialog();
   const { session, logActivity } = useSessionActivity();
+  const { writeLog } = useLogWriter();
 
   const [vehicle, setVehicle] = useState<VehicleFolder | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -85,6 +87,7 @@ export default function VehicleFolderPage() {
   const [deleting, setDeleting] = useState(false);
   const [ownerDossierId, setOwnerDossierId] = useState<string | null>(null);
   const [paymentProcessingId, setPaymentProcessingId] = useState<string | null>(null);
+  const viewLoggedRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -130,8 +133,17 @@ export default function VehicleFolderPage() {
 
   useEffect(() => {
     if (!id || !session) return;
-    void logActivity({ type: "vehicle_folder_view", vehicleId: id });
-  }, [id, session, logActivity]);
+    const key = `${id}:${vehicle?.registration || ""}`;
+    if (viewLoggedRef.current === key) return;
+    viewLoggedRef.current = key;
+    void logActivity({
+      type: "vehicle_folder_view",
+      vehicleId: id,
+      registration: vehicle?.registration || "",
+      ownerName: vehicle?.ownerName || "",
+      ownerCid: vehicle?.ownerCid || "",
+    });
+  }, [id, session, vehicle?.registration, vehicle?.ownerName, vehicle?.ownerCid, logActivity]);
 
   const highlight = useMemo(() => getVehicleHighlightStyle(vehicle?.statuses), [vehicle?.statuses]);
   const activeFlags = highlight?.active || getActiveVehicleFlags(vehicle?.statuses);
@@ -182,14 +194,24 @@ export default function VehicleFolderPage() {
         ownerCidNormalized,
         updatedAt: serverTimestamp(),
       });
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "vehicle_update",
+        section: "archiwum-pojazdow",
+        action: "vehicle.update",
+        message: `Zaktualizowano dane pojazdu ${registration} (właściciel: ${ownerName}, CID: ${ownerCid}).`,
+        details: {
+          rejestracja: registration,
+          marka: brand,
+          kolor: color,
+          "imię i nazwisko właściciela": ownerName,
+          "CID właściciela": ownerCid,
+        },
         vehicleId: id,
         registration,
         ownerCid,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
+        brand,
+        color,
+        ownerName,
       });
       setOk("Zapisano zmiany w teczce pojazdu.");
     } catch (e: any) {
@@ -216,13 +238,18 @@ export default function VehicleFolderPage() {
       notesSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
       batch.delete(doc(db, "vehicleFolders", id));
       await batch.commit();
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "vehicle_delete",
+        section: "archiwum-pojazdow",
+        action: "vehicle.delete",
+        message: `Usunięto teczkę pojazdu ${vehicle?.registration || ""} wraz z ${notesSnap.size} notatkami.`,
+        details: {
+          rejestracja: vehicle?.registration || "",
+          "liczba usuniętych notatek": notesSnap.size,
+        },
         vehicleId: id,
         registration: vehicle?.registration || "",
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
+        removedNotes: notesSnap.size,
       });
       await router.replace("/vehicle-archive");
     } catch (e: any) {
@@ -241,14 +268,20 @@ export default function VehicleFolderPage() {
         [`statuses.${flagKey}`]: !current,
         updatedAt: serverTimestamp(),
       });
-      await addDoc(collection(db, "logs"), {
+      const flagMeta = VEHICLE_FLAGS.find((flag) => flag.key === flagKey);
+      await writeLog({
         type: "vehicle_flag_update",
+        section: "archiwum-pojazdow",
+        action: "vehicle.flag",
+        message: `Zmiana oznaczenia pojazdu: ${flagMeta?.label || flagKey} → ${!current ? "włączone" : "wyłączone"}.`,
+        details: {
+          oznaczenie: flagMeta?.label || flagKey,
+          opis: flagMeta?.description || null,
+          nowaWartość: !current ? "aktywne" : "nieaktywne",
+        },
         vehicleId: id,
         flag: flagKey,
         value: !current,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
       });
     } catch (e: any) {
       setErr(e?.message || "Nie udało się zmienić oznaczenia.");
@@ -270,12 +303,16 @@ export default function VehicleFolderPage() {
         author: auth.currentUser?.email || "",
         authorUid: auth.currentUser?.uid || "",
       });
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "vehicle_note_add",
+        section: "archiwum-pojazdow",
+        action: "vehicle.note.add",
+        message: `Dodano notatkę do pojazdu ${vehicle?.registration || ""}.`,
+        details: {
+          treść: noteText.trim(),
+        },
         vehicleId: id,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
+        noteLength: noteText.trim().length,
       });
       setNoteText("");
     } catch (e: any) {
@@ -308,13 +345,18 @@ export default function VehicleFolderPage() {
       await updateDoc(doc(db, "vehicleFolders", id, "notes", noteId), {
         text: newText.trim(),
       });
-      await addDoc(collection(db, "logs"), {
+      const existingNote = notes.find((n) => n.id === noteId);
+      await writeLog({
         type: "vehicle_note_edit",
+        section: "archiwum-pojazdow",
+        action: "vehicle.note.edit",
+        message: `Zmieniono notatkę w pojeździe ${vehicle?.registration || ""}.`,
+        details: {
+          poprzedniaTreść: existingNote?.text || null,
+          nowaTreść: newText.trim(),
+        },
         vehicleId: id,
         noteId,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
       });
     } catch (e: any) {
       setErr(e?.message || "Nie udało się zaktualizować notatki.");
@@ -332,13 +374,17 @@ export default function VehicleFolderPage() {
     try {
       setErr(null);
       await deleteDoc(doc(db, "vehicleFolders", id, "notes", noteId));
-      await addDoc(collection(db, "logs"), {
+      const removedNote = notes.find((n) => n.id === noteId);
+      await writeLog({
         type: "vehicle_note_delete",
+        section: "archiwum-pojazdow",
+        action: "vehicle.note.delete",
+        message: `Usunięto notatkę z pojazdu ${vehicle?.registration || ""}.`,
+        details: {
+          treść: removedNote?.text || null,
+        },
         vehicleId: id,
         noteId,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
       });
     } catch (e: any) {
       setErr(e?.message || "Nie udało się usunąć notatki.");
@@ -372,15 +418,23 @@ export default function VehicleFolderPage() {
       updates.paymentCredited = status === "paid" && amount > 0;
 
       await updateDoc(doc(db, "vehicleFolders", id, "notes", note.id), updates);
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "vehicle_note_payment",
+        section: "archiwum-pojazdow",
+        action: "vehicle.note.payment",
+        message:
+          status === "paid"
+            ? `Zaksięgowano spłatę grzywny (${amount} $) powiązaną z notatką w pojeździe ${vehicle?.registration || ""}.`
+            : `Zapisano brak spłaty grzywny powiązanej z notatką w pojeździe ${vehicle?.registration || ""}.`,
+        details: {
+          status: status === "paid" ? "opłacono" : "nie opłacono",
+          kwota: Number.isFinite(amount) ? amount : 0,
+          notatka: note.text,
+        },
         vehicleId: id,
         noteId: note.id,
         status,
         amount: Number.isFinite(amount) ? amount : 0,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
       });
 
       setOk(

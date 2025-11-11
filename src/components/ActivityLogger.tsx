@@ -1,14 +1,16 @@
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, onIdTokenChanged, signOut, User } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { deriveLoginFromEmail } from "@/lib/login";
 import { useRouter } from "next/router";
+import { doc, getDoc } from "firebase/firestore";
 
 type ActivityEvent = { type: string; [key: string]: any };
 
 type SessionInfo = {
   uid: string;
   login: string;
+  name?: string;
   sessionId: string;
   startedAt: number;
 };
@@ -41,6 +43,7 @@ function readStoredSession(): SessionInfo | null {
       login: parsed.login || "",
       sessionId: parsed.sessionId,
       startedAt: Number(parsed.startedAt) || Date.now(),
+      name: typeof parsed.name === "string" ? parsed.name : undefined,
     };
   } catch (error) {
     console.warn("Nie udało się odczytać sesji aktywności:", error);
@@ -51,7 +54,14 @@ function readStoredSession(): SessionInfo | null {
 function storeSession(info: SessionInfo) {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(info));
+    const payload: SessionInfo = {
+      uid: info.uid,
+      login: info.login,
+      sessionId: info.sessionId,
+      startedAt: info.startedAt,
+      name: info.name,
+    };
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
   } catch (error) {
     console.warn("Nie udało się zapisać sesji aktywności:", error);
   }
@@ -126,12 +136,161 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
     (events: ActivityEvent[]): ActivityEvent[] => {
       const current = sessionRef.current;
       if (!current) return [];
-      return events.map((event) => ({
-        ...event,
-        login: current.login,
-        uid: current.uid,
-        sessionId: current.sessionId,
-      }));
+
+      const formatDurationString = (value: number | undefined) => {
+        if (typeof value !== "number" || Number.isNaN(value) || value <= 0) return null;
+        const totalSeconds = Math.floor(value / 1000);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        const pad = (unit: number) => unit.toString().padStart(2, "0");
+        return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+      };
+
+      const describeEvent = (event: ActivityEvent) => {
+        switch (event.type) {
+          case "session_start":
+            return {
+              section: "sesja",
+              action: "session.start",
+              message: "Rozpoczęto sesję w panelu.",
+              details: { "Identyfikator sesji": current.sessionId },
+            };
+          case "session_end":
+            return {
+              section: "sesja",
+              action: "session.end",
+              message: `Zakończono sesję (powód: ${event.reason || "nieznany"}).`,
+              details: {
+                powod: event.reason || null,
+                "Identyfikator sesji": current.sessionId,
+                "Czas trwania": formatDurationString(event.durationMs),
+              },
+            };
+          case "logout":
+            return {
+              section: "sesja",
+              action: "session.logout",
+              message: `Wylogowanie użytkownika (powód: ${event.reason || "nieznany"}).`,
+              details: {
+                powod: event.reason || null,
+                "Identyfikator sesji": current.sessionId,
+              },
+            };
+          case "page_view":
+            return {
+              section: "nawigacja",
+              action: "page.view",
+              message: `Otworzono stronę ${event.title || event.path || "(nieznana)"}.`,
+              details: { sciezka: event.path || null, tytul: event.title || null },
+            };
+          case "template_view":
+            return {
+              section: "dokumenty",
+              action: "template.view",
+              message: `Wyświetlono szablon dokumentu ${event.template || event.slug || "(nieznany)"}.`,
+              details: { szablon: event.template || event.slug || null },
+            };
+          case "archive_view":
+            return { section: "archiwum", action: "archive.view", message: "Przegląd archiwum dokumentów." };
+          case "archive_image_open":
+            return {
+              section: "archiwum",
+              action: "archive.image_open",
+              message: `Podgląd obrazu z archiwum (ID ${event.archiveId || "?"}).`,
+              details: { archiwumId: event.archiveId || null },
+            };
+          case "dossier_view":
+            return {
+              section: "teczki",
+              action: "dossier.view",
+              message: `Otworzono teczkę ${event.dossierTitle || event.dossierId || "(ID nieznane)"}.`,
+              details: {
+                dossierId: event.dossierId || null,
+                tytul: event.dossierTitle || null,
+                cid: event.dossierCid || null,
+              },
+            };
+          case "dossier_link_open":
+            return {
+              section: "teczki",
+              action: "dossier.link_open",
+              message: `Przejście do teczki ${event.dossierTitle || event.dossierId || "(ID nieznane)"}.`,
+              details: {
+                dossierId: event.dossierId || null,
+                tytul: event.dossierTitle || null,
+                cid: event.dossierCid || null,
+              },
+            };
+          case "dossier_evidence_open":
+            return {
+              section: "teczki",
+              action: "dossier.evidence_open",
+              message: `Otworzono załącznik w teczce ${event.dossierId || "?"}.`,
+              details: {
+                dossierId: event.dossierId || null,
+                recordId: event.recordId || null,
+                wpis: event.recordTitle || null,
+              },
+            };
+          case "vehicle_archive_view":
+            return {
+              section: "archiwum-pojazdow",
+              action: "vehicle.archive_view",
+              message: "Przegląd archiwum pojazdów.",
+              details: { liczbaPojazdow: event.vehiclesTotal || null },
+            };
+          case "vehicle_folder_view":
+            return {
+              section: "archiwum-pojazdow",
+              action: "vehicle.folder_view",
+              message: `Otworzono teczkę pojazdu ${event.registration || event.vehicleId || "(ID)"}.`,
+              details: {
+                pojazdId: event.vehicleId || null,
+                rejestracja: event.registration || null,
+                wlasciciel: event.ownerName || null,
+                wlascicielCid: event.ownerCid || null,
+              },
+            };
+          case "vehicle_from_dossier_open":
+            return {
+              section: "teczki",
+              action: "vehicle.from_dossier_open",
+              message: `Podgląd pojazdu ${event.vehicleId || "?"} z poziomu teczki ${event.dossierId || "?"}.`,
+              details: {
+                dossierId: event.dossierId || null,
+                vehicleId: event.vehicleId || null,
+              },
+            };
+          case "criminal_group_open":
+            return {
+              section: "teczki",
+              action: "criminal_group.open",
+              message: `Podgląd organizacji o ID ${event.dossierId || "?"}.`,
+              details: { dossierId: event.dossierId || null },
+            };
+          default:
+            return {
+              section: "inne",
+              action: `custom.${event.type || "unknown"}`,
+              message: `Zdarzenie ${event.type || "nieznane"}.`,
+            };
+        }
+      };
+
+      return events.map((event) => {
+        const meta = describeEvent(event);
+        return {
+          ...event,
+          login: current.login,
+          uid: current.uid,
+          sessionId: current.sessionId,
+          actorLogin: current.login,
+          actorUid: current.uid,
+          actorName: current.name || current.login,
+          ...meta,
+        };
+      });
     },
     []
   );
@@ -141,12 +300,12 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
       const enriched = enrichEvents(events);
       if (!enriched.length) return;
 
-        let token = tokenRef.current;
-        if (!token) {
-          if (!auth) return;
-          token = await ensureIdToken(auth.currentUser);
-          tokenRef.current = token;
-        }
+      let token = tokenRef.current;
+      if (!token) {
+        if (!auth) return;
+        token = await ensureIdToken(auth.currentUser);
+        tokenRef.current = token;
+      }
 
       await postEvents(token, enriched, useBeacon);
     },
@@ -241,9 +400,23 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
       const login = deriveLoginFromEmail(user.email || "");
       const stored = readStoredSession();
 
-      const info: SessionInfo = stored && stored.uid === user.uid
-        ? { ...stored, login }
-        : { uid: user.uid, login, sessionId: createSessionId(), startedAt: Date.now() };
+      let name = stored && stored.uid === user.uid ? stored.name : undefined;
+      if (!name && db) {
+        try {
+          const profileSnap = await getDoc(doc(db, "profiles", user.uid));
+          if (profileSnap.exists()) {
+            const fullName = ((profileSnap.data()?.fullName as string) || "").trim();
+            name = fullName || undefined;
+          }
+        } catch (error) {
+          console.warn("Nie udało się pobrać profilu użytkownika do logów aktywności:", error);
+        }
+      }
+
+      const info: SessionInfo =
+        stored && stored.uid === user.uid
+          ? { ...stored, login, name }
+          : { uid: user.uid, login, name, sessionId: createSessionId(), startedAt: Date.now() };
 
       sessionRef.current = info;
       setSession(info);

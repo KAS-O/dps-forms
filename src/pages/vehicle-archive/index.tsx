@@ -1,7 +1,7 @@
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import Head from "next/head";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addDoc,
   collection,
@@ -15,6 +15,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { useLogWriter } from "@/hooks/useLogWriter";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
@@ -53,7 +54,9 @@ export default function VehicleArchivePage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const { confirm } = useDialog();
   const { session, logActivity } = useSessionActivity();
+  const { writeLog } = useLogWriter();
   const accentColor = "#0ea5e9";
+  const viewLoggedRef = useRef(false);
 
   useEffect(() => {
     const q = query(collection(db, "vehicleFolders"), orderBy("createdAt", "desc"));
@@ -63,9 +66,10 @@ export default function VehicleArchivePage() {
   }, []);
 
   useEffect(() => {
-    if (!session) return;
-    void logActivity({ type: "vehicle_archive_view" });
-  }, [session, logActivity]);
+    if (!session || viewLoggedRef.current) return;
+    viewLoggedRef.current = true;
+    void logActivity({ type: "vehicle_archive_view", vehiclesTotal: vehicles.length });
+  }, [session, logActivity, vehicles.length]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -119,13 +123,23 @@ export default function VehicleArchivePage() {
         createdByUid: auth.currentUser?.uid || "",
       };
       await addDoc(collection(db, "vehicleFolders"), payload);
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "vehicle_create",
+        section: "archiwum-pojazdow",
+        action: "vehicle.create",
+        message: `Utworzono teczkę pojazdu ${registration} (właściciel: ${ownerName}, CID: ${ownerCid}).`,
+        details: {
+          rejestracja: registration,
+          marka: brand,
+          kolor: color,
+          "imię i nazwisko właściciela": ownerName,
+          "CID właściciela": ownerCid,
+        },
         registration,
         ownerCid,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
+        brand,
+        color,
+        ownerName,
       });
       resetForm();
       setOk("Teczka pojazdu została utworzona.");
@@ -153,13 +167,18 @@ export default function VehicleArchivePage() {
       notesSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
       batch.delete(doc(db, "vehicleFolders", vehicleId));
       await batch.commit();
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "vehicle_delete",
+        section: "archiwum-pojazdow",
+        action: "vehicle.delete",
+        message: `Usunięto teczkę pojazdu ${registration} wraz z ${notesSnap.size} notatkami.`,
+        details: {
+          rejestracja: registration,
+          "liczba usuniętych notatek": notesSnap.size,
+        },
         vehicleId,
         registration,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
+        removedNotes: notesSnap.size,
       });
       setOk("Teczka pojazdu została usunięta.");
     } catch (e: any) {
