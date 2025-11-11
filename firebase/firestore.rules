@@ -19,6 +19,10 @@ service cloud.firestore {
       return signedIn() && roleOf(request.auth.uid) == "chief";
     }
 
+    function isExecutive() {
+      return isDirector() || isChief();
+    }
+
     function isStaff() {
       let r = roleOf(request.auth.uid);
       return signedIn() && (r == "director" || r == "chief" || r == "senior" || r == "agent");
@@ -59,8 +63,8 @@ service cloud.firestore {
     match /profiles/{uid} {
       allow read: if signedIn();
       allow create: if signedIn() && uid == request.auth.uid;
-      allow update: if (isDirector() || isChief()) || (signedIn() && uid == request.auth.uid);
-      allow delete: if isDirector() || isChief();
+      allow update: if isExecutive() || (signedIn() && uid == request.auth.uid);
+      allow delete: if isExecutive();
 
       match /counters/{counterId} {
         allow read, write: if isDirector();
@@ -71,7 +75,7 @@ service cloud.firestore {
     match /presence/{uid} {
       allow read: if signedIn() && (uid == request.auth.uid || isStaff());
       allow create, update: if signedIn() && uid == request.auth.uid;
-      allow delete: if isDirector() || isChief();
+      allow delete: if isExecutive();
     }
 
     // konto główne (dla kompatybilności z panelem)
@@ -83,7 +87,7 @@ service cloud.firestore {
     match /archives/{id} {
       allow create: if signedIn();
       allow read:   if isStaff();
-      allow update: if isDirector() || isChief();
+      allow update: if isExecutive();
       allow delete: if isDirector();
     }
 
@@ -91,15 +95,15 @@ service cloud.firestore {
     match /dossiers/{dossierId} {
       allow read: if signedIn();
       allow create: if signedIn();
-      allow update: if (isDirector() || isChief()) ||
+      allow update: if isExecutive() ||
         (signedIn() && resource.data.createdByUid == request.auth.uid) ||
         (isStaff() && isCriminalGroupContext());
-      allow delete: if isDirector();
+      allow delete: if isExecutive();
 
       match /records/{recordId} {
         allow read: if signedIn();
         allow create: if signedIn() && (!isGroupRosterRecord() || isStaff());
-        allow update, delete: if (isDirector() || isChief()) ||
+        allow update, delete: if isExecutive() ||
           (signedIn() && resource.data.authorUid == request.auth.uid) ||
           (isStaff() && isCriminalGroupDossier(dossierId));
       }
@@ -109,17 +113,17 @@ service cloud.firestore {
     match /vehicleFolders/{vehicleId} {
       allow read: if isStaff();
       allow create: if isStaff();
-      allow update: if (isDirector() || isChief()) ||
+      allow update: if isExecutive() ||
         (isStaff() && vehicleFolderProtectedFieldsUnchanged());
-      allow delete: if (isDirector() || isChief()) ||
+      allow delete: if isExecutive() ||
         (signedIn() && request.auth.uid == resource.data.createdByUid);
 
       match /notes/{noteId} {
         allow read, create: if isStaff();
-        allow update: if (isDirector() || isChief()) ||
+        allow update: if isExecutive() ||
           (signedIn() && request.auth.uid == resource.data.authorUid) ||
           (isStaff() && vehicleNotePaymentOnlyUpdate());
-        allow delete: if (isDirector() || isChief()) ||
+        allow delete: if isExecutive() ||
           (signedIn() && request.auth.uid == resource.data.authorUid);
       }
     }
@@ -128,7 +132,7 @@ service cloud.firestore {
     // logi
     match /logs/{logId} {
       allow create: if signedIn();
-      allow read:   if isDirector() || isChief();
+      allow get, list: if isExecutive();
     }
 
     // finanse (starszy namespace) + podkolekcja accounts
