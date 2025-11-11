@@ -5,16 +5,16 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    match /archives/{allPaths=**} {
-      allow read, write: if signedIn();
+    function canAccessInternalFiles() {
+      return signedIn();
     }
 
-    match /dossiers/{dossierId}/evidence/{file} {
-      allow read, write: if signedIn();
+    match /archives/{allPaths=**} {
+      allow read, write: if canAccessInternalFiles();
     }
 
     match /dossiers/{dossierId}/{allPaths=**} {
-      allow read, write: if signedIn();
+      allow read, write: if canAccessInternalFiles();
     }
 
     match /{allPaths=**} {

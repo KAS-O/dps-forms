@@ -69,6 +69,18 @@ const ANNOUNCEMENT_WINDOWS: { value: string; label: string; ms: number | null }[
 
 const LOG_PAGE_SIZE = 150;
 
+const humanizeIdentifier = (value: string) => {
+  if (!value) return "";
+  if (/\s/.test(value)) return value.trim();
+  const normalized = value
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-ząćęłńóśźż])([A-ZĄĆĘŁŃÓŚŹŻ0-9])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return value.trim();
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
+
 const SECTION_LABELS: Record<string, string> = {
   sesja: "Sesja",
   nawigacja: "Nawigacja",
@@ -125,14 +137,21 @@ const ACTION_LABELS: Record<string, string> = {
   "vehicle.note.delete": "Usunięcie notatki w pojeździe",
   "vehicle.note.payment": "Aktualizacja statusu płatności",
   "vehicle.note.from_doc": "Notatka wygenerowana z dokumentu",
-  "vehicle.group.link_add": "Powiązanie pojazdu z organizacją",
-  "vehicle.group.link_remove": "Usunięcie powiązania pojazdu",
-  "vehicle.from_dossier_open": "Otworzenie pojazdu z teczki",
+  "vehicle.group.link_add": "Dodanie pojazdu do organizacji",
+  "vehicle.group.link_remove": "Usunięcie pojazdu z organizacji",
+  "vehicle.from_dossier_open": "Podgląd pojazdu z teczki",
   "dossier.view": "Podgląd teczki",
   "dossier.link_open": "Przejście do teczki",
   "dossier.evidence_open": "Podgląd załącznika w teczce",
-  "dossier.group.link_add": "Powiązanie członka z organizacją",
-  "dossier.group.link_remove": "Usunięcie powiązania członka",
+  "dossier.group.link_add": "Dodanie członka do organizacji",
+  "dossier.group.link_remove": "Usunięcie członka z organizacji",
+  "dossier.record.note": "Dodanie notatki w teczce",
+  "dossier.record.weapon": "Dodanie dowodu — broń",
+  "dossier.record.drug": "Dodanie dowodu — narkotyki",
+  "dossier.record.explosive": "Dodanie dowodu — materiały wybuchowe",
+  "dossier.record.member": "Dodanie członka organizacji",
+  "dossier.record.vehicle": "Dodanie pojazdu organizacji",
+  "dossier.record.group-link": "Dodanie powiązania organizacji",
   "dossier.record.edit": "Edycja wpisu w teczce",
   "dossier.record.delete": "Usunięcie wpisu w teczce",
   "dossier.create": "Nowa teczka",
@@ -793,19 +812,24 @@ export default function Admin() {
   const resolveActionLabel = (log: any) => {
     const key = log?.action || log?.type;
     if (!key) return "—";
-    return ACTION_LABELS[key] || ACTION_LABELS[log?.type || ""] || key;
+    if (ACTION_LABELS[key]) return ACTION_LABELS[key];
+    const fallbackType = log?.type && ACTION_LABELS[log.type];
+    if (fallbackType) return fallbackType;
+    if (typeof key === "string" && key.startsWith("custom.")) {
+      const custom = key.slice(7);
+      const label = humanizeIdentifier(custom);
+      return label ? `Zdarzenie niestandardowe (${label})` : "Zdarzenie niestandardowe";
+    }
+    const parts = String(key).split(".");
+    const last = parts[parts.length - 1] || String(key);
+    const label = humanizeIdentifier(last);
+    return label || String(key);
   };
 
   const formatDetailKey = (key: string) => {
     if (!key) return "Szczegół";
-    if (key.includes(" ")) return key;
-    const normalized = key
-      .replace(/[_-]+/g, " ")
-      .replace(/([a-ząćęłńóśźż])([A-ZĄĆĘŁŃÓŚŹŻ])/g, "$1 $2")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!normalized) return key;
-    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+    const label = humanizeIdentifier(key);
+    return label || key;
   };
 
   const formatDetailValue = (value: any): string => {
@@ -911,14 +935,30 @@ export default function Admin() {
     (log: any) => {
       const actorUid = (log?.actorUid || log?.uid || "") as string;
       const profile = actorUid ? actorProfiles.get(actorUid) : undefined;
-      let login = (log?.actorLogin as string | undefined) || (log?.login as string | undefined) || profile?.login || "";
+      let login =
+        (log?.actorLogin as string | undefined) ||
+        (log?.login as string | undefined) ||
+        (profile?.login as string | undefined) ||
+        "";
       if (login && login.includes("@")) {
         login = deriveLoginFromEmail(login);
       }
-      const trimmedLogin = login?.trim();
-      const nameFromLog = (log?.actorName as string | undefined)?.trim();
-      const profileName = profile?.fullName ? profile.fullName.trim() : "";
-      const name = nameFromLog || profileName || trimmedLogin || (actorUid ? `UID: ${actorUid}` : "Nieznany użytkownik");
+      const trimmedLogin = login ? login.trim() : "";
+      const profileName = typeof profile?.fullName === "string" ? profile.fullName.trim() : "";
+      const nameCandidates = [
+        profileName,
+        (log?.actorName as string | undefined)?.trim() || "",
+        (log?.name as string | undefined)?.trim() || "",
+        (log?.fullName as string | undefined)?.trim() || "",
+      ].filter((value, index, array) => value && array.indexOf(value) === index);
+      const nameFromLog = nameCandidates.find((value) => value && value !== trimmedLogin);
+      const fallbackName = nameCandidates.find((value) => value) || "";
+      const name =
+        profileName ||
+        nameFromLog ||
+        fallbackName ||
+        trimmedLogin ||
+        (actorUid ? `UID: ${actorUid}` : "Nieznany użytkownik");
 
       return {
         uid: actorUid || null,

@@ -128,7 +128,7 @@ service cloud.firestore {
     // logi
     match /logs/{logId} {
       allow create: if signedIn();
-      allow read:   if isDirector() || isChief();
+      allow get, list: if isDirector() || isChief();
     }
 
     // finanse (starszy namespace) + podkolekcja accounts
