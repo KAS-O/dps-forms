@@ -12,6 +12,7 @@ type AccountResponse = {
   fullName?: string;
   role: Role;
   email: string;
+  badgeNumber?: string;
   createdAt?: string;
 };
 
@@ -58,6 +59,13 @@ function buildAccountsFromProfiles(profiles: Map<string, any>): AccountResponse[
     const login = (rawLogin || loginFromEmail || uid || "").toLowerCase();
     const email = `${login}@${LOGIN_DOMAIN}`;
     const fullName = typeof profile?.fullName === "string" && profile.fullName ? profile.fullName : login;
+    let badgeNumber: string | undefined;
+    if (profile?.badgeNumber !== undefined && profile?.badgeNumber !== null) {
+      const raw = String(profile.badgeNumber).trim();
+      if (raw) {
+        badgeNumber = raw;
+      }
+    }
     const createdAt = profileTimestampToString(profile?.createdAt);
 
     fallbackAccounts.push({
@@ -66,6 +74,7 @@ function buildAccountsFromProfiles(profiles: Map<string, any>): AccountResponse[
       fullName,
       role: normalizeRole(profile?.role),
       email,
+      ...(badgeNumber ? { badgeNumber } : {}),
       ...(createdAt ? { createdAt } : {}),
     });
   });
@@ -93,12 +102,17 @@ async function listAccounts(): Promise<AccountResponse[]> {
       const res = await adminAuth.listUsers(1000, pageToken);
       res.users.forEach((user) => {
         const profile = profiles.get(user.uid) || {};
+        const badgeNumber =
+          profile?.badgeNumber !== undefined && profile?.badgeNumber !== null
+            ? String(profile.badgeNumber).trim()
+            : "";
         accounts.push({
           uid: user.uid,
           login: profile.login || user.email?.split("@")[0] || "",
           fullName: profile.fullName || user.displayName || "",
           role: normalizeRole(profile.role),
           email: user.email || "",
+          ...(badgeNumber ? { badgeNumber } : {}),
           createdAt: user.metadata.creationTime || undefined,
         });
       });
@@ -120,6 +134,7 @@ async function listAccounts(): Promise<AccountResponse[]> {
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
 const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
+const BADGE_NUMBER_PATTERN = /^\d+$/;
 
 function mapFirebaseAuthError(error: any): { status: number; message: string } | null {
   if (!error || typeof error !== "object") {
@@ -163,7 +178,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
-      const { login, fullName, role, password } = req.body || {};
+      const { login, fullName, role, password, badgeNumber } = req.body || {};
       if (!login || !password) {
         return res.status(400).json({ error: "Login i hasło są wymagane" });
       }
@@ -177,13 +192,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: "Hasło musi mieć co najmniej 6 znaków." });
       }
       const email = `${normalizedLogin}@${LOGIN_DOMAIN}`;
+      const normalizedFullName = typeof fullName === "string" && fullName.trim() ? fullName.trim() : normalizedLogin;
+      const rawBadgeNumber = badgeNumber == null ? "" : String(badgeNumber).trim();
+      if (!rawBadgeNumber) {
+        return res.status(400).json({ error: "Numer odznaki jest wymagany." });
+      }
+      if (!BADGE_NUMBER_PATTERN.test(rawBadgeNumber)) {
+        return res.status(400).json({ error: "Numer odznaki może zawierać wyłącznie cyfry." });
+      }
 
       let newUser;
       try {
         newUser = await adminAuth.createUser({
           email,
           password,
-          displayName: fullName || normalizedLogin,
+          displayName: normalizedFullName,
         });
       } catch (error: any) {
         const mapped = mapFirebaseAuthError(error);
@@ -196,8 +219,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const createdAt = adminFieldValue?.serverTimestamp?.();
       await adminDb.collection("profiles").doc(newUser.uid).set({
         login: normalizedLogin,
-        fullName: fullName || normalizedLogin,
+        fullName: normalizedFullName,
         role: normalizeRole(role),
+        badgeNumber: rawBadgeNumber,
         ...(createdAt ? { createdAt } : {}),
       });
 
@@ -205,64 +229,87 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PATCH") {
-      const { uid, login, fullName, role, password } = req.body || {};
+      const { uid, login, fullName, role, password, badgeNumber } = req.body || {};
       if (!uid) {
         return res.status(400).json({ error: "Brak UID" });
       }
+
       const updates: string[] = [];
-      const updatePayload: any = {};
-      if (login) {
-        const normalizedLogin = String(login).trim().toLowerCase();
-        if (!LOGIN_PATTERN.test(normalizedLogin)) {
+      const authPayload: Record<string, any> = {};
+      const profilePayload: Record<string, any> = {};
+
+      let normalizedLogin: string | undefined;
+      if (login !== undefined) {
+        const trimmedLogin = (login == null ? "" : String(login)).trim().toLowerCase();
+        if (!trimmedLogin) {
+          return res.status(400).json({ error: "Login jest wymagany." });
+        }
+        if (!LOGIN_PATTERN.test(trimmedLogin)) {
           return res.status(400).json({
             error: "Login może zawierać jedynie małe litery, cyfry, kropki, myślniki i podkreślniki.",
           });
         }
-        updatePayload.email = `${normalizedLogin}@${LOGIN_DOMAIN}`;
-        updatePayload.displayName = fullName || normalizedLogin;
-        const updatedAt = adminFieldValue?.serverTimestamp?.();
-        await adminDb
-          .collection("profiles")
-          .doc(uid)
-          .set(
-            {
-              login: normalizedLogin,
-              fullName: fullName || normalizedLogin,
-              ...(role ? { role: normalizeRole(role) } : {}),
-              ...(updatedAt ? { updatedAt } : {}),
-            },
-            { merge: true }
-          );
+        normalizedLogin = trimmedLogin;
+        authPayload.email = `${normalizedLogin}@${LOGIN_DOMAIN}`;
+        profilePayload.login = normalizedLogin;
         updates.push("login");
-      } else if (fullName || role) {
-        const updatedAt = adminFieldValue?.serverTimestamp?.();
-        await adminDb
-          .collection("profiles")
-          .doc(uid)
-          .set(
-            {
-              ...(fullName ? { fullName } : {}),
-              ...(role ? { role: normalizeRole(role) } : {}),
-              ...(updatedAt ? { updatedAt } : {}),
-            },
-            { merge: true }
-          );
-        if (fullName) updates.push("fullName");
-        if (role) updates.push("role");
-        if (fullName) {
-          updatePayload.displayName = fullName;
+      }
+
+      let normalizedFullName: string | undefined;
+      if (typeof fullName === "string") {
+        const trimmedFullName = fullName.trim();
+        if (trimmedFullName) {
+          normalizedFullName = trimmedFullName;
+          profilePayload.fullName = trimmedFullName;
+          updates.push("fullName");
         }
       }
+
+      if (role) {
+        profilePayload.role = normalizeRole(role);
+        updates.push("role");
+      }
+
+      if (badgeNumber !== undefined) {
+        const trimmedBadge = badgeNumber == null ? "" : String(badgeNumber).trim();
+        if (trimmedBadge && !BADGE_NUMBER_PATTERN.test(trimmedBadge)) {
+          return res.status(400).json({ error: "Numer odznaki może zawierać wyłącznie cyfry." });
+        }
+        profilePayload.badgeNumber = trimmedBadge;
+        updates.push("badgeNumber");
+      }
+
+      if (normalizedFullName) {
+        authPayload.displayName = normalizedFullName;
+      } else if (normalizedLogin) {
+        authPayload.displayName = normalizedLogin;
+      }
+
       if (password) {
         if (String(password).length < 6) {
           return res.status(400).json({ error: "Hasło musi mieć co najmniej 6 znaków." });
         }
-        updatePayload.password = password;
+        authPayload.password = password;
         updates.push("password");
       }
-      if (Object.keys(updatePayload).length) {
+
+      if (Object.keys(profilePayload).length) {
+        const updatedAt = adminFieldValue?.serverTimestamp?.();
+        await adminDb
+          .collection("profiles")
+          .doc(uid)
+          .set(
+            {
+              ...profilePayload,
+              ...(updatedAt ? { updatedAt } : {}),
+            },
+            { merge: true }
+          );
+      }
+
+      if (Object.keys(authPayload).length) {
         try {
-          await adminAuth.updateUser(uid, updatePayload);
+          await adminAuth.updateUser(uid, authPayload);
         } catch (error: any) {
           const mapped = mapFirebaseAuthError(error);
           if (mapped) {
@@ -271,6 +318,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           throw error;
         }
       }
+
       return res.status(200).json({ ok: true, updated: updates });
     }
 
