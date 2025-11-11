@@ -42,9 +42,11 @@ type Account = {
   role: Role;
   email: string;
   createdAt?: string;
+  badgeNumber?: string;
 };
 
 const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
+const BADGE_PATTERN = /^[0-9]{1,6}$/;
 
 const ANNOUNCEMENT_WINDOWS: { value: string; label: string; ms: number | null }[] = [
   { value: "30m", label: "30 minut", ms: 30 * 60 * 1000 },
@@ -230,6 +232,7 @@ export default function Admin() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [accountSearch, setAccountSearch] = useState("");
+  const [accountRoleFilter, setAccountRoleFilter] = useState<Role | "">("");
   const [editorState, setEditorState] = useState<{
     mode: "create" | "edit";
     account: Partial<Account>;
@@ -522,7 +525,7 @@ export default function Admin() {
   const openCreateAccount = () => {
     setEditorState({
       mode: "create",
-      account: { login: "", fullName: "", role: DEFAULT_ROLE, email: "" },
+      account: { login: "", fullName: "", role: DEFAULT_ROLE, email: "", badgeNumber: "" },
       password: "",
     });
   };
@@ -541,6 +544,7 @@ export default function Admin() {
     const fullNameValue = (editorState.account.fullName || "").trim();
     const roleValue: Role = editorState.account.role || DEFAULT_ROLE;
     const passwordValue = (editorState.password || "").trim();
+    const badgeNumberValue = (editorState.account.badgeNumber || "").trim();
 
     if (!loginValue) {
       setErr("Login jest wymagany.");
@@ -548,6 +552,14 @@ export default function Admin() {
     }
     if (!LOGIN_PATTERN.test(loginValue)) {
       setErr("Login może zawierać jedynie małe litery, cyfry, kropki, myślniki i podkreślniki.");
+      return;
+    }
+    if (!badgeNumberValue) {
+      setErr("Numer odznaki jest wymagany.");
+      return;
+    }
+    if (!BADGE_PATTERN.test(badgeNumberValue)) {
+      setErr("Numer odznaki powinien zawierać od 1 do 6 cyfr.");
       return;
     }
     if (editorState.mode === "create" && !passwordValue) {
@@ -569,6 +581,7 @@ export default function Admin() {
         login: loginValue,
         fullName: fullNameValue,
         role: roleValue,
+        badgeNumber: badgeNumberValue,
       };
       if (passwordValue) payload.password = passwordValue;
       if (editorState.mode === "edit") {
@@ -634,12 +647,19 @@ export default function Admin() {
 
   const filteredAccounts = useMemo(() => {
     const phrase = accountSearch.trim().toLowerCase();
+    const roleFilter = accountRoleFilter;
     const base = accounts
-      .filter((acc) =>
-        !phrase
-          ? true
-          : acc.login.toLowerCase().includes(phrase) || (acc.fullName || "").toLowerCase().includes(phrase)
-      )
+      .filter((acc) => (!roleFilter ? true : acc.role === roleFilter))
+      .filter((acc) => {
+        if (!phrase) return true;
+        const fullName = (acc.fullName || "").toLowerCase();
+        const badge = (acc.badgeNumber || "").toLowerCase();
+        return (
+          acc.login.toLowerCase().includes(phrase) ||
+          fullName.includes(phrase) ||
+          (badge ? badge.includes(phrase) : false)
+        );
+      })
       .slice();
     base.sort((a, b) => {
       const nameA = (a.fullName || a.login).toLowerCase();
@@ -647,7 +667,7 @@ export default function Admin() {
       return nameA.localeCompare(nameB);
     });
     return base;
-  }, [accounts, accountSearch]);
+  }, [accounts, accountSearch, accountRoleFilter]);
 
   const publishAnnouncement = async () => {
     const message = announcementMessage.trim();
@@ -1411,11 +1431,23 @@ export default function Admin() {
                   </div>
                   <div className="mt-4 flex flex-wrap items-center gap-3">
                     <input
-                    className="input w-full md:w-72 bg-white text-black placeholder:text-slate-500"
-                      placeholder="Szukaj po loginie lub imieniu..."
+                      className="input w-full md:w-72 bg-white text-black placeholder:text-slate-500"
+                      placeholder="Szukaj po loginie, imieniu lub numerze odznaki..."
                       value={accountSearch}
                       onChange={(e) => setAccountSearch(e.target.value)}
                     />
+                    <select
+                      className="input w-full md:w-56 bg-white text-black"
+                      value={accountRoleFilter}
+                      onChange={(e) => setAccountRoleFilter(e.target.value as Role | "")}
+                    >
+                      <option value="">Wszystkie rangi</option>
+                      {ROLE_OPTIONS.map(({ value, label }) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
                     <span className="text-xs text-white/60">Domena logowania: @{loginDomain}</span>
                   </div>
                 </div>
@@ -1436,6 +1468,11 @@ export default function Admin() {
                           <p className="text-sm text-beige-700">
                             Login: <span className="font-mono text-base">{acc.login}@{loginDomain}</span>
                           </p>
+                          {acc.badgeNumber && (
+                            <p className="text-sm text-beige-700">
+                              Numer odznaki: <span className="font-semibold">{acc.badgeNumber}</span>
+                            </p>
+                          )}
                           <p className="text-xs uppercase tracking-wide text-beige-600 mt-1">
                             Ranga: {ROLE_LABELS[acc.role] || acc.role}
                           </p>
@@ -1793,6 +1830,21 @@ export default function Admin() {
                     )
                   }
                 />
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">Numer odznaki</label>
+                <input
+                  className="input bg-white text-black placeholder:text-slate-500"
+                  value={editorState.account.badgeNumber || ""}
+                  placeholder="np. 1234"
+                  onChange={(e) =>
+                    setEditorState((prev) =>
+                      prev ? { ...prev, account: { ...prev.account, badgeNumber: e.target.value } } : prev
+                    )
+                  }
+                />
+                <p className="mt-1 text-xs text-white/60">Wpisz od 1 do 6 cyfr.</p>
               </div>
 
               <div>
