@@ -2,7 +2,7 @@ import { useRouter } from "next/router";
 import Head from "next/head";
 import Nav from "@/components/Nav";
 import AuthGate from "@/components/AuthGate";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { auth, db, storage } from "@/lib/firebase";
 import {
   addDoc,
@@ -23,6 +23,7 @@ import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useProfile } from "@/hooks/useProfile";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
+import { useLogWriter } from "@/hooks/useLogWriter";
 import { getActiveVehicleFlags, getVehicleHighlightStyle } from "@/lib/vehicleFlags";
 
 type RecordAttachment = {
@@ -285,6 +286,8 @@ export default function DossierPage() {
   const [deleting, setDeleting] = useState(false);
   const { confirm, prompt, alert } = useDialog();
   const { logActivity, session } = useSessionActivity();
+  const viewLoggedRef = useRef<string | null>(null);
+  const { writeLog } = useLogWriter();
   const closeActiveForm = useCallback(() => setActiveForm(null), []);
   const openForm = useCallback((form: Exclude<ActiveFormType, null>) => setActiveForm(form), []);
 
@@ -354,8 +357,18 @@ export default function DossierPage() {
 
   useEffect(() => {
     if (!id || !session) return;
-    void logActivity({ type: "dossier_view", dossierId: id });
-  }, [id, logActivity, session]);
+    const key = `${id}:${info.cid || ""}:${info.first || ""}:${info.last || ""}`;
+    if (viewLoggedRef.current === key) return;
+    viewLoggedRef.current = key;
+    const dossierName = [info.first, info.last].filter(Boolean).join(" ");
+    void logActivity({
+      type: "dossier_view",
+      dossierId: id,
+      dossierTitle: title,
+      dossierCid: info.cid,
+      dossierName,
+    });
+  }, [id, info.cid, info.first, info.last, logActivity, session, title]);
 
   const uploadAttachments = useCallback(
     async (files: File[], folder: string): Promise<RecordAttachment[]> => {
@@ -382,20 +395,29 @@ export default function DossierPage() {
   );
 
   const addRecordWithLog = useCallback(
-    async (payload: Record<string, any>, recordType: string) => {
+    async (
+      payload: Record<string, any>,
+      recordType: string,
+      log: { message: string; details?: Record<string, any> | null; extra?: Record<string, any> } = {
+        message: "Dodano wpis w teczce",
+      }
+    ) => {
       if (!id) return null;
       const recordRef = await addDoc(collection(db, "dossiers", id, "records"), payload);
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "dossier_record_add",
-        recordType,
+        section: "teczki",
+        action: `dossier.record.${recordType}`,
+        message: log.message,
+        details: log.details ?? null,
         dossierId: id,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
+        recordType,
+        recordId: recordRef.id,
+        ...(log.extra || {}),
       });
       return recordRef;
     },
-    [id]
+    [id, writeLog]
   );
 
   const addNote = useCallback(async (): Promise<boolean> => {
@@ -413,7 +435,14 @@ export default function DossierPage() {
           author: auth.currentUser?.email || "",
           authorUid: auth.currentUser?.uid || "",
         },
-        "note"
+        "note",
+        {
+          message: `Dodano notatkę w teczce ${title || info.cid || id}.`,
+          details: {
+            tresc: noteForm.text || "",
+            liczbaZalacznikow: attachments.length,
+          },
+        }
       );
       setNoteForm({ text: "", files: [] });
       setNoteFileKey((k) => k + 1);
@@ -454,7 +483,22 @@ export default function DossierPage() {
           author: auth.currentUser?.email || "",
           authorUid: auth.currentUser?.uid || "",
         },
-        "weapon"
+        "weapon",
+        {
+          message: `Dodano dowód (broń: ${weaponForm.model}) w teczce ${title || info.cid || id}.`,
+          details: {
+            model: weaponForm.model,
+            numerySeryjne: weaponForm.serialNumbers,
+            zrodlo: weaponForm.source,
+            wykorzystanie: weaponForm.crimeUsage,
+            data: weaponForm.date,
+            godzina: weaponForm.time,
+            cenaZakupu: weaponForm.purchasePrice,
+            wartoscCzarnegoRynku: weaponForm.blackMarketValue,
+            kontrolowanaTransakcja: weaponForm.controlledTransaction ? "tak" : "nie",
+            liczbaZalacznikow: attachments.length,
+          },
+        }
       );
       setWeaponForm({
         model: "",
@@ -508,7 +552,24 @@ export default function DossierPage() {
           author: auth.currentUser?.email || "",
           authorUid: auth.currentUser?.uid || "",
         },
-        "drug"
+        "drug",
+        {
+          message: `Dodano dowód (narkotyki: ${drugForm.type}) w teczce ${title || info.cid || id}.`,
+          details: {
+            substancja: drugForm.type,
+            iloscGram: drugForm.quantity,
+            jakosc: drugForm.quality,
+            data: drugForm.date,
+            godzina: drugForm.time,
+            lokalizacja: drugForm.location,
+            zrodlo: drugForm.source,
+            cenaZakupu: drugForm.purchasePrice,
+            wartoscCzarnegoRynku: drugForm.blackMarketValue,
+            notatka: drugForm.note,
+            kontrolowanaTransakcja: drugForm.controlledTransaction ? "tak" : "nie",
+            liczbaZalacznikow: attachments.length,
+          },
+        }
       );
       setDrugForm({
         type: "",
@@ -563,7 +624,23 @@ export default function DossierPage() {
           author: auth.currentUser?.email || "",
           authorUid: auth.currentUser?.uid || "",
         },
-        "explosive"
+        "explosive",
+        {
+          message: `Dodano dowód (materiały wybuchowe: ${explosiveForm.type}) w teczce ${title || info.cid || id}.`,
+          details: {
+            rodzaj: explosiveForm.type,
+            ilosc: explosiveForm.quantity,
+            data: explosiveForm.date,
+            godzina: explosiveForm.time,
+            lokalizacja: explosiveForm.location,
+            zrodlo: explosiveForm.source,
+            cenaZakupu: explosiveForm.purchasePrice,
+            wartoscCzarnegoRynku: explosiveForm.blackMarketValue,
+            notatka: explosiveForm.note,
+            kontrolowanaTransakcja: explosiveForm.controlledTransaction ? "tak" : "nie",
+            liczbaZalacznikow: attachments.length,
+          },
+        }
       );
       setExplosiveForm({
         type: "",
@@ -615,7 +692,22 @@ export default function DossierPage() {
           author: auth.currentUser?.email || "",
           authorUid: auth.currentUser?.uid || "",
         },
-        "member"
+        "member",
+        {
+          message: `Dodano członka ${memberForm.name || "(brak danych)"} (CID ${memberForm.cid || "?"}) do organizacji ${groupDisplayName}.`,
+          details: {
+            imieNazwisko: memberForm.name,
+            cid: memberForm.cid,
+            ranga: memberForm.rank,
+            kolorRangi: rank.color,
+            cechy: memberForm.traits,
+            powiazanaTeczka: memberForm.dossierId,
+            maZdjecie: attachments.length > 0 ? "tak" : "nie",
+          },
+          extra: {
+            linkedDossierId: memberForm.dossierId,
+          },
+        }
       );
       if (!memberRecordRef) {
         throw new Error("Nie udało się utworzyć wpisu członka.");
@@ -636,13 +728,21 @@ export default function DossierPage() {
       await updateDoc(memberRecordRef, {
         linkedDossierRecordId: memberLinkRef.id,
       });
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "dossier_group_link_add",
+        section: "teczki",
+        action: "dossier.group.link_add",
+        message: `Powiązano członka ${memberForm.name || "(brak danych)"} (CID ${memberForm.cid || "?"}) z organizacją ${groupDisplayName}.`,
+        details: {
+          czlonekCid: memberForm.cid,
+          czlonekImieNazwisko: memberForm.name,
+          ranga: memberForm.rank,
+          grupa: groupDisplayName,
+          grupaId: id,
+        },
         dossierId: memberForm.dossierId,
         groupId: id,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
+        memberRecordId: memberRecordRef.id,
       });
       setMemberForm({
         dossierId: "",
@@ -698,7 +798,17 @@ export default function DossierPage() {
           author: auth.currentUser?.email || "",
           authorUid: auth.currentUser?.uid || "",
         },
-        "vehicle"
+        "vehicle",
+        {
+          message: `Dodano pojazd ${vehicle.registration || vehicle.id} do teczki ${title || info.cid || id}.`,
+          details: {
+            rejestracja: vehicle.registration || "",
+            marka: vehicle.brand || "",
+            kolor: vehicle.color || "",
+            wlasciciel: vehicle.ownerName || "",
+            wlascicielCid: vehicle.ownerCid || "",
+          },
+        }
       );
       if (!vehicleRecordRef) {
         throw new Error("Nie udało się utworzyć wpisu pojazdu.");
@@ -716,13 +826,21 @@ export default function DossierPage() {
       await updateDoc(vehicleRecordRef, {
         linkedVehicleNoteId: vehicleNoteRef.id,
       });
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "vehicle_group_link_add",
+        section: "teczki",
+        action: "vehicle.group.link_add",
+        message: `Powiązano pojazd ${vehicle.registration || vehicle.id} z organizacją ${groupDisplayName}.`,
+        details: {
+          pojazdId: vehicle.id,
+          rejestracja: vehicle.registration || "",
+          marka: vehicle.brand || "",
+          grupa: groupDisplayName,
+          grupaId: id,
+        },
         vehicleId: vehicle.id,
         groupId: id,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
+        groupRecordId: vehicleRecordRef.id,
       });
       setVehicleForm({ vehicleId: "" });
       return true;
@@ -1300,12 +1418,17 @@ export default function DossierPage() {
         return;
       }
       await updateDoc(doc(db, "dossiers", id, "records", rid), { text: t });
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "dossier_record_edit",
+        section: "teczki",
+        action: "dossier.record.edit",
+        message: `Zmieniono notatkę w teczce ${title || info.cid || id}.`,
+        details: {
+          poprzedniaTresc: currentText,
+          nowaTresc: t,
+        },
         dossierId: id,
         recordId: rid,
-        author: auth.currentUser?.email || "",
-        ts: serverTimestamp(),
       });
     },
     [alert, id, prompt]
@@ -1336,13 +1459,19 @@ export default function DossierPage() {
             const snap = await getDocs(q);
             await Promise.all(snap.docs.map((docSnap) => deleteDoc(docSnap.ref)));
           }
-          await addDoc(collection(db, "logs"), {
+          await writeLog({
             type: "dossier_group_link_remove",
+            section: "teczki",
+            action: "dossier.group.link_remove",
+            message: `Usunięto powiązanie członka ${record.name || "(brak danych)"} (CID ${record.cid || "?"}) z organizacją ${groupDisplayName}.`,
+            details: {
+              czlonekCid: record.cid || null,
+              czlonekImieNazwisko: record.name || null,
+              grupa: groupDisplayName,
+              grupaId: id,
+            },
             dossierId: record.dossierId,
             groupId: id,
-            author: auth.currentUser?.email || "",
-            authorUid: auth.currentUser?.uid || "",
-            ts: serverTimestamp(),
           });
         }
 
@@ -1357,22 +1486,35 @@ export default function DossierPage() {
             const snap = await getDocs(q);
             await Promise.all(snap.docs.map((docSnap) => deleteDoc(docSnap.ref)));
           }
-          await addDoc(collection(db, "logs"), {
+          await writeLog({
             type: "vehicle_group_link_remove",
+            section: "teczki",
+            action: "vehicle.group.link_remove",
+            message: `Usunięto powiązanie pojazdu ${record.registration || record.vehicleId || "(ID)"} z organizacją ${groupDisplayName}.`,
+            details: {
+              pojazdId: record.vehicleId,
+              rejestracja: record.registration || null,
+              marka: record.brand || null,
+              grupa: groupDisplayName,
+              grupaId: id,
+            },
             vehicleId: record.vehicleId,
             groupId: id,
-            author: auth.currentUser?.email || "",
-            authorUid: auth.currentUser?.uid || "",
-            ts: serverTimestamp(),
           });
         }
 
-        await addDoc(collection(db, "logs"), {
+        await writeLog({
           type: "dossier_record_delete",
+          section: "teczki",
+          action: "dossier.record.delete",
+          message: `Usunięto wpis ${RECORD_LABELS[record?.type || "note"] || record?.type || "wpis"} z teczki ${title || info.cid || id}.`,
+          details: {
+            typ: record?.type || null,
+            nazwa: record?.name || record?.title || null,
+            dodatkowe: record?.text || null,
+          },
           dossierId: id,
           recordId: rid,
-          author: auth.currentUser?.email || "",
-          ts: serverTimestamp(),
         });
       } catch (e: any) {
         setErr(e?.message || "Nie udało się usunąć wpisu.");
@@ -1400,12 +1542,18 @@ export default function DossierPage() {
       });
       batch.delete(doc(db, "dossiers", id));
       await batch.commit();
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "dossier_delete",
+        section: "teczki",
+        action: "dossier.delete",
+        message: `Usunięto całą teczkę ${title || info.cid || id} wraz z ${recordsSnap.size} wpisami.`,
+        details: {
+          tytul: title,
+          cid: info.cid || id,
+          liczbaWpisow: recordsSnap.size,
+        },
         dossierId: id,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
-        ts: serverTimestamp(),
+        removedRecords: recordsSnap.size,
       });
       await router.replace("/dossiers");
     } catch (e: any) {
@@ -1696,7 +1844,12 @@ export default function DossierPage() {
                 className="underline text-blue-200"
                 onClick={() => {
                   if (!session) return;
-                  void logActivity({ type: "vehicle_from_dossier_open", dossierId: id, vehicleId: record.vehicleId });
+                  void logActivity({
+                    type: "vehicle_from_dossier_open",
+                    dossierId: id,
+                    vehicleId: record.vehicleId,
+                    registration: record.registration,
+                  });
                 }}
               >
                 Otwórz teczkę pojazdu
@@ -1757,7 +1910,12 @@ export default function DossierPage() {
             attachment={attachment}
             onOpen={() => {
               if (!session) return;
-              void logActivity({ type: "dossier_evidence_open", dossierId: id, recordId: record.id });
+              void logActivity({
+                type: "dossier_evidence_open",
+                dossierId: id,
+                recordId: record.id,
+                recordTitle: record.title || record.name || RECORD_LABELS[record.type] || record.type,
+              });
             }}
           />
         ))}
@@ -2035,6 +2193,7 @@ export default function DossierPage() {
                                     type: "vehicle_from_dossier_open",
                                     dossierId: id,
                                     vehicleId: vehicle.vehicleId,
+                                    registration: vehicle.registration,
                                   });
                                 }}
                               >
@@ -2069,7 +2228,12 @@ export default function DossierPage() {
                           style={highlight?.style || undefined}
                           onClick={() => {
                             if (!session) return;
-                            void logActivity({ type: "vehicle_from_dossier_open", dossierId: id, vehicleId: vehicle.id });
+                            void logActivity({
+                              type: "vehicle_from_dossier_open",
+                              dossierId: id,
+                              vehicleId: vehicle.id,
+                              registration: vehicle.registration,
+                            });
                           }}
                         >
                           <div className="font-semibold text-lg">{vehicle.registration}</div>

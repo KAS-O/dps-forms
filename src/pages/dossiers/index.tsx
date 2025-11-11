@@ -16,6 +16,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useProfile } from "@/hooks/useProfile";
+import { useLogWriter } from "@/hooks/useLogWriter";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
@@ -32,6 +33,7 @@ export default function Dossiers() {
   const isDirector = role === "director";
   const { confirm, alert } = useDialog();
   const { logActivity, session } = useSessionActivity();
+  const { writeLog } = useLogWriter();
   const accentPalette = ["#a855f7", "#38bdf8", "#f97316", "#22c55e", "#ef4444", "#eab308"];
 
   useEffect(() => {
@@ -89,15 +91,22 @@ export default function Dossiers() {
         });
       });
       const timestamp = serverTimestamp();
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "dossier_create",
+        section: "teczki",
+        action: "dossier.create",
+        message: `Utworzono teczkę ${first} ${last} (CID ${cid}).`,
+        details: {
+          imie: first,
+          nazwisko: last,
+          cid,
+          tytul: title,
+        },
         first,
         last,
         cid,
         createdAt: timestamp,
-        ts: timestamp,
-        author: user?.email || "",
-        authorUid: user?.uid || "",
+        dossierId,
       });
       setForm({ first: "", last: "", cid: "" });
       setOk("Teczka została utworzona.");
@@ -135,13 +144,21 @@ export default function Dossiers() {
       });
       batch.delete(doc(db, "dossiers", dossierId));
       await batch.commit();
-      const user = auth.currentUser;
-      await addDoc(collection(db, "logs"), {
+      const dossier = list.find((item) => item.id === dossierId);
+      await writeLog({
         type: "dossier_delete",
+        section: "teczki",
+        action: "dossier.delete",
+        message: `Usunięto teczkę ${dossier?.title || dossierId} wraz z ${recordsSnap.size} wpisami.`,
+        details: {
+          cid: dossier?.cid || dossierId,
+          tytul: dossier?.title || null,
+          imie: dossier?.first || null,
+          nazwisko: dossier?.last || null,
+          "liczba wpisów": recordsSnap.size,
+        },
         dossierId,
-        author: user?.email || "",
-        authorUid: user?.uid || "",
-        ts: serverTimestamp(),
+        removedRecords: recordsSnap.size,
       });
       setOk("Teczka została usunięta.");
     } catch (e: any) {
@@ -203,7 +220,12 @@ export default function Dossiers() {
                         href={`/dossiers/${d.id}`}
                         onClick={() => {
                           if (!session) return;
-                          void logActivity({ type: "dossier_link_open", dossierId: d.id });
+                          void logActivity({
+                            type: "dossier_link_open",
+                            dossierId: d.id,
+                            dossierTitle: d.title,
+                            dossierCid: d.cid,
+                          });
                         }}
                       >
                         <div>

@@ -6,6 +6,7 @@ import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
+import { useLogWriter } from "@/hooks/useLogWriter";
 import { db } from "@/lib/firebase";
 import { ensureReportFonts } from "@/lib/reportFonts";
 import { TEMPLATES, Template } from "@/lib/templates";
@@ -377,6 +378,7 @@ export default function ArchivePage() {
   const [creatingReport, setCreatingReport] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  const { writeLog } = useLogWriter();
 
 
   useEffect(() => {
@@ -496,8 +498,19 @@ export default function ArchivePage() {
     });
     if (!confirmed) return;
     
+    const entry = items.find((item) => item.id === id);
     await deleteDoc(doc(db, "archives", id));
-    await addDoc(collection(db, "logs"), { type: "archive_delete", id, by: login, ts: serverTimestamp() });
+    await writeLog({
+      type: "archive_delete",
+      section: "archiwum",
+      action: "archive.delete",
+      message: `Usunięto wpis archiwum ${entry?.templateName || "(nieznany szablon)"} (ID ${id}).`,
+      details: {
+        szablon: entry?.templateName || entry?.templateSlug || null,
+        autor: entry?.userLogin || null,
+      },
+      archiveId: id,
+    });
     setItems((prev) => prev.filter((entry) => entry.id !== id));
     setSelectedIds((prev) => prev.filter((entry) => entry !== id));
   };
@@ -538,11 +551,15 @@ export default function ArchivePage() {
       });
       
       await Promise.all(commits);
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "archive_clear",
-        by: login,
+        section: "archiwum",
+        action: "archive.clear",
+        message: `Wyczyszczono archiwum (${snapshot.size} wpisów).`,
+        details: {
+          usunieteWpisy: snapshot.size,
+        },
         removed: snapshot.size,
-        ts: serverTimestamp(),
       });
       
       setItems([]);

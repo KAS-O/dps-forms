@@ -27,7 +27,12 @@ export default function LoginPage() {
       // log sukcesu
       await addDoc(collection(db, "logs"), {
         type: "login_success",
+        section: "logowanie",
+        action: "auth.login_success",
+        message: `Pomyślne logowanie użytkownika ${login}.`,
         login,
+        actorLogin: login,
+        actorName: login,
         ts: serverTimestamp(),
       });
 
@@ -36,7 +41,12 @@ export default function LoginPage() {
       // log niepowodzenia
       await addDoc(collection(db, "logs"), {
         type: "login_fail",
+        section: "logowanie",
+        action: "auth.login_fail",
+        message: `Nieudane logowanie użytkownika ${login}.`,
         login,
+        actorLogin: login,
+        actorName: login,
         error: e?.code || e?.message,
         ts: serverTimestamp(),
       });

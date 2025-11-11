@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { useSessionActivity } from "@/components/ActivityLogger";
+import { useLogWriter } from "@/hooks/useLogWriter";
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
 
@@ -175,6 +176,7 @@ export default function DocPage() {
   const [ok, setOk] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const { logActivity, session } = useSessionActivity();
+  const { writeLog } = useLogWriter();
   const previewRef = useRef<HTMLDivElement | null>(null);
 
   // teczki
@@ -698,26 +700,36 @@ export default function DocPage() {
         }
 
         const noteRef = await addDoc(collection(db, "vehicleFolders", vehicleFolderId, "notes"), notePayload);
-        await addDoc(collection(db, "logs"), {
+        await writeLog({
           type: "vehicle_note_from_doc",
+          section: "dokumenty",
+          action: "vehicle.note.from_doc",
+          message: `Dodano notatkę w pojeździe ${vehicleFolderId} na podstawie dokumentu ${template.name}.`,
+          details: {
+            dokument: template.name,
+            szablon: template.slug,
+            archiwumId: archiveRef.id,
+          },
           vehicleId: vehicleFolderId,
           noteId: noteRef.id,
           archiveId: archiveRef.id,
-          template: template.slug,
-          author: auth.currentUser?.email || "",
-          authorUid: auth.currentUser?.uid || "",
-          ts: serverTimestamp(),
         });
       }
 
       // 3) log
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "doc_sent",
+        section: "dokumenty",
+        action: "document.send",
+        message: `Wygenerowano dokument ${template.name} przez ${userLogin}.`,
+        details: {
+          funkcjonariusze: selectedNames,
+          funkcjonariuszeUid: selectedUids,
+        },
         template: template.name,
         login: userLogin,
         officers: selectedNames,
         officersUid: selectedUids,
-        ts: serverTimestamp(),
       });
 
       // 4) Discord

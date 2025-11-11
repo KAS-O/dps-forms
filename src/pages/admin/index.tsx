@@ -2,6 +2,7 @@ import Head from "next/head";
 import Nav from "@/components/Nav";
 import AuthGate from "@/components/AuthGate";
 import { useProfile, Role } from "@/hooks/useProfile";
+import { useLogWriter } from "@/hooks/useLogWriter";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   addDoc,
@@ -18,10 +19,13 @@ import {
   Timestamp,
   serverTimestamp,
   writeBatch,
-  onSnapshot,
   orderBy,
   limit,
+  startAfter,
+  QueryConstraint,
+  QueryDocumentSnapshot,
 } from "firebase/firestore";
+import { deriveLoginFromEmail } from "@/lib/login";
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useAnnouncement } from "@/hooks/useAnnouncement";
@@ -63,6 +67,92 @@ const ANNOUNCEMENT_WINDOWS: { value: string; label: string; ms: number | null }[
   { value: "forever", label: "Do czasu usunięcia", ms: null },
 ];
 
+const LOG_PAGE_SIZE = 150;
+
+const SECTION_LABELS: Record<string, string> = {
+  sesja: "Sesja",
+  nawigacja: "Nawigacja",
+  dokumenty: "Dokumenty",
+  archiwum: "Archiwum dokumentów",
+  "archiwum-pojazdow": "Archiwum pojazdów",
+  teczki: "Teczki i organizacje",
+  "panel-zarzadu": "Panel zarządu",
+  logowanie: "Logowanie",
+  inne: "Inne",
+};
+
+const SECTION_OPTIONS = [
+  { value: "", label: "Wszystkie sekcje" },
+  { value: "sesja", label: SECTION_LABELS.sesja },
+  { value: "nawigacja", label: SECTION_LABELS.nawigacja },
+  { value: "dokumenty", label: SECTION_LABELS.dokumenty },
+  { value: "archiwum", label: SECTION_LABELS.archiwum },
+  { value: "archiwum-pojazdow", label: SECTION_LABELS["archiwum-pojazdow"] },
+  { value: "teczki", label: SECTION_LABELS.teczki },
+  { value: "panel-zarzadu", label: SECTION_LABELS["panel-zarzadu"] },
+  { value: "logowanie", label: SECTION_LABELS.logowanie },
+  { value: "inne", label: SECTION_LABELS.inne },
+];
+
+const RECORD_TYPE_LABELS: Record<string, string> = {
+  note: "Notatka",
+  weapon: "Dowód — Broń",
+  drug: "Dowód — Narkotyki",
+  explosive: "Dowód — Materiały wybuchowe",
+  member: "Członek grupy",
+  vehicle: "Pojazd organizacji",
+  "group-link": "Powiązanie organizacji",
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  "session.start": "Start sesji",
+  "session.end": "Koniec sesji",
+  "session.logout": "Wylogowanie",
+  "page.view": "Wejście na stronę",
+  "template.view": "Podgląd szablonu dokumentu",
+  "archive.view": "Przegląd archiwum dokumentów",
+  "archive.image_open": "Podgląd załącznika w archiwum",
+  "archive.delete": "Usunięcie wpisu z archiwum",
+  "archive.clear": "Wyczyszczenie archiwum",
+  "vehicle.archive_view": "Przegląd archiwum pojazdów",
+  "vehicle.folder_view": "Podgląd teczki pojazdu",
+  "vehicle.create": "Utworzenie teczki pojazdu",
+  "vehicle.update": "Aktualizacja danych pojazdu",
+  "vehicle.delete": "Usunięcie teczki pojazdu",
+  "vehicle.flag": "Zmiana oznaczenia pojazdu",
+  "vehicle.note.add": "Dodanie notatki w pojeździe",
+  "vehicle.note.edit": "Edycja notatki w pojeździe",
+  "vehicle.note.delete": "Usunięcie notatki w pojeździe",
+  "vehicle.note.payment": "Aktualizacja statusu płatności",
+  "vehicle.note.from_doc": "Notatka wygenerowana z dokumentu",
+  "vehicle.group.link_add": "Powiązanie pojazdu z organizacją",
+  "vehicle.group.link_remove": "Usunięcie powiązania pojazdu",
+  "vehicle.from_dossier_open": "Otworzenie pojazdu z teczki",
+  "dossier.view": "Podgląd teczki",
+  "dossier.link_open": "Przejście do teczki",
+  "dossier.evidence_open": "Podgląd załącznika w teczce",
+  "dossier.group.link_add": "Powiązanie członka z organizacją",
+  "dossier.group.link_remove": "Usunięcie powiązania członka",
+  "dossier.record.edit": "Edycja wpisu w teczce",
+  "dossier.record.delete": "Usunięcie wpisu w teczce",
+  "dossier.create": "Nowa teczka",
+  "dossier.delete": "Usunięcie teczki",
+  "criminal_group.open": "Podgląd organizacji",
+  "document.send": "Wygenerowanie dokumentu",
+  "stats.clear": "Czyszczenie statystyk",
+  "auth.login_success": "Udane logowanie",
+  "auth.login_fail": "Nieudane logowanie",
+};
+
+const ACTION_OPTIONS = [
+  { value: "", label: "Wszystkie czynności" },
+  ...Object.entries(ACTION_LABELS)
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, "pl", { sensitivity: "base" })),
+];
+
+const INITIAL_LOG_FILTERS = { actorUid: "", section: "", action: "", from: "", to: "" };
+
 async function readErrorResponse(res: Response, fallback: string) {
   const contentType = res.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
@@ -90,6 +180,7 @@ async function readErrorResponse(res: Response, fallback: string) {
 
 export default function Admin() {
   const { role, login, fullName, ready } = useProfile();
+  const { writeLog } = useLogWriter();
   const { confirm, prompt, alert } = useDialog();
   const { announcement } = useAnnouncement();
   const loginDomain = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
@@ -99,6 +190,13 @@ export default function Admin() {
   const [section, setSection] = useState<AdminSection>("overview");
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
+  const [logsError, setLogsError] = useState<string | null>(null);
+  const [logPage, setLogPage] = useState(0);
+  const [logPages, setLogPages] = useState<any[][]>([]);
+  const [logCursors, setLogCursors] = useState<(QueryDocumentSnapshot | null)[]>([]);
+  const [logPageHasMore, setLogPageHasMore] = useState<boolean[]>([]);
+  const [hasMoreLogs, setHasMoreLogs] = useState(false);
+  const [logFilters, setLogFilters] = useState(() => ({ ...INITIAL_LOG_FILTERS }));
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   // ogólne
@@ -143,6 +241,94 @@ export default function Admin() {
     }
   }, [range]);
 
+  const buildLogsQuery = useCallback(
+    (cursor: QueryDocumentSnapshot | null) => {
+      if (!db) throw new Error("Brak połączenia z bazą danych.");
+      const constraints: QueryConstraint[] = [];
+      const fromDate = logFilters.from ? new Date(logFilters.from) : null;
+      if (fromDate && Number.isNaN(fromDate.getTime())) throw new Error("Nieprawidłowa data początkowa.");
+      const toDate = logFilters.to ? new Date(logFilters.to) : null;
+      if (toDate && Number.isNaN(toDate.getTime())) throw new Error("Nieprawidłowa data końcowa.");
+      if (fromDate && toDate && fromDate > toDate) {
+        throw new Error("Początek zakresu nie może być później niż koniec.");
+      }
+      if (logFilters.actorUid) constraints.push(where("actorUid", "==", logFilters.actorUid));
+      if (logFilters.section) constraints.push(where("section", "==", logFilters.section));
+      if (logFilters.action) constraints.push(where("action", "==", logFilters.action));
+      if (fromDate) constraints.push(where("ts", ">=", Timestamp.fromDate(fromDate)));
+      if (toDate) constraints.push(where("ts", "<=", Timestamp.fromDate(toDate)));
+      const ordered: QueryConstraint[] = [orderBy("ts", "desc")];
+      if (cursor) ordered.push(startAfter(cursor));
+      ordered.push(limit(LOG_PAGE_SIZE));
+      return query(collection(db, "logs"), ...constraints, ...ordered);
+    },
+    [logFilters]
+  );
+
+  useEffect(() => {
+    if (role !== "director") return;
+    setLogPages([]);
+    setLogCursors([]);
+    setLogPageHasMore([]);
+    setActivityLogs([]);
+    setHasMoreLogs(false);
+    setLogsError(null);
+    setLogPage(0);
+  }, [logFilters, role]);
+
+  useEffect(() => {
+    if (role !== "director") {
+      setLogsLoading(false);
+      return;
+    }
+    const loadLogs = async () => {
+      const cached = logPages[logPage];
+      if (cached) {
+        setActivityLogs(cached);
+        const cachedHasMore = logPageHasMore[logPage] || false;
+        const hasCachedNext = Boolean(logPages[logPage + 1]);
+        setHasMoreLogs(cachedHasMore || hasCachedNext);
+        setLogsLoading(false);
+        return;
+      }
+
+      setLogsLoading(true);
+      setLogsError(null);
+      try {
+        const cursor = logPage > 0 ? logCursors[logPage - 1] : null;
+        const q = buildLogsQuery(cursor);
+        const snap = await getDocs(q);
+        const docs = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+        setLogPages((prev) => {
+          const next = [...prev];
+          next[logPage] = docs;
+          return next;
+        });
+        setLogCursors((prev) => {
+          const next = [...prev];
+          next[logPage] = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
+          return next;
+        });
+        setLogPageHasMore((prev) => {
+          const next = [...prev];
+          next[logPage] = snap.size === LOG_PAGE_SIZE;
+          return next;
+        });
+        setActivityLogs(docs);
+        const hasCachedNext = Boolean(logPages[logPage + 1]);
+        setHasMoreLogs(snap.size === LOG_PAGE_SIZE || hasCachedNext);
+      } catch (error: any) {
+        console.error("Nie udało się pobrać logów aktywności:", error);
+        setLogsError(error?.message || "Nie udało się pobrać logów aktywności.");
+        setActivityLogs([]);
+        setHasMoreLogs(false);
+      } finally {
+        setLogsLoading(false);
+      }
+    };
+    void loadLogs();
+  }, [role, logPage, logPages, logCursors, logPageHasMore, buildLogsQuery]);
+
   useEffect(() => {
     if (announcementSaving) return;
     if (announcement?.message) {
@@ -154,24 +340,6 @@ export default function Admin() {
       setAnnouncementMessage("");
     }
   }, [announcement, announcementSaving]);
-
-  useEffect(() => {
-    if (role !== "director") return;
-    setLogsLoading(true);
-    const q = query(collection(db, "logs"), orderBy("ts", "desc"), limit(250));
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        setActivityLogs(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
-        setLogsLoading(false);
-      },
-      (error) => {
-        console.error("Nie udało się pobrać logów aktywności:", error);
-        setLogsLoading(false);
-      }
-    );
-    return () => unsub();
-  }, [role]);
 
   useEffect(() => {
     if (section !== "logs") return;
@@ -531,7 +699,7 @@ export default function Admin() {
     try {
       setAnnouncementSaving(true);
       setErr(null);
-     const user = auth.currentUser;
+      const user = auth.currentUser;
       if (!user) {
         throw new Error("Brak zalogowanego użytkownika.");
       }
@@ -617,40 +785,230 @@ export default function Admin() {
     }
   };
 
+  const resolveSectionLabel = (value?: string | null) => {
+    if (!value) return "—";
+    return SECTION_LABELS[value] || value;
+  };
+
+  const resolveActionLabel = (log: any) => {
+    const key = log?.action || log?.type;
+    if (!key) return "—";
+    return ACTION_LABELS[key] || ACTION_LABELS[log?.type || ""] || key;
+  };
+
+  const formatDetailKey = (key: string) => {
+    if (!key) return "Szczegół";
+    if (key.includes(" ")) return key;
+    const normalized = key
+      .replace(/[_-]+/g, " ")
+      .replace(/([a-ząćęłńóśźż])([A-ZĄĆĘŁŃÓŚŹŻ])/g, "$1 $2")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!normalized) return key;
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  };
+
+  const formatDetailValue = (value: any): string => {
+    if (value == null) return "—";
+    if (value instanceof Timestamp) {
+      try {
+        return value.toDate().toLocaleString("pl-PL");
+      } catch (error) {
+        return value.toDate().toISOString();
+      }
+    }
+    if (value?.toDate && typeof value.toDate === "function") {
+      try {
+        return value.toDate().toLocaleString("pl-PL");
+      } catch (error) {
+        return String(value);
+      }
+    }
+    if (value instanceof Date) {
+      try {
+        return value.toLocaleString("pl-PL");
+      } catch (error) {
+        return value.toISOString();
+      }
+    }
+    if (typeof value === "boolean") return value ? "Tak" : "Nie";
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? value.toLocaleString("pl-PL") : String(value);
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => formatDetailValue(item)).join(", ");
+    }
+    if (typeof value === "object") {
+      try {
+        return JSON.stringify(value);
+      } catch (error) {
+        return String(value);
+      }
+    }
+    const str = String(value);
+    return str.trim().length > 0 ? str : "—";
+  };
+
+  const formatLogDetails = (log: any) => {
+    const entries: { key: string; label: string; value: string }[] = [];
+    const used = new Set<string>();
+
+    const collect = (source: any) => {
+      if (!source || typeof source !== "object" || Array.isArray(source)) return;
+      Object.entries(source).forEach(([key, value]) => {
+        if (used.has(key)) return;
+        used.add(key);
+        entries.push({ key, label: formatDetailKey(key), value: formatDetailValue(value) });
+      });
+    };
+
+    collect(log?.details);
+    collect(log?.extra);
+
+    if (!entries.length && log && typeof log === "object") {
+      Object.entries(log).forEach(([key, value]) => {
+        if (
+          [
+            "id",
+            "type",
+            "section",
+            "action",
+            "message",
+            "details",
+            "extra",
+            "actorUid",
+            "actorLogin",
+            "actorName",
+            "uid",
+            "login",
+            "ts",
+            "createdAt",
+            "sessionId",
+            "durationMs",
+            "reason",
+          ].includes(key)
+        ) {
+          return;
+        }
+        if (used.has(key)) return;
+        used.add(key);
+        entries.push({ key, label: formatDetailKey(key), value: formatDetailValue(value) });
+      });
+    }
+
+    return entries;
+  };
+
+  const actorProfiles = useMemo(() => {
+    const map = new Map<string, Person>();
+    people.forEach((p) => {
+      map.set(p.uid, p);
+    });
+    return map;
+  }, [people]);
+
+  const resolveActor = useCallback(
+    (log: any) => {
+      const actorUid = (log?.actorUid || log?.uid || "") as string;
+      const profile = actorUid ? actorProfiles.get(actorUid) : undefined;
+      let login = (log?.actorLogin as string | undefined) || (log?.login as string | undefined) || profile?.login || "";
+      if (login && login.includes("@")) {
+        login = deriveLoginFromEmail(login);
+      }
+      const trimmedLogin = login?.trim();
+      const nameFromLog = (log?.actorName as string | undefined)?.trim();
+      const profileName = profile?.fullName ? profile.fullName.trim() : "";
+      const name = nameFromLog || profileName || trimmedLogin || (actorUid ? `UID: ${actorUid}` : "Nieznany użytkownik");
+
+      return {
+        uid: actorUid || null,
+        name,
+        login: trimmedLogin || null,
+      };
+    },
+    [actorProfiles]
+  );
+
+  const buildActorLabel = (name: string, login?: string | null) => {
+    const trimmedName = name.trim();
+    const trimmedLogin = login?.trim() || "";
+    if (trimmedLogin && trimmedName && trimmedName !== trimmedLogin) {
+      return `${trimmedName} (${trimmedLogin})`;
+    }
+    if (trimmedName) return trimmedName;
+    if (trimmedLogin) return trimmedLogin;
+    return "Nieznany użytkownik";
+  };
+
+  const actorOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    people.forEach((p) => {
+      const name = (p.fullName || "").trim();
+      const login = (p.login || "").trim();
+      const label = buildActorLabel(name || login || p.uid, login || null);
+      map.set(p.uid, label);
+    });
+    activityLogs.forEach((log) => {
+      const actor = resolveActor(log);
+      if (!actor.uid) return;
+      if (map.has(actor.uid)) return;
+      map.set(actor.uid, buildActorLabel(actor.name, actor.login));
+    });
+    if (logFilters.actorUid && !map.has(logFilters.actorUid)) {
+      map.set(logFilters.actorUid, logFilters.actorUid);
+    }
+    const options = Array.from(map.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "pl", { sensitivity: "base" }));
+    return [{ value: "", label: "Wszyscy użytkownicy" }, ...options];
+  }, [people, activityLogs, resolveActor, logFilters.actorUid]);
+
+  const hasActiveLogFilters = useMemo(() => {
+    return Object.values(logFilters).some((value) => value);
+  }, [logFilters]);
+
+  const clearLogFilters = () => {
+    setLogFilters({ ...INITIAL_LOG_FILTERS });
+    setLogPage(0);
+  };
+
+  const logRange = useMemo(() => {
+    if (!activityLogs.length) return null;
+    const start = logPage * LOG_PAGE_SIZE + 1;
+    const end = logPage * LOG_PAGE_SIZE + activityLogs.length;
+    return { start, end };
+  }, [activityLogs, logPage]);
+
   const describeLog = (log: any) => {
+    if (typeof log?.message === "string" && log.message.trim().length > 0) {
+      return log.message.trim();
+    }
+
     switch (log?.type) {
       case "session_start":
-        return `Start sesji • ID: ${log.sessionId || "—"}`;
+        return "Rozpoczęto sesję w panelu.";
       case "session_end":
-        return `Koniec sesji • ID: ${log.sessionId || "—"} • Powód: ${formatReason(log.reason)}`;
+        return `Zakończono sesję (powód: ${formatReason(log.reason)}).`;
       case "logout":
-        return `Wylogowanie • Powód: ${formatReason(log.reason)}`;
-      case "page_view":
-        return `Strona: ${log.path || "—"}${log.title ? ` • ${log.title}` : ""}`;
-      case "template_view":
-        return `Szablon: ${log.template || log.slug || "—"}`;
-      case "archive_view":
-        return "Przegląd zasobów archiwum";
-      case "archive_image_open":
-        return `Otwarcie obrazu archiwum • ID: ${log.archiveId || "—"}`;
-      case "dossier_view":
-        return `Podgląd teczki • CID: ${log.dossierId || "—"}`;
-      case "dossier_link_open":
-        return `Przejście do teczki • CID: ${log.dossierId || "—"}`;
-      case "dossier_evidence_open":
-        return `Załącznik w teczce • CID: ${log.dossierId || "—"} • Wpis: ${log.recordId || "—"}`;
-      default: {
-        const entries = Object.entries(log || {})
-          .filter(([key]) => !["type", "ts", "createdAt", "login", "uid", "sessionId"].includes(key))
-          .map(([key, value]) => {
-            if (value == null) return `${key}: —`;
-            if (Array.isArray(value)) return `${key}: ${value.join(", ")}`;
-            if (typeof value === "object") return `${key}: ${JSON.stringify(value)}`;
-            return `${key}: ${value}`;
-          })
-          .join(" • ");
-        return entries || "—";
+        return `Wylogowanie użytkownika (powód: ${formatReason(log.reason)}).`;
+      case "page_view": {
+        const title = log.title ? ` — ${log.title}` : "";
+        return `Odwiedzono stronę ${log.path || "(nieznana)"}${title}`;
       }
+      case "template_view":
+        return `Wyświetlono szablon dokumentu ${log.template || log.slug || "(nieznany)"}.`;
+      case "archive_view":
+        return "Przegląd zasobów archiwum dokumentów.";
+      case "archive_image_open":
+        return `Podgląd pliku z archiwum (ID ${log.archiveId || "—"}).`;
+      case "dossier_view":
+        return `Otworzono teczkę ${log.dossierId || "—"}.`;
+      case "dossier_link_open":
+        return `Przejście do teczki ${log.dossierId || "—"}.`;
+      case "dossier_evidence_open":
+        return `Otwarto załącznik ${log.recordId || "—"} w teczce ${log.dossierId || "—"}.`;
+      default:
+        return "—";
     }
   };
 
@@ -798,12 +1156,17 @@ export default function Admin() {
         }
       });
       await Promise.all(commits);
-      await addDoc(collection(db, "logs"), {
+      await writeLog({
         type: "stats_clear",
+        section: "panel-zarzadu",
+        action: "stats.clear",
+        message: `Wyczyszczono statystyki z ostatnich ${normalizedDays} dni (usunięto ${snap.size} wpisów).`,
+        details: {
+          dni: normalizedDays,
+          usunieteWpisy: snap.size,
+        },
         days: normalizedDays,
         removed: snap.size,
-        author: login,
-        ts: serverTimestamp(),
       });
 
       await recalcAll();
@@ -1130,55 +1493,211 @@ export default function Admin() {
                 <div className="card bg-gradient-to-br from-amber-900/85 via-amber-800/85 to-stone-900/80 text-white p-6 shadow-xl">
                   <h2 className="text-xl font-semibold">Monitor aktywności</h2>
                   <p className="text-sm text-white/70">
-                    Historia logowań, wylogowań oraz odwiedzanych sekcji panelu. Dostępna wyłącznie dla Director.
+                    Historia logowań, zmian danych i wszystkich operacji w panelu. Dostępna wyłącznie dla Director.
                   </p>
-                  <p className="mt-2 text-xs text-white/60">Rejestrowanych jest maksymalnie 250 ostatnich zdarzeń.</p>
+                  <p className="mt-2 text-xs text-white/60">
+                    Lista obejmuje pełną historię działań i jest stronicowana po {LOG_PAGE_SIZE} wpisów. Skorzystaj z filtrów,
+                    aby zawęzić wyniki do wybranych osób, sekcji lub zakresów czasu.
+                  </p>
+                </div>
+
+                <div className="card bg-white/90 p-4 shadow">
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                    <div>
+                      <label className="text-xs font-semibold uppercase text-beige-500">Użytkownik</label>
+                      <select
+                        className="input mt-1 bg-white text-black"
+                        value={logFilters.actorUid}
+                        onChange={(e) => setLogFilters((prev) => ({ ...prev, actorUid: e.target.value }))}
+                      >
+                        {actorOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase text-beige-500">Sekcja</label>
+                      <select
+                        className="input mt-1 bg-white text-black"
+                        value={logFilters.section}
+                        onChange={(e) => setLogFilters((prev) => ({ ...prev, section: e.target.value }))}
+                      >
+                        {SECTION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase text-beige-500">Czynność</label>
+                      <select
+                        className="input mt-1 bg-white text-black"
+                        value={logFilters.action}
+                        onChange={(e) => setLogFilters((prev) => ({ ...prev, action: e.target.value }))}
+                      >
+                        {ACTION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase text-beige-500">Od (data i godzina)</label>
+                      <input
+                        type="datetime-local"
+                        className="input mt-1 bg-white text-black"
+                        value={logFilters.from}
+                        onChange={(e) => setLogFilters((prev) => ({ ...prev, from: e.target.value }))}
+                        max={logFilters.to || undefined}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase text-beige-500">Do (data i godzina)</label>
+                      <input
+                        type="datetime-local"
+                        className="input mt-1 bg-white text-black"
+                        value={logFilters.to}
+                        onChange={(e) => setLogFilters((prev) => ({ ...prev, to: e.target.value }))}
+                        min={logFilters.from || undefined}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-beige-600">
+                    <span>Filtry aktualizują listę automatycznie po każdej zmianie.</span>
+                    <button
+                      type="button"
+                      className="btn bg-beige-200 text-beige-900 hover:bg-beige-300 disabled:opacity-50"
+                      onClick={clearLogFilters}
+                      disabled={!hasActiveLogFilters}
+                    >
+                      Wyczyść filtry
+                    </button>
+                  </div>
                 </div>
 
                 <div className="card p-0 overflow-hidden">
+                  {logsError && (
+                    <div className="bg-red-50 px-4 py-3 text-sm text-red-700 border-b border-red-200">{logsError}</div>
+                  )}
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-beige-200 text-sm">
                       <thead className="bg-beige-100">
                         <tr className="text-left">
                           <th className="px-4 py-3 font-semibold">Data</th>
                           <th className="px-4 py-3 font-semibold">Użytkownik</th>
-                          <th className="px-4 py-3 font-semibold">Typ</th>
-                          <th className="px-4 py-3 font-semibold">Szczegóły</th>
+                          <th className="px-4 py-3 font-semibold">Sekcja</th>
+                          <th className="px-4 py-3 font-semibold">Czynność</th>
+                          <th className="px-4 py-3 font-semibold">Opis</th>
+                          <th className="px-4 py-3 font-semibold">Dodatkowe szczegóły</th>
                           <th className="px-4 py-3 font-semibold">Czas sesji</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-beige-100 bg-white/60">
                         {logsLoading ? (
                           <tr>
-                            <td colSpan={5} className="px-4 py-6 text-center">Ładowanie logów…</td>
+                            <td colSpan={7} className="px-4 py-6 text-center">Ładowanie logów…</td>
+                          </tr>
+                        ) : logsError ? (
+                          <tr>
+                            <td colSpan={7} className="px-4 py-6 text-center text-red-700">
+                              Wystąpił błąd podczas wczytywania logów. Spróbuj zmienić filtr lub odświeżyć widok.
+                            </td>
                           </tr>
                         ) : activityLogs.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="px-4 py-6 text-center">Brak zarejestrowanych zdarzeń.</td>
+                            <td colSpan={7} className="px-4 py-6 text-center">Brak zarejestrowanych zdarzeń.</td>
                           </tr>
                         ) : (
-                          activityLogs.map((log, idx) => (
-                            <tr key={log.id ?? idx} className="align-top">
-                              <td className="px-4 py-3 whitespace-nowrap">{formatLogTimestamp(log)}</td>
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <div className="font-semibold">{log.login || "—"}</div>
-                                <div className="text-xs text-beige-700">{log.uid || "—"}</div>
-                                {log.sessionId && (
-                                  <div className="text-[11px] text-beige-500">Sesja: {log.sessionId}</div>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <span className="inline-flex items-center rounded-full bg-beige-200 px-2 py-0.5 text-xs font-semibold text-beige-900">
-                                  {log.type || "—"}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3">{describeLog(log)}</td>
-                              <td className="px-4 py-3 whitespace-nowrap">{formatDuration(resolveDurationMs(log) ?? undefined)}</td>
-                            </tr>
-                          ))
+                          activityLogs.map((log, idx) => {
+                            const actor = resolveActor(log);
+                            const details = formatLogDetails(log);
+                            const sectionLabel = resolveSectionLabel(log.section);
+                            const actionLabel = resolveActionLabel(log);
+                            return (
+                              <tr key={log.id ?? idx} className="align-top">
+                                <td className="px-4 py-3 whitespace-nowrap align-top">{formatLogTimestamp(log)}</td>
+                                <td className="px-4 py-3 align-top">
+                                  <div className="font-semibold text-beige-900">{actor.name}</div>
+                                  {actor.login && (
+                                    <div className="text-xs text-beige-700">
+                                      Login: <span className="font-mono text-[13px]">{actor.login}</span>
+                                    </div>
+                                  )}
+                                  {actor.uid && (
+                                    <div className="text-[11px] text-beige-500">UID: {actor.uid}</div>
+                                  )}
+                                  {log.sessionId && (
+                                    <div className="text-[11px] text-beige-500">Sesja: {log.sessionId}</div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap align-top">
+                                  <span className="inline-flex items-center rounded-full bg-beige-200 px-2 py-0.5 text-xs font-semibold text-beige-900">
+                                    {sectionLabel}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap align-top">
+                                  <div className="font-semibold text-beige-900">{actionLabel}</div>
+                                  {(log.action || log.type) && (
+                                    <div className="text-[11px] text-beige-500">{log.action || log.type}</div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 align-top">{describeLog(log)}</td>
+                                <td className="px-4 py-3 align-top">
+                                  {details.length ? (
+                                    <ul className="space-y-1 text-sm text-beige-900">
+                                      {details.map((detail) => (
+                                        <li key={detail.key} className="flex flex-wrap gap-x-2 gap-y-1">
+                                          <span className="font-medium text-beige-700">{detail.label}:</span>
+                                          <span className="break-words">{detail.value}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <span className="text-beige-500">—</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap align-top">
+                                  {formatDuration(resolveDurationMs(log) ?? undefined)}
+                                </td>
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
+                  </div>
+                  <div className="flex flex-col gap-3 border-t border-beige-200 bg-beige-50/60 px-4 py-3 text-sm text-beige-700 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      {logRange ? (
+                        <span>
+                          Wpisy {logRange.start}–{logRange.end} • maksymalnie {LOG_PAGE_SIZE} na stronę
+                        </span>
+                      ) : (
+                        <span>Brak wyników dla wybranych filtrów</span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="btn bg-beige-200 text-beige-900 hover:bg-beige-300 disabled:opacity-50"
+                        onClick={() => setLogPage((prev) => Math.max(0, prev - 1))}
+                        disabled={logPage === 0 || logsLoading}
+                      >
+                        Poprzednia strona
+                      </button>
+                      <button
+                        type="button"
+                        className="btn bg-beige-200 text-beige-900 hover:bg-beige-300 disabled:opacity-50"
+                        onClick={() => setLogPage((prev) => prev + 1)}
+                        disabled={!hasMoreLogs || logsLoading}
+                      >
+                        Następna strona
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
