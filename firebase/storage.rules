@@ -5,16 +5,37 @@ service firebase.storage {
       return request.auth != null;
     }
 
+    function roleOf(uid) {
+      return firestore.get(/databases/(default)/documents/profiles/$(uid)).data.role;
+    }
+
+    function isDirector() {
+      return signedIn() && roleOf(request.auth.uid) == "director";
+    }
+
+    function isChief() {
+      return signedIn() && roleOf(request.auth.uid) == "chief";
+    }
+
+    function isStaff() {
+      let r = roleOf(request.auth.uid);
+      return signedIn() && (r == "director" || r == "chief" || r == "senior" || r == "agent");
+    }
+
     match /archives/{allPaths=**} {
-      allow read, write: if signedIn();
+      allow read, write: if isStaff();
     }
 
     match /dossiers/{dossierId}/evidence/{file} {
-      allow read, write: if signedIn();
+      allow read, write: if isStaff();
     }
 
     match /dossiers/{dossierId}/{allPaths=**} {
-      allow read, write: if signedIn();
+      allow read, write: if isStaff();
+    }
+
+    match /vehicleFolders/{allPaths=**} {
+      allow read, write: if isStaff();
     }
 
     match /{allPaths=**} {

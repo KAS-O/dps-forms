@@ -22,7 +22,6 @@ import {
   orderBy,
   limit,
   startAfter,
-  QueryConstraint,
   QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { deriveLoginFromEmail } from "@/lib/login";
@@ -68,6 +67,7 @@ const ANNOUNCEMENT_WINDOWS: { value: string; label: string; ms: number | null }[
 ];
 
 const LOG_PAGE_SIZE = 150;
+const LOG_FETCH_BATCH_SIZE = 200;
 
 const SECTION_LABELS: Record<string, string> = {
   sesja: "Sesja",
@@ -133,6 +133,13 @@ const ACTION_LABELS: Record<string, string> = {
   "dossier.evidence_open": "Podgląd załącznika w teczce",
   "dossier.group.link_add": "Powiązanie członka z organizacją",
   "dossier.group.link_remove": "Usunięcie powiązania członka",
+  "dossier.record.note": "Dodanie notatki w teczce",
+  "dossier.record.weapon": "Dodanie dowodu — Broń",
+  "dossier.record.drug": "Dodanie dowodu — Narkotyki",
+  "dossier.record.explosive": "Dodanie dowodu — Materiały wybuchowe",
+  "dossier.record.member": "Dodanie członka organizacji",
+  "dossier.record.vehicle": "Dodanie pojazdu do teczki",
+  "dossier.record.group-link": "Powiązanie teczki z organizacją",
   "dossier.record.edit": "Edycja wpisu w teczce",
   "dossier.record.delete": "Usunięcie wpisu w teczce",
   "dossier.create": "Nowa teczka",
@@ -192,12 +199,62 @@ export default function Admin() {
   const [logsLoading, setLogsLoading] = useState(true);
   const [logsError, setLogsError] = useState<string | null>(null);
   const [logPage, setLogPage] = useState(0);
-  const [logPages, setLogPages] = useState<any[][]>([]);
-  const [logCursors, setLogCursors] = useState<(QueryDocumentSnapshot | null)[]>([]);
-  const [logPageHasMore, setLogPageHasMore] = useState<boolean[]>([]);
+  const [filteredLogsBuffer, setFilteredLogsBuffer] = useState<any[]>([]);
+  const [logFetchCursor, setLogFetchCursor] = useState<QueryDocumentSnapshot | null>(null);
+  const [logFetchExhausted, setLogFetchExhausted] = useState(false);
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
   const [logFilters, setLogFilters] = useState(() => ({ ...INITIAL_LOG_FILTERS }));
   const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const logFilterRange = useMemo(() => {
+    const parseDate = (value: string, endOfDay = false): number | null => {
+      if (!value) return null;
+      const parts = value.split("-");
+      if (parts.length !== 3) return null;
+      const [yearRaw, monthRaw, dayRaw] = parts;
+      const year = Number(yearRaw);
+      const month = Number(monthRaw);
+      const day = Number(dayRaw);
+      if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+      if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+      const base = Date.UTC(year, month - 1, day, 0, 0, 0, 0);
+      if (Number.isNaN(base)) return null;
+      if (endOfDay) {
+        return base + 24 * 60 * 60 * 1000 - 1;
+      }
+      return base;
+    };
+
+    const result: { from: number | null; to: number | null; error: string | null } = {
+      from: null,
+      to: null,
+      error: null,
+    };
+
+    if (logFilters.from) {
+      const parsed = parseDate(logFilters.from);
+      if (parsed == null) {
+        result.error = "Nieprawidłowa data początkowa.";
+        return result;
+      }
+      result.from = parsed;
+    }
+
+    if (logFilters.to) {
+      const parsed = parseDate(logFilters.to, true);
+      if (parsed == null) {
+        result.error = "Nieprawidłowa data końcowa.";
+        return result;
+      }
+      result.to = parsed;
+    }
+
+    if (result.from != null && result.to != null && result.from > result.to) {
+      result.error = "Początek zakresu nie może być później niż koniec.";
+    }
+
+    return result;
+  }, [logFilters.from, logFilters.to]);
 
   // ogólne
   const [mandaty, setMandaty] = useState(0);
@@ -241,93 +298,17 @@ export default function Admin() {
     }
   }, [range]);
 
-  const buildLogsQuery = useCallback(
-    (cursor: QueryDocumentSnapshot | null) => {
-      if (!db) throw new Error("Brak połączenia z bazą danych.");
-      const constraints: QueryConstraint[] = [];
-      const fromDate = logFilters.from ? new Date(logFilters.from) : null;
-      if (fromDate && Number.isNaN(fromDate.getTime())) throw new Error("Nieprawidłowa data początkowa.");
-      const toDate = logFilters.to ? new Date(logFilters.to) : null;
-      if (toDate && Number.isNaN(toDate.getTime())) throw new Error("Nieprawidłowa data końcowa.");
-      if (fromDate && toDate && fromDate > toDate) {
-        throw new Error("Początek zakresu nie może być później niż koniec.");
-      }
-      if (logFilters.actorUid) constraints.push(where("actorUid", "==", logFilters.actorUid));
-      if (logFilters.section) constraints.push(where("section", "==", logFilters.section));
-      if (logFilters.action) constraints.push(where("action", "==", logFilters.action));
-      if (fromDate) constraints.push(where("ts", ">=", Timestamp.fromDate(fromDate)));
-      if (toDate) constraints.push(where("ts", "<=", Timestamp.fromDate(toDate)));
-      const ordered: QueryConstraint[] = [orderBy("ts", "desc")];
-      if (cursor) ordered.push(startAfter(cursor));
-      ordered.push(limit(LOG_PAGE_SIZE));
-      return query(collection(db, "logs"), ...constraints, ...ordered);
-    },
-    [logFilters]
-  );
-
   useEffect(() => {
     if (role !== "director") return;
-    setLogPages([]);
-    setLogCursors([]);
-    setLogPageHasMore([]);
     setActivityLogs([]);
     setHasMoreLogs(false);
     setLogsError(null);
     setLogPage(0);
+    setFilteredLogsBuffer([]);
+    setLogFetchCursor(null);
+    setLogFetchExhausted(false);
   }, [logFilters, role]);
 
-  useEffect(() => {
-    if (role !== "director") {
-      setLogsLoading(false);
-      return;
-    }
-    const loadLogs = async () => {
-      const cached = logPages[logPage];
-      if (cached) {
-        setActivityLogs(cached);
-        const cachedHasMore = logPageHasMore[logPage] || false;
-        const hasCachedNext = Boolean(logPages[logPage + 1]);
-        setHasMoreLogs(cachedHasMore || hasCachedNext);
-        setLogsLoading(false);
-        return;
-      }
-
-      setLogsLoading(true);
-      setLogsError(null);
-      try {
-        const cursor = logPage > 0 ? logCursors[logPage - 1] : null;
-        const q = buildLogsQuery(cursor);
-        const snap = await getDocs(q);
-        const docs = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-        setLogPages((prev) => {
-          const next = [...prev];
-          next[logPage] = docs;
-          return next;
-        });
-        setLogCursors((prev) => {
-          const next = [...prev];
-          next[logPage] = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
-          return next;
-        });
-        setLogPageHasMore((prev) => {
-          const next = [...prev];
-          next[logPage] = snap.size === LOG_PAGE_SIZE;
-          return next;
-        });
-        setActivityLogs(docs);
-        const hasCachedNext = Boolean(logPages[logPage + 1]);
-        setHasMoreLogs(snap.size === LOG_PAGE_SIZE || hasCachedNext);
-      } catch (error: any) {
-        console.error("Nie udało się pobrać logów aktywności:", error);
-        setLogsError(error?.message || "Nie udało się pobrać logów aktywności.");
-        setActivityLogs([]);
-        setHasMoreLogs(false);
-      } finally {
-        setLogsLoading(false);
-      }
-    };
-    void loadLogs();
-  }, [role, logPage, logPages, logCursors, logPageHasMore, buildLogsQuery]);
 
   useEffect(() => {
     if (announcementSaving) return;
@@ -730,7 +711,7 @@ export default function Admin() {
         : "bg-white/5 border-white/10 hover:bg-white/15"
     }`;
 
-  const getLogTimestampMs = (log: any): number | null => {
+  const getLogTimestampMs = useCallback((log: any): number | null => {
     const raw = log?.ts || log?.createdAt;
     if (raw?.toDate && typeof raw.toDate === "function") {
       try {
@@ -750,7 +731,7 @@ export default function Admin() {
       return raw;
     }
     return null;
-  };
+  }, []);
 
   const formatLogTimestamp = (log: any) => {
     const timestamp = getLogTimestampMs(log);
@@ -785,6 +766,151 @@ export default function Admin() {
     }
   };
 
+  const applyLogFilters = useCallback(
+    (log: any) => {
+      if (!log) return false;
+
+      const actorFilter = (logFilters.actorUid || "").trim();
+      if (actorFilter) {
+        const actorUid = ((log.actorUid || log.uid || "") as string).trim();
+        if (actorUid !== actorFilter) return false;
+      }
+
+      const sectionFilter = (logFilters.section || "").trim();
+      if (sectionFilter) {
+        const sectionValue = (log.section || "") as string;
+        if (sectionValue !== sectionFilter) return false;
+      }
+
+      const actionFilter = (logFilters.action || "").trim();
+      if (actionFilter) {
+        const actionValue = ((log.action || log.type || "") as string).trim();
+        if (actionValue !== actionFilter) return false;
+      }
+
+      const timestamp = getLogTimestampMs(log);
+      if (logFilterRange.from != null) {
+        if (timestamp == null || timestamp < logFilterRange.from) return false;
+      }
+      if (logFilterRange.to != null) {
+        if (timestamp == null || timestamp > logFilterRange.to) return false;
+      }
+
+      return true;
+    },
+    [getLogTimestampMs, logFilterRange.from, logFilterRange.to, logFilters.action, logFilters.actorUid, logFilters.section]
+  );
+
+  const humanizeKey = (value: string) => {
+    if (!value) return "—";
+    const normalized = value
+      .replace(/^custom\./, "")
+      .replace(/^dossier\.record\./, "")
+      .replace(/[._-]+/g, " ")
+      .replace(/([a-ząćęłńóśźż])([A-ZĄĆĘŁŃÓŚŹŻ])/g, "$1 $2")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!normalized) return value;
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  };
+
+  useEffect(() => {
+    if (role !== "director") {
+      setLogsLoading(false);
+      return;
+    }
+
+    if (!db) {
+      setLogsError("Brak połączenia z bazą danych.");
+      setActivityLogs([]);
+      setHasMoreLogs(false);
+      setLogsLoading(false);
+      return;
+    }
+
+    const startIndex = logPage * LOG_PAGE_SIZE;
+    const targetCount = startIndex + LOG_PAGE_SIZE;
+
+    const loadLogs = async () => {
+      if (logFilterRange.error) {
+        setLogsError(logFilterRange.error);
+        setActivityLogs([]);
+        setHasMoreLogs(false);
+        setLogsLoading(false);
+        return;
+      }
+
+      if (filteredLogsBuffer.length >= targetCount || logFetchExhausted) {
+        const pageSlice = filteredLogsBuffer.slice(startIndex, targetCount);
+        setActivityLogs(pageSlice);
+        const moreAvailable =
+          filteredLogsBuffer.length > (logPage + 1) * LOG_PAGE_SIZE || !logFetchExhausted;
+        setHasMoreLogs(moreAvailable);
+        setLogsError(null);
+        setLogsLoading(false);
+        return;
+      }
+
+      setLogsLoading(true);
+      setLogsError(null);
+
+      let buffer = [...filteredLogsBuffer];
+      let cursor = logFetchCursor;
+      let exhausted = logFetchExhausted;
+
+      try {
+        while (!exhausted && buffer.length < targetCount) {
+          const constraints = [orderBy("ts", "desc")];
+          if (cursor) constraints.push(startAfter(cursor));
+          constraints.push(limit(LOG_FETCH_BATCH_SIZE));
+          const snap = await getDocs(query(collection(db, "logs"), ...constraints));
+          if (!snap.size) {
+            exhausted = true;
+            break;
+          }
+          cursor = snap.docs[snap.docs.length - 1];
+          const docs = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+          const filtered = docs.filter(applyLogFilters);
+          if (filtered.length) {
+            buffer = buffer.concat(filtered);
+          }
+          if (snap.size < LOG_FETCH_BATCH_SIZE) {
+            exhausted = true;
+          }
+        }
+
+        setFilteredLogsBuffer(buffer);
+        setLogFetchCursor(cursor);
+        setLogFetchExhausted(exhausted);
+
+        const pageSlice = buffer.slice(startIndex, targetCount);
+        setActivityLogs(pageSlice);
+        const moreAvailable = buffer.length > (logPage + 1) * LOG_PAGE_SIZE || !exhausted;
+        setHasMoreLogs(moreAvailable);
+        if (!pageSlice.length && buffer.length <= startIndex && exhausted) {
+          setLogsError(null);
+        }
+      } catch (error: any) {
+        console.error("Nie udało się pobrać logów aktywności:", error);
+        setLogsError(error?.message || "Nie udało się pobrać logów aktywności.");
+        setActivityLogs([]);
+        setHasMoreLogs(false);
+      } finally {
+        setLogsLoading(false);
+      }
+    };
+
+    void loadLogs();
+  }, [
+    role,
+    logPage,
+    filteredLogsBuffer,
+    logFetchCursor,
+    logFetchExhausted,
+    applyLogFilters,
+    logFilterRange.error,
+  ]);
+
   const resolveSectionLabel = (value?: string | null) => {
     if (!value) return "—";
     return SECTION_LABELS[value] || value;
@@ -793,19 +919,29 @@ export default function Admin() {
   const resolveActionLabel = (log: any) => {
     const key = log?.action || log?.type;
     if (!key) return "—";
-    return ACTION_LABELS[key] || ACTION_LABELS[log?.type || ""] || key;
+    if (ACTION_LABELS[key]) return ACTION_LABELS[key];
+    if (log?.type && ACTION_LABELS[log.type]) return ACTION_LABELS[log.type];
+
+    if (typeof key === "string" && key.startsWith("dossier.record.")) {
+      const recordKey = key.split(".").pop() || "";
+      const recordLabel = RECORD_TYPE_LABELS[recordKey] || humanizeKey(recordKey);
+      return `Dodanie wpisu: ${recordLabel}`;
+    }
+
+    if (typeof key === "string" && key.startsWith("custom.")) {
+      const customKey = key.slice("custom.".length);
+      if (!customKey) return "Zdarzenie niestandardowe";
+      return `Zdarzenie niestandardowe: ${humanizeKey(customKey)}`;
+    }
+
+    return humanizeKey(String(key));
   };
 
   const formatDetailKey = (key: string) => {
     if (!key) return "Szczegół";
     if (key.includes(" ")) return key;
-    const normalized = key
-      .replace(/[_-]+/g, " ")
-      .replace(/([a-ząćęłńóśźż])([A-ZĄĆĘŁŃÓŚŹŻ])/g, "$1 $2")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!normalized) return key;
-    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+    const normalized = humanizeKey(key);
+    return normalized === "—" ? key : normalized;
   };
 
   const formatDetailValue = (value: any): string => {
@@ -918,11 +1054,22 @@ export default function Admin() {
       const trimmedLogin = login?.trim();
       const nameFromLog = (log?.actorName as string | undefined)?.trim();
       const profileName = profile?.fullName ? profile.fullName.trim() : "";
-      const name = nameFromLog || profileName || trimmedLogin || (actorUid ? `UID: ${actorUid}` : "Nieznany użytkownik");
+
+      let displayName = profileName;
+      if (!displayName) {
+        if (nameFromLog && trimmedLogin && nameFromLog.toLowerCase() !== trimmedLogin.toLowerCase()) {
+          displayName = nameFromLog;
+        } else if (nameFromLog && !trimmedLogin) {
+          displayName = nameFromLog;
+        }
+      }
+      if (!displayName) {
+        displayName = trimmedLogin || (actorUid ? `UID: ${actorUid}` : "Nieznany użytkownik");
+      }
 
       return {
         uid: actorUid || null,
-        name,
+        name: displayName,
         login: trimmedLogin || null,
       };
     },
@@ -1027,7 +1174,7 @@ export default function Admin() {
       }
     });
     return map;
-  }, [activityLogs]);
+  }, [activityLogs, getLogTimestampMs]);
 
   const resolveDurationMs = useCallback(
     (log: any): number | null => {
