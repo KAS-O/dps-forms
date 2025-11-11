@@ -27,6 +27,15 @@ firebase deploy --only storage:rules
 
 Reguły obejmują m.in. możliwość zakładania teczek (`/dossiers/{id}`) przez zalogowanych funkcjonariuszy oraz modyfikację wpisów tylko przez autora lub kadrę kierowniczą.
 
+## Dział kadr i konta użytkowników
+- Przy zakładaniu kont wymagany jest **numer odznaki** (1–6 cyfr). Numer można też edytować dla istniejących profili – pole jest
+  przechowywane w kolekcji `profiles` jako `badgeNumber`.
+- Do poprawnego działania API działu kadr potrzebne są uprawnienia Firebase Admin. W środowisku produkcyjnym ustaw zmienne:
+  `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL` oraz `FIREBASE_ADMIN_PRIVATE_KEY` (lub skorzystaj z jednego z
+  obsługiwanych sposobów dostarczenia poświadczeń opisanych w `src/lib/firebaseAdmin.ts`).
+- Aktualne reguły Firestore już pozwalają kadrze kierowniczej (`isBoard()`) na odczyt i modyfikację profili – nie są wymagane
+  dodatkowe zmiany ani indeksy dla nowych funkcji działu kadr.
+
 ## Zmiany w v2
 - Wysyłka **obrazu (PNG)** zamiast PDF – podgląd A4 robiony z HTML przez `html2canvas`.
 - Wiadomość na Discord zawiera **embed** z:
