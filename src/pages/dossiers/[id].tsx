@@ -90,6 +90,44 @@ const RECORD_COLORS: Record<string, string> = {
 
 const CONTROLLED_COLOR = "#fb923c";
 
+const RECORD_SUMMARY_BUILDERS: Record<string, (payload: Record<string, any>) => string> = {
+  note: (payload) => (payload.text || "").toString(),
+  weapon: (payload) =>
+    [payload.weaponModel, payload.serialNumbers]
+      .filter(Boolean)
+      .map((part) => String(part))
+      .join(" • "),
+  drug: (payload) =>
+    [payload.substance, payload.quantity]
+      .filter(Boolean)
+      .map((part) => String(part))
+      .join(" • "),
+  explosive: (payload) =>
+    [payload.type, payload.quantity]
+      .filter(Boolean)
+      .map((part) => String(part))
+      .join(" • "),
+  member: (payload) =>
+    [payload.memberName, payload.rank]
+      .filter(Boolean)
+      .map((part) => String(part))
+      .join(" • "),
+  vehicle: (payload) =>
+    [payload.brand, payload.model, payload.registration]
+      .filter(Boolean)
+      .map((part) => String(part))
+      .join(" • "),
+  "group-link": (payload) => payload.groupName || "",
+};
+
+function buildRecordSummary(recordType: string, payload: Record<string, any>) {
+  const builder = RECORD_SUMMARY_BUILDERS[recordType];
+  if (!builder) return "";
+  const summary = builder(payload) || "";
+  if (summary.length <= 160) return summary;
+  return `${summary.slice(0, 157)}...`;
+}
+
 const ACTIVE_FORM_TITLES: Record<Exclude<ActiveFormType, null>, string> = {
   note: "Dodaj notatkę",
   weapon: "Dodaj dowód — Broń",
@@ -202,7 +240,17 @@ function AttachmentPreview({
 export default function DossierPage() {
   const router = useRouter();
   const { id } = router.query as { id: string };
-  const { role } = useProfile();
+  const { role, login: profileLogin, fullName: profileFullName } = useProfile();
+
+  const buildActor = useCallback(
+    () => ({
+      author: auth.currentUser?.email || "",
+      authorUid: auth.currentUser?.uid || "",
+      authorLogin: profileLogin || "",
+      authorFullName: profileFullName || "",
+    }),
+    [profileFullName, profileLogin]
+  );
 
   const [title, setTitle] = useState<string>("");
   const [info, setInfo] = useState<DossierInfo>({});
@@ -385,17 +433,18 @@ export default function DossierPage() {
     async (payload: Record<string, any>, recordType: string) => {
       if (!id) return null;
       const recordRef = await addDoc(collection(db, "dossiers", id, "records"), payload);
+      const recordSummary = buildRecordSummary(recordType, payload);
       await addDoc(collection(db, "logs"), {
         type: "dossier_record_add",
         recordType,
         dossierId: id,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        recordSummary,
+        ...buildActor(),
         ts: serverTimestamp(),
       });
       return recordRef;
     },
-    [id]
+    [buildActor, id]
   );
 
   const addNote = useCallback(async (): Promise<boolean> => {
@@ -640,8 +689,10 @@ export default function DossierPage() {
         type: "dossier_group_link_add",
         dossierId: memberForm.dossierId,
         groupId: id,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        groupName: groupDisplayName,
+        memberName: memberForm.name,
+        memberRank: memberForm.rank,
+        ...buildActor(),
         ts: serverTimestamp(),
       });
       setMemberForm({
@@ -663,6 +714,7 @@ export default function DossierPage() {
     }
   }, [
     addRecordWithLog,
+    buildActor,
     groupColorHex,
     groupDisplayName,
     id,
@@ -720,8 +772,10 @@ export default function DossierPage() {
         type: "vehicle_group_link_add",
         vehicleId: vehicle.id,
         groupId: id,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        vehicleRegistration: vehicle.registration || "",
+        vehicleBrand: vehicle.brand || "",
+        groupName: groupDisplayName,
+        ...buildActor(),
         ts: serverTimestamp(),
       });
       setVehicleForm({ vehicleId: "" });
@@ -732,7 +786,15 @@ export default function DossierPage() {
     } finally {
       setVehicleSaving(false);
     }
-  }, [addRecordWithLog, groupDisplayName, id, vehicleForm.vehicleId, vehicleOptions, vehicleSaving]);
+  }, [
+    addRecordWithLog,
+    buildActor,
+    groupDisplayName,
+    id,
+    vehicleForm.vehicleId,
+    vehicleOptions,
+    vehicleSaving,
+  ]);
 
   const handleNoteModalSubmit = useCallback(async () => {
     const ok = await addNote();
@@ -1304,11 +1366,15 @@ export default function DossierPage() {
         type: "dossier_record_edit",
         dossierId: id,
         recordId: rid,
-        author: auth.currentUser?.email || "",
+        recordType: type,
+        previousText: currentText,
+        nextText: t,
+        recordSummary: buildRecordSummary(type, { text: t }),
+        ...buildActor(),
         ts: serverTimestamp(),
       });
     },
-    [alert, id, prompt]
+    [alert, buildActor, id, prompt]
   );
 
   const deleteRecord = useCallback(
@@ -1340,8 +1406,9 @@ export default function DossierPage() {
             type: "dossier_group_link_remove",
             dossierId: record.dossierId,
             groupId: id,
-            author: auth.currentUser?.email || "",
-            authorUid: auth.currentUser?.uid || "",
+            groupName: record.groupName || info.group?.name || "",
+            memberName: record.memberName || "",
+            ...buildActor(),
             ts: serverTimestamp(),
           });
         }
@@ -1361,8 +1428,10 @@ export default function DossierPage() {
             type: "vehicle_group_link_remove",
             vehicleId: record.vehicleId,
             groupId: id,
-            author: auth.currentUser?.email || "",
-            authorUid: auth.currentUser?.uid || "",
+            vehicleRegistration: record.registration || "",
+            vehicleBrand: record.brand || record.vehicleBrand || "",
+            groupName: record.groupName || info.group?.name || "",
+            ...buildActor(),
             ts: serverTimestamp(),
           });
         }
@@ -1371,14 +1440,16 @@ export default function DossierPage() {
           type: "dossier_record_delete",
           dossierId: id,
           recordId: rid,
-          author: auth.currentUser?.email || "",
+          recordType: record?.type || "",
+          recordSummary: record ? buildRecordSummary(record.type, record) : "",
+          ...buildActor(),
           ts: serverTimestamp(),
         });
       } catch (e: any) {
         setErr(e?.message || "Nie udało się usunąć wpisu.");
       }
     },
-    [confirm, id, records]
+    [buildActor, confirm, id, info, records]
   );
 
   const deleteDossier = useCallback(async () => {
@@ -1403,8 +1474,7 @@ export default function DossierPage() {
       await addDoc(collection(db, "logs"), {
         type: "dossier_delete",
         dossierId: id,
-        author: auth.currentUser?.email || "",
-        authorUid: auth.currentUser?.uid || "",
+        ...buildActor(),
         ts: serverTimestamp(),
       });
       await router.replace("/dossiers");
@@ -1413,7 +1483,7 @@ export default function DossierPage() {
     } finally {
       setDeleting(false);
     }
-  }, [canDeleteDossier, confirm, id, router]);
+  }, [buildActor, canDeleteDossier, confirm, id, router]);
 
   const personTitle = useMemo(() => {
     if (isCriminalGroup && info.group?.name) {

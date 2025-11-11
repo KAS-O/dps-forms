@@ -41,6 +41,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const decoded = await adminAuth.verifyIdToken(token);
     const login = deriveLoginFromEmail(decoded.email || "");
+    let profileFullName: string | null = null;
+    try {
+      const profileSnap = await adminDb.collection("profiles").doc(decoded.uid).get();
+      profileFullName = (profileSnap.data()?.fullName as string | undefined) || null;
+    } catch (error) {
+      console.warn("Nie udało się odczytać profilu użytkownika podczas zapisu logów aktywności:", error);
+    }
+
     const batch = adminDb.batch();
 
     events.forEach((event) => {
@@ -48,6 +56,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         ...event,
         login: event.login || login,
         uid: event.uid || decoded.uid,
+        fullName: event.fullName || profileFullName || event.login || login,
         ts: adminTimestamp.now(),
       };
       const ref = adminDb.collection("logs").doc();

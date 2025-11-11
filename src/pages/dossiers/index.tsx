@@ -28,7 +28,7 @@ export default function Dossiers() {
   const [ok, setOk] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const { role } = useProfile();
+  const { role, login: profileLogin, fullName: profileFullName } = useProfile();
   const isDirector = role === "director";
   const { confirm, alert } = useDialog();
   const { logActivity, session } = useSessionActivity();
@@ -98,6 +98,9 @@ export default function Dossiers() {
         ts: timestamp,
         author: user?.email || "",
         authorUid: user?.uid || "",
+        authorLogin: profileLogin || "",
+        authorFullName: profileFullName || "",
+        dossierTitle: title,
       });
       setForm({ first: "", last: "", cid: "" });
       setOk("Teczka została utworzona.");
@@ -141,6 +144,8 @@ export default function Dossiers() {
         dossierId,
         author: user?.email || "",
         authorUid: user?.uid || "",
+        authorLogin: profileLogin || "",
+        authorFullName: profileFullName || "",
         ts: serverTimestamp(),
       });
       setOk("Teczka została usunięta.");

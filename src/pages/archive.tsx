@@ -14,6 +14,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   orderBy,
   query,
@@ -124,6 +125,72 @@ function ensureArray(value: unknown): string[] {
     return [value];
   }
   return [];
+}
+
+function pickFirstValue(values: Record<string, unknown> | null | undefined, keys: string[]): string {
+  if (!values) return "";
+  for (const key of keys) {
+    const raw = values[key];
+    if (typeof raw === "string" && raw.trim()) {
+      return raw.trim();
+    }
+  }
+  return "";
+}
+
+function summarizeArchiveEntry(entry?: Partial<Archive> | null) {
+  if (!entry) return "";
+  const parts: string[] = [];
+  const template = entry.templateName || entry.templateSlug;
+  if (template) {
+    parts.push(template);
+  }
+
+  const values = (entry.values && typeof entry.values === "object" ? entry.values : null) as
+    | Record<string, unknown>
+    | null;
+
+  const highlightedTitle = pickFirstValue(values, [
+    "tytul",
+    "tytuł",
+    "title",
+    "nazwa",
+    "nazwaAkcji",
+    "subject",
+  ]);
+  if (highlightedTitle) {
+    parts.push(highlightedTitle);
+  }
+
+  const firstName = pickFirstValue(values, ["imie", "imię", "firstName", "first"]);
+  const lastName = pickFirstValue(values, ["nazwisko", "lastName", "last"]);
+  const personLabel = [firstName, lastName].filter(Boolean).join(" ");
+  if (personLabel) {
+    parts.push(personLabel);
+  }
+
+  const cid = entry.dossierId || pickFirstValue(values, ["cid", "numerCid", "identifier"]);
+  if (cid) {
+    parts.push(`CID: ${cid}`);
+  }
+
+  if (entry.vehicleFolderRegistration) {
+    parts.push(`Pojazd: ${entry.vehicleFolderRegistration}`);
+  }
+
+  if (entry.officers && entry.officers.length > 0) {
+    parts.push(`Funkcjonariusze: ${entry.officers.join(", ")}`);
+  }
+
+  if (entry.textContent) {
+    const trimmed = entry.textContent.trim();
+    if (trimmed) {
+      const preview = trimmed.length > 160 ? `${trimmed.slice(0, 159)}…` : trimmed;
+      parts.push(`Treść: ${preview}`);
+    }
+  }
+
+  return parts.join(" • ");
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer) {
@@ -495,9 +562,26 @@ export default function ArchivePage() {
       tone: "danger",
     });
     if (!confirmed) return;
-    
-    await deleteDoc(doc(db, "archives", id));
-    await addDoc(collection(db, "logs"), { type: "archive_delete", id, by: login, ts: serverTimestamp() });
+
+    const archiveRef = doc(db, "archives", id);
+    const archiveSnap = await getDoc(archiveRef);
+    const archiveData = (archiveSnap.exists()
+      ? ({ id: archiveSnap.id, ...(archiveSnap.data() as any) } as Partial<Archive>)
+      : null);
+
+    await deleteDoc(archiveRef);
+    await addDoc(collection(db, "logs"), {
+      type: "archive_delete",
+      archiveId: id,
+      template: archiveData?.templateName || archiveData?.templateSlug || "",
+      dossierId: archiveData?.dossierId || "",
+      vehicleRegistration: archiveData?.vehicleFolderRegistration || "",
+      officers: archiveData?.officers || [],
+      archiveSummary: summarizeArchiveEntry(archiveData),
+      by: login,
+      byFullName: fullName || "",
+      ts: serverTimestamp(),
+    });
     setItems((prev) => prev.filter((entry) => entry.id !== id));
     setSelectedIds((prev) => prev.filter((entry) => entry !== id));
   };
@@ -541,6 +625,7 @@ export default function ArchivePage() {
       await addDoc(collection(db, "logs"), {
         type: "archive_clear",
         by: login,
+        byFullName: fullName || "",
         removed: snapshot.size,
         ts: serverTimestamp(),
       });
@@ -1178,7 +1263,14 @@ export default function ArchivePage() {
                               rel="noreferrer"
                               onClick={() => {
                                 if (!session) return;
-                                void logActivity({ type: "archive_image_open", archiveId: item.id });
+                                void logActivity({
+                                  type: "archive_image_open",
+                                  archiveId: item.id,
+                                  template: item.templateName,
+                                  dossierId: item.dossierId || "",
+                                  vehicleRegistration: item.vehicleFolderRegistration || "",
+                                  archiveSummary: summarizeArchiveEntry(item),
+                                });
                               }}
                             >
                               Strona {index + 1}

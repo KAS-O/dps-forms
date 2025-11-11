@@ -2,7 +2,7 @@ import Image from "next/image";
 import Head from "next/head";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp, getDocs, query, where, limit } from "firebase/firestore";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
@@ -24,20 +24,41 @@ export default function LoginPage() {
       const email = `${login}@${LOGIN_DOMAIN}`;
       await signInWithEmailAndPassword(auth, email, password);
 
+      let profileFullName = "";
+      try {
+        const snap = await getDocs(
+          query(collection(db, "profiles"), where("login", "==", login), limit(1))
+        );
+        profileFullName = (snap.docs[0]?.data()?.fullName as string | undefined) || "";
+      } catch (error) {
+        console.warn("Nie udało się odczytać profilu podczas logowania:", error);
+      }
+
       // log sukcesu
       await addDoc(collection(db, "logs"), {
         type: "login_success",
         login,
+        fullName: profileFullName,
         ts: serverTimestamp(),
       });
 
       router.push("/dashboard");
     } catch (e: any) {
       // log niepowodzenia
+      let profileFullName = "";
+      try {
+        const snap = await getDocs(
+          query(collection(db, "profiles"), where("login", "==", login), limit(1))
+        );
+        profileFullName = (snap.docs[0]?.data()?.fullName as string | undefined) || "";
+      } catch (err) {
+        console.warn("Nie udało się odczytać profilu dla błędnego logowania:", err);
+      }
       await addDoc(collection(db, "logs"), {
         type: "login_fail",
         login,
         error: e?.code || e?.message,
+        fullName: profileFullName,
         ts: serverTimestamp(),
       });
 
