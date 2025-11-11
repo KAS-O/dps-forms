@@ -68,8 +68,9 @@ export default function LoginPage() {
             <div className="flex flex-col items-center gap-4 mb-6">
               {/* Jeśli masz PNG: zmień logo.svg na logo.png */}
               <Image src="/logo.png" alt="LSPD" width={320} height={80} priority className="floating" />
-              <h1 className="text-xl font-semibold text-center">
-                Los Santos Police Department — Panel dokumentów
+              <h1 className="text-xl font-semibold text-center leading-tight">
+                <span className="block">Los Santos Police Department</span>
+                <span className="block">Mobile Data Terminal</span>
               </h1>
             </div>
 

@@ -6,14 +6,7 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
-
-const ROLE_LABELS: Record<string, string> = {
-  director: "Director",
-  chief: "Chief Agent",
-  senior: "Senior Agent",
-  agent: "Agent",
-  rookie: "Rookie",
-};
+import { getRoleLabel } from "@/lib/roles";
 
 const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dashboard", label: "Dokumenty", color: "#38bdf8" },
@@ -52,7 +45,7 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 
 export default function Nav() {
   const { fullName, role } = useProfile();
-  const roleLabel = role ? (ROLE_LABELS[role] || role) : "";
+  const roleLabel = role ? getRoleLabel(role) : "";
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
   const router = useRouter();
@@ -109,7 +102,7 @@ export default function Nav() {
                 Archiwum
               </Link>
             )}
-            {role === "director" && (
+            {can.accessAdminPanel(role) && (
               <Link
                 href="/admin"
                 className={`nav-pill${adminActive ? " nav-pill--active" : ""}`}

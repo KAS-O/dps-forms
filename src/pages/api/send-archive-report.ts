@@ -75,7 +75,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           description: "**Wygenerowano raport archiwum.**",
           color: 0x2980b9,
           fields: summaryFields,
-          footer: { text: "DPS • Panel dokumentów" },
+          footer: { text: "DPS • Mobile Data Terminal" },
         },
       ],
     };

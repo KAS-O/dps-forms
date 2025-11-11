@@ -20,7 +20,8 @@ export default function LogsPage() {
         <div className="card p-6">
           <h1 className="text-2xl font-semibold mb-3">Logi aktywności</h1>
           <p className="text-sm text-beige-700">
-            Logi zostały przeniesione do Panelu zarządu. Przejdź do zakładki <b>Logi</b> w panelu Director, aby zobaczyć szczegółowe zestawienie zdarzeń.
+            Logi zostały przeniesione do Panelu zarządu. Przejdź do zakładki <b>Logi</b> w panelu dostępny dla rang
+            <b> Staff Commander</b> i wyższych, aby zobaczyć szczegółowe zestawienie zdarzeń.
           </p>
         </div>
       </div>
