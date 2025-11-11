@@ -41,13 +41,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const decoded = await adminAuth.verifyIdToken(token);
     const login = deriveLoginFromEmail(decoded.email || "");
+    let profileName = "";
+
+    try {
+      const profileSnap = await adminDb.collection("profiles").doc(decoded.uid).get();
+      if (profileSnap.exists) {
+        const fullName = (profileSnap.data()?.fullName as string | undefined) || "";
+        profileName = fullName.trim();
+      }
+    } catch (error) {
+      console.warn("Nie udało się pobrać profilu użytkownika dla logów aktywności:", error);
+    }
+
     const batch = adminDb.batch();
 
     events.forEach((event) => {
+      const actorUid = (event.uid as string | undefined) || (event.actorUid as string | undefined) || decoded.uid;
+      const actorLogin =
+        (event.actorLogin as string | undefined) ||
+        (event.login as string | undefined) ||
+        login;
+      const actorName =
+        (event.actorName as string | undefined)?.trim() ||
+        (event.name as string | undefined)?.trim() ||
+        profileName ||
+        (decoded.name || "").trim() ||
+        actorLogin ||
+        login;
+
       const sanitized: Record<string, any> = {
         ...event,
         login: event.login || login,
-        uid: event.uid || decoded.uid,
+        uid: actorUid,
+        actorUid,
+        actorLogin,
+        actorName,
         ts: adminTimestamp.now(),
       };
       const ref = adminDb.collection("logs").doc();
