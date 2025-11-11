@@ -8,7 +8,8 @@ service cloud.firestore {
     }
 
     function roleOf(uid) {
-      return get(/databases/$(database)/documents/profiles/$(uid)).data.role;
+      let profile = get(/databases/$(database)/documents/profiles/$(uid));
+      return profile != null && profile.data.role != null ? profile.data.role : null;
     }
 
     function isDirector() {
