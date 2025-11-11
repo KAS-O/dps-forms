@@ -484,7 +484,7 @@ export default function ArchivePage() {
     if (!can.deleteArchive(role)) {
       await alert({
         title: "Brak uprawnień",
-        message: "Tylko Director może usuwać wpisy z archiwum.",
+        message: "Tylko dowództwo (Staff Commander i wyżej) może usuwać wpisy z archiwum.",
         tone: "info",
       });
       return;
@@ -519,7 +519,7 @@ export default function ArchivePage() {
     if (!can.deleteArchive(role)) {
       await alert({
         title: "Brak uprawnień",
-        message: "Tylko Director może czyścić archiwum.",
+        message: "Tylko dowództwo (Staff Commander i wyżej) może czyścić archiwum.",
         tone: "info",
       });
       return;
@@ -660,7 +660,7 @@ export default function ArchivePage() {
       const nowDisplay = now.toLocaleString("pl-PL");
 
       const confidentialityNotice =
-        "Dokument stanowi raport z czynności służbowych funkcjonariuszy LSPD, obejmujących okres wskazany w szczegółach dokumentu. Raport jest objęty klauzulą poufności i przeznaczony wyłącznie do użytku wewnętrznego Los Santos Police Department. Udostępnianie lub modyfikowanie bez upoważnienia jest zabronione. Dokument został wygenerowany za pośrednictwem Panelu Dokumentów LSPD.";
+        "Dokument stanowi raport z czynności służbowych funkcjonariuszy LSPD, obejmujących okres wskazany w szczegółach dokumentu. Raport jest objęty klauzulą poufności i przeznaczony wyłącznie do użytku wewnętrznego Los Santos Police Department. Udostępnianie lub modyfikowanie bez upoważnienia jest zabronione. Dokument został wygenerowany za pośrednictwem Mobile Data Terminal LSPD.";
 
       const summaryBoxPaddingX = 24;
       const summaryBoxPaddingY = 22;

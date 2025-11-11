@@ -16,11 +16,12 @@ export default function LogsPage() {
     <AuthGate>
       <Head><title>LSPD 77RP — Logi</title></Head>
       <Nav />
-     <div className="max-w-4xl mx-auto px-4 py-10">
+      <div className="max-w-4xl mx-auto px-4 py-10">
         <div className="card p-6">
           <h1 className="text-2xl font-semibold mb-3">Logi aktywności</h1>
           <p className="text-sm text-beige-700">
-            Logi zostały przeniesione do Panelu zarządu. Przejdź do zakładki <b>Logi</b> w panelu Director, aby zobaczyć szczegółowe zestawienie zdarzeń.
+            Logi zostały przeniesione do Panelu zarządu. Przejdź do zakładki <b>Logi</b> w panelu dowódczym (Staff Commander i
+            wyżej), aby zobaczyć szczegółowe zestawienie zdarzeń.
           </p>
         </div>
       </div>

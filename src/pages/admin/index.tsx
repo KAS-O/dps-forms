@@ -29,6 +29,7 @@ import { deriveLoginFromEmail } from "@/lib/login";
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useAnnouncement } from "@/hooks/useAnnouncement";
+import { ROLE_LABELS, ROLE_OPTIONS, hasBoardAccess, DEFAULT_ROLE } from "@/lib/roles";
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
@@ -41,14 +42,6 @@ type Account = {
   role: Role;
   email: string;
   createdAt?: string;
-};
-
-const ROLE_NAMES: Record<Role, string> = {
-  director: "Director",
-  chief: "Chief Agent",
-  senior: "Senior Agent",
-  agent: "Agent",
-  rookie: "Rookie",
 };
 
 const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
@@ -285,7 +278,7 @@ export default function Admin() {
   );
 
   useEffect(() => {
-    if (role !== "director") return;
+    if (!hasBoardAccess(role)) return;
     setLogPages([]);
     setLogCursors([]);
     setLogPageHasMore([]);
@@ -296,7 +289,7 @@ export default function Admin() {
   }, [logFilters, role]);
 
   useEffect(() => {
-    if (role !== "director") {
+    if (!hasBoardAccess(role)) {
       setLogsLoading(false);
       return;
     }
@@ -529,7 +522,7 @@ export default function Admin() {
   const openCreateAccount = () => {
     setEditorState({
       mode: "create",
-      account: { login: "", fullName: "", role: "rookie", email: "" },
+      account: { login: "", fullName: "", role: DEFAULT_ROLE, email: "" },
       password: "",
     });
   };
@@ -546,7 +539,7 @@ export default function Admin() {
     if (!editorState) return;
     const loginValue = (editorState.account.login || "").trim().toLowerCase();
     const fullNameValue = (editorState.account.fullName || "").trim();
-    const roleValue = (editorState.account.role || "rookie") as Role;
+    const roleValue: Role = editorState.account.role || DEFAULT_ROLE;
     const passwordValue = (editorState.password || "").trim();
 
     if (!loginValue) {
@@ -1085,19 +1078,19 @@ export default function Admin() {
 
   // lifecycle
   useEffect(() => {
-    if (!ready || role !== "director") return;
+    if (!ready || !hasBoardAccess(role)) return;
     recalcAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, role, since]);
 
   useEffect(() => {
-    if (!ready || role !== "director" || !person) return;
+    if (!ready || !hasBoardAccess(role) || !person) return;
     recalcPerson();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, role, person, since, people]);
 
   useEffect(() => {
-    if (!ready || role !== "director") return;
+    if (!ready || !hasBoardAccess(role)) return;
     if (section !== "hr") return;
     loadAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1228,13 +1221,15 @@ export default function Admin() {
       </AuthGate>
     );
   }
-  if (role !== "director") {
+  if (!hasBoardAccess(role)) {
     return (
       <AuthGate>
         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
         <Nav />
         <div className="max-w-4xl mx-auto px-4 py-8">
-          <div className="card p-6 text-center">Brak dostępu. Tylko <b>Director</b> może otworzyć Panel zarządu.</div>
+          <div className="card p-6 text-center">
+            Brak dostępu. Panel zarządu jest dostępny dla rang <b>Staff Commander</b> i wyższych.
+          </div>
         </div>
       </AuthGate>
     );
@@ -1442,7 +1437,7 @@ export default function Admin() {
                             Login: <span className="font-mono text-base">{acc.login}@{loginDomain}</span>
                           </p>
                           <p className="text-xs uppercase tracking-wide text-beige-600 mt-1">
-                            Ranga: {ROLE_NAMES[acc.role] || acc.role}
+                            Ranga: {ROLE_LABELS[acc.role] || acc.role}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1533,7 +1528,8 @@ export default function Admin() {
                 <div className="card bg-gradient-to-br from-amber-900/85 via-amber-800/85 to-stone-900/80 text-white p-6 shadow-xl">
                   <h2 className="text-xl font-semibold">Monitor aktywności</h2>
                   <p className="text-sm text-white/70">
-                    Historia logowań, zmian danych i wszystkich operacji w panelu. Dostępna wyłącznie dla Director.
+                    Historia logowań, zmian danych i wszystkich operacji w panelu. Dostępna wyłącznie dla dowództwa (Staff
+                    Commander i wyżej).
                   </p>
                   <p className="mt-2 text-xs text-white/60">
                     Lista obejmuje pełną historię działań i jest stronicowana po {LOG_PAGE_SIZE} wpisów. Skorzystaj z filtrów,
@@ -1803,7 +1799,7 @@ export default function Admin() {
                 <label className="text-sm font-semibold text-white/80">Ranga</label>
                 <select
                   className="input bg-white text-black"
-                  value={editorState.account.role || "rookie"}
+                  value={editorState.account.role || DEFAULT_ROLE}
                   onChange={(e) =>
                     setEditorState((prev) =>
                       prev
@@ -1812,7 +1808,7 @@ export default function Admin() {
                     )
                   }
                 >
-                  {Object.entries(ROLE_NAMES).map(([value, label]) => (
+                  {ROLE_OPTIONS.map(({ value, label }) => (
                     <option key={value} value={value}>
                       {label}
                     </option>
