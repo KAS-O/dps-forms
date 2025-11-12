@@ -16,7 +16,7 @@ import {
   normalizeDepartment,
   type Department,
 } from "@/lib/hr";
-import { normalizeRole, type Role } from "@/lib/roles";
+import { normalizeRole, type Role, isHighCommand } from "@/lib/roles";
 import { resolveUnitPermission, getUnitSection } from "@/lib/internalUnits";
 
 const SUPPORTED_UNITS = new Set<InternalUnit>(["iad", "swat-sert", "usms", "dtu", "gu", "ftd"]);
@@ -38,23 +38,43 @@ type UpdatePayload = {
   ranks?: AdditionalRank[];
 };
 
-async function ensureUnitAccess(req: NextApiRequest, unit: InternalUnit) {
+type RequesterContext = {
+  idToken: string;
+  permission: ReturnType<typeof resolveUnitPermission> | null;
+  role: Role | null;
+  units: InternalUnit[];
+};
+
+async function loadRequesterContext(req: NextApiRequest, unit: InternalUnit): Promise<RequesterContext> {
   const idToken = extractBearerToken(req);
-  const lookup = await identityToolkitRequest<{ users: IdentityToolkitUser[] }>("/accounts:lookup", {
-    idToken,
-  });
+  const lookup = await identityToolkitRequest<{ users: IdentityToolkitUser[] }>("/accounts:lookup", { idToken });
   const user = lookup?.users?.[0];
   if (!user?.localId) {
     throw Object.assign(new Error("Nieautoryzowany"), { status: 401 });
   }
+
   const profileDoc = await fetchFirestoreDocument(`profiles/${user.localId}`, idToken);
   const profileData = decodeFirestoreDocument(profileDoc);
   const additionalRanks = normalizeAdditionalRanks(profileData.additionalRanks ?? profileData.additionalRank);
-  const permission = resolveUnitPermission(unit, additionalRanks);
+  const units = normalizeInternalUnits(profileData.units);
+  const role = normalizeRole(profileData.role);
+
+  let permission = resolveUnitPermission(unit, additionalRanks);
   if (!permission) {
-    throw Object.assign(new Error("Brak uprawnień"), { status: 403 });
+    const section = getUnitSection(unit);
+    if (section && isHighCommand(role)) {
+      const [highest, ...rest] = section.rankHierarchy;
+      if (highest) {
+        permission = {
+          unit,
+          highestRank: highest,
+          manageableRanks: rest,
+        };
+      }
+    }
   }
-  return { idToken, permission };
+
+  return { idToken, permission, role, units };
 }
 
 function parseUnitParam(value: string | string[] | undefined): InternalUnit | null {
@@ -162,13 +182,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { idToken, permission } = await ensureUnitAccess(req, unit);
+    const context = await loadRequesterContext(req, unit);
 
     if (req.method === "GET") {
-      const documents = await listFirestoreCollection("profiles", idToken, { pageSize: 200 });
+      const canView =
+        Boolean(context.permission) || context.units.includes(unit) || isHighCommand(context.role);
+      if (!canView) {
+        return res.status(403).json({ error: "Brak uprawnień" });
+      }
+      const documents = await listFirestoreCollection("profiles", context.idToken, { pageSize: 200 });
       const members = documents.map(buildMember);
       members.sort((a, b) => a.fullName.localeCompare(b.fullName, "pl", { sensitivity: "base" }));
       return res.status(200).json({ members });
+    }
+
+    const permission = context.permission;
+    if (!permission) {
+      return res.status(403).json({ error: "Brak uprawnień" });
     }
 
     const payload = readBody(req);
@@ -188,7 +218,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Próba nadania rangi spoza zakresu uprawnień." });
     }
 
-    const targetDoc = await fetchFirestoreDocument(`profiles/${encodeURIComponent(targetUid)}`, idToken);
+    const targetDoc = await fetchFirestoreDocument(`profiles/${encodeURIComponent(targetUid)}`, context.idToken);
     if (!targetDoc) {
       return res.status(404).json({ error: "Nie znaleziono profilu funkcjonariusza." });
     }
@@ -255,7 +285,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    await patchFirestoreDocument(`profiles/${encodeURIComponent(targetUid)}`, idToken, updates);
+    await patchFirestoreDocument(`profiles/${encodeURIComponent(targetUid)}`, context.idToken, updates);
 
     return res.status(200).json({
       member: {

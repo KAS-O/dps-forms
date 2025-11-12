@@ -5,6 +5,7 @@ import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import { useProfile } from "@/hooks/useProfile";
 import { auth } from "@/lib/firebase";
+import GangUnitCriminalGroups from "@/components/units/GangUnitCriminalGroups";
 import {
   getAdditionalRankOption,
   getDepartmentOption,
@@ -13,16 +14,42 @@ import {
   type Department,
   type InternalUnit,
 } from "@/lib/hr";
-import { ROLE_LABELS, type Role } from "@/lib/roles";
+import { ROLE_LABELS, isHighCommand, type Role } from "@/lib/roles";
 import {
   getUnitSection,
   resolveUnitPermission,
   formatManageableRankList,
+  type UnitPermission,
   type UnitSectionConfig,
 } from "@/lib/internalUnits";
 
 const CHIP_CLASS =
   "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide shadow-sm";
+
+type TabKey = "home" | "management" | "criminal-groups";
+
+type TabDefinition = {
+  value: TabKey;
+  label: string;
+  description: string;
+  chip: string;
+};
+
+function formatInitials(fullName?: string | null, login?: string | null): string {
+  const source = fullName && fullName.trim().length > 0 ? fullName : login || "";
+  if (!source) return "?";
+  const parts = source
+    .replace(/[^a-ząćęłńóśźż0-9\s]/gi, " ")
+    .split(" ")
+    .filter(Boolean);
+  if (parts.length === 0) {
+    return source.slice(0, 2).toUpperCase();
+  }
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
 
 async function readErrorResponse(res: Response, fallback: string): Promise<string> {
   const contentType = res.headers.get("content-type") || "";
@@ -238,22 +265,102 @@ export default function UnitPanelPage() {
   const unitSlug = Array.isArray(router.query.unit) ? router.query.unit[0] : router.query.unit;
   const normalizedUnit = (unitSlug ? unitSlug.toLowerCase() : "") as InternalUnit;
   const section: UnitSectionConfig | null = unitSlug ? getUnitSection(normalizedUnit) : null;
-  const { additionalRanks, ready } = useProfile();
-  const permission = useMemo(
+  const { additionalRanks, ready, units: profileUnits = [], role } = useProfile();
+  const isHighCommandRole = isHighCommand(role);
+  const basePermission = useMemo(
     () => (section ? resolveUnitPermission(section.unit, additionalRanks) : null),
     [section, additionalRanks]
   );
+  const highCommandPermission = useMemo<UnitPermission | null>(() => {
+    if (!section || !isHighCommandRole) {
+      return null;
+    }
+    const [highest, ...rest] = section.rankHierarchy;
+    if (!highest) {
+      return null;
+    }
+    return {
+      unit: section.unit,
+      highestRank: highest,
+      manageableRanks: rest,
+    };
+  }, [section, isHighCommandRole]);
+  const permission: UnitPermission | null = basePermission ?? highCommandPermission;
+
   const [members, setMembers] = useState<UnitMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [mutating, setMutating] = useState<string | null>(null);
+  const [tab, setTab] = useState<TabKey>("home");
 
+  const membershipUnits = useMemo(
+    () => (Array.isArray(profileUnits) ? profileUnits : []),
+    [profileUnits]
+  );
   const unit = section?.unit ?? null;
+  const isMember = useMemo(
+    () => (section ? membershipUnits.includes(section.unit) : false),
+    [membershipUnits, section]
+  );
+  const canViewRoster = Boolean(section && (isMember || permission || isHighCommandRole));
+  const canManage = Boolean(permission);
+
+  const tabDefinitions = useMemo<TabDefinition[]>(() => {
+    if (!section) {
+      return [
+        {
+          value: "home",
+          label: "Strona główna jednostki",
+          description: "Przegląd informacji o jednostce oraz jej obsady.",
+          chip: "Panel jednostki",
+        },
+      ];
+    }
+    const entries: TabDefinition[] = [
+      {
+        value: "home",
+        label: `Strona główna ${section.label}`,
+        description: "Ogólny widok jednostki, obsada i najważniejsze informacje.",
+        chip: section.shortLabel || "Panel jednostki",
+      },
+    ];
+    if (canManage) {
+      entries.push({
+        value: "management",
+        label: "Zarządzanie jednostką",
+        description: "Zarządzaj członkostwem funkcjonariuszy i rangami jednostki.",
+        chip: "Zarządzanie",
+      });
+      if (section.unit === "gu") {
+        entries.push({
+          value: "criminal-groups",
+          label: "Grupy przestępcze",
+          description: "Rejestr organizacji monitorowanych przez Gang Unit.",
+          chip: "Operacje GU",
+        });
+      }
+    }
+    return entries;
+  }, [section, canManage]);
+
+  useEffect(() => {
+    if (!tabDefinitions.length) {
+      return;
+    }
+    if (!tabDefinitions.some((definition) => definition.value === tab)) {
+      setTab(tabDefinitions[0].value);
+    }
+  }, [tabDefinitions, tab]);
+
+  const activeTabDefinition = tabDefinitions.find((definition) => definition.value === tab) ?? tabDefinitions[0];
 
   const loadMembers = useCallback(async () => {
-    if (!unit || !permission) return;
+    if (!unit || !canViewRoster) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -274,15 +381,22 @@ export default function UnitPanelPage() {
     } finally {
       setLoading(false);
     }
-  }, [unit, permission]);
+  }, [unit, canViewRoster]);
 
   useEffect(() => {
-    if (unit && permission) {
+    if (!unit) {
+      setLoading(false);
+      return;
+    }
+    if (!ready) {
+      return;
+    }
+    if (canViewRoster) {
       loadMembers();
     } else {
       setLoading(false);
     }
-  }, [unit, permission, loadMembers]);
+  }, [unit, ready, canViewRoster, loadMembers]);
 
   const handleSubmit = useCallback(
     async (uid: string, update: MemberUpdate) => {
@@ -373,72 +487,188 @@ export default function UnitPanelPage() {
         </Head>
         <Nav />
         <main className="min-h-screen px-4 py-8">
-          <div className="mx-auto flex max-w-5xl flex-col gap-6">
-            <div className="card space-y-5 p-6" data-section="unit-management">
-              <span className="section-chip">
-                <span
-                  className="section-chip__dot"
-                  style={{ background: section ? section.navColor : "#38bdf8" }}
-                  aria-hidden
-                />
-                Zarządzanie funkcjonariuszami
-              </span>
-              <div className="space-y-2">
-                <h1 className="text-3xl font-bold tracking-tight">
-                  {section ? section.label : "Nieznana jednostka"}
-                </h1>
-                <p className="text-sm text-white/70">{accessMessage}</p>
-              </div>
-
-              {!section && (
-                <div className="text-sm text-red-300">
-                  Nie znaleziono konfiguracji dla podanej jednostki.
+          <div className="mx-auto w-full max-w-6xl">
+            <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+              <aside className="card space-y-4 p-5 text-white" aria-label="Nawigacja jednostki">
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/70">Sekcje jednostki</span>
+                  <h1 className="text-2xl font-semibold text-white">{section?.label || "Jednostka"}</h1>
+                  <p className="text-sm text-white/60">
+                    Wybierz obszar pracy jednostki i przełączaj się między modułami bez przewijania bocznego panelu.
+                  </p>
                 </div>
-              )}
+                <nav className="flex flex-col gap-2">
+                  {tabDefinitions.map((definition) => {
+                    const active = definition.value === tab;
+                    return (
+                      <button
+                        key={definition.value}
+                        type="button"
+                        onClick={() => setTab(definition.value)}
+                        className={`rounded-2xl border px-4 py-3 text-left transition ${
+                          active
+                            ? "border-white/50 bg-white/15 shadow-[0_18px_40px_-28px_rgba(59,130,246,0.8)]"
+                            : "border-white/10 bg-white/5 hover:bg-white/10"
+                        }`}
+                      >
+                        <div className="text-sm font-semibold text-white">{definition.label}</div>
+                        <p className="mt-1 text-xs text-white/70">{definition.description}</p>
+                      </button>
+                    );
+                  })}
+                </nav>
+              </aside>
 
-              {ready && !permission && section && (
-                <div className="text-sm text-red-300">
-                  Nie masz uprawnień do zarządzania tą jednostką.
-                </div>
-              )}
-
-              {permission && (
-                <>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <input
-                      className="input flex-1 min-w-[200px]"
-                      placeholder="Wyszukaj funkcjonariusza..."
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+              <div className="space-y-6">
+                <div className="card space-y-4 p-6" data-section={tab}>
+                  <span className="section-chip">
+                    <span
+                      className="section-chip__dot"
+                      style={{ background: section ? section.navColor : "#38bdf8" }}
+                      aria-hidden
                     />
-                    <button className="btn btn--ghost btn--small" onClick={loadMembers} disabled={loading}>
-                      Odśwież
-                    </button>
+                    {activeTabDefinition?.chip || "Panel jednostki"}
+                  </span>
+                  <div className="space-y-2">
+                    <h2 className="text-3xl font-bold tracking-tight">
+                      {activeTabDefinition?.label || section?.label || "Jednostka"}
+                    </h2>
+                    <p className="text-sm text-white/70">
+                      {activeTabDefinition?.description || "Wybierz sekcję, aby rozpocząć pracę w tej jednostce."}
+                    </p>
                   </div>
-
-                  {error && <div className="text-sm text-red-300">{error}</div>}
-                  {actionError && <div className="text-sm text-red-300">{actionError}</div>}
-
-                  {loading ? (
-                    <div className="text-sm text-white/60">Ładowanie danych...</div>
-                  ) : filteredMembers.length === 0 ? (
-                    <div className="text-sm text-white/60">Brak funkcjonariuszy spełniających kryteria.</div>
-                  ) : (
-                    <div className="space-y-4">
-                      {filteredMembers.map((member) => (
-                        <MemberRow
-                          key={member.uid}
-                          member={member}
-                          unit={unit!}
-                          manageableRanks={manageableRanks}
-                          onSubmit={handleSubmit}
-                          saving={mutating === member.uid}
-                        />
-                      ))}
-                    </div>
+                  {!section && (
+                    <div className="text-sm text-red-300">Nie znaleziono konfiguracji dla podanej jednostki.</div>
                   )}
-                </>
-              )}
+                  {ready && !canManage && tab === "management" && section && (
+                    <div className="text-sm text-red-300">Nie masz uprawnień do zarządzania tą jednostką.</div>
+                  )}
+                </div>
+
+                {tab === "home" && (
+                  <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                    <div className="space-y-6">
+                      <div className="card p-6">
+                        <h3 className="text-xl font-semibold text-white">Panel informacji</h3>
+                        <p className="mt-2 text-sm text-white/70">
+                          Sekcja przeznaczona na komunikaty, procedury oraz dokumenty operacyjne jednostki.
+                        </p>
+                        <div className="mt-4 rounded-2xl border border-white/15 bg-white/5 p-4 text-sm text-white/60">
+                          Dodaj tutaj kluczowe informacje i aktualizacje — moduł jest gotowy na uzupełnienie.
+                        </div>
+                      </div>
+                      <div className="card p-6">
+                        <h3 className="text-xl font-semibold text-white">Zadania jednostki</h3>
+                        <p className="mt-2 text-sm text-white/70">
+                          W tym miejscu możesz wypisać bieżące cele, priorytety i wskaźniki dla zespołu.
+                        </p>
+                        <div className="mt-4 grid gap-3 text-sm text-white/70 md:grid-cols-2">
+                          <div className="rounded-2xl border border-white/15 bg-white/5 p-4">
+                            <div className="text-xs uppercase tracking-[0.3em] text-white/50">Priorytet</div>
+                            <div className="mt-2 text-lg font-semibold text-white">Do ustalenia</div>
+                            <p className="mt-1 text-xs text-white/60">Uzupełnij priorytety, aby funkcjonariusze wiedzieli nad czym pracować.</p>
+                          </div>
+                          <div className="rounded-2xl border border-white/15 bg-white/5 p-4">
+                            <div className="text-xs uppercase tracking-[0.3em] text-white/50">Kontakt</div>
+                            <div className="mt-2 text-lg font-semibold text-white">Do uzupełnienia</div>
+                            <p className="mt-1 text-xs text-white/60">Dodaj dane kontaktowe dowództwa oraz kanały komunikacji.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="card bg-white/95 p-5 text-slate-900 shadow">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-lg font-semibold text-slate-900">Skład jednostki</h3>
+                          <p className="text-xs text-slate-500">Lista funkcjonariuszy przypisanych do sekcji.</p>
+                        </div>
+                        <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                          {loading ? "—" : members.length}
+                        </span>
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        {loading ? (
+                          <div className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-600">
+                            Ładowanie danych...
+                          </div>
+                        ) : !canViewRoster ? (
+                          <div className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-600">
+                            Brak dostępu do listy funkcjonariuszy tej jednostki.
+                          </div>
+                        ) : error ? (
+                          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+                        ) : members.length === 0 ? (
+                          <div className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-600">
+                            Brak przypisanych funkcjonariuszy.
+                          </div>
+                        ) : (
+                          <ul className="space-y-2">
+                            {members.map((member) => (
+                              <li
+                                key={member.uid}
+                                className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2"
+                              >
+                                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-sm font-semibold text-white">
+                                  {formatInitials(member.fullName, member.login)}
+                                </span>
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-semibold text-slate-900">{member.fullName || "Bez nazwy"}</span>
+                                  <span className="text-xs text-slate-500">
+                                    {member.login}
+                                    {member.badgeNumber ? ` • #${member.badgeNumber}` : ""}
+                                  </span>
+                                  <span className="text-xs text-slate-500">{ROLE_LABELS[member.role] || member.role}</span>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {tab === "management" && canManage && section && (
+                  <div className="card space-y-5 p-6" data-section="unit-management">
+                    <p className="text-sm text-white/70">{accessMessage}</p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <input
+                        className="input flex-1 min-w-[200px]"
+                        placeholder="Wyszukaj funkcjonariusza..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
+                      <button className="btn btn--ghost btn--small" onClick={loadMembers} disabled={loading}>
+                        Odśwież
+                      </button>
+                    </div>
+
+                    {!loading && error && <div className="text-sm text-red-300">{error}</div>}
+                    {actionError && <div className="text-sm text-red-300">{actionError}</div>}
+
+                    {loading ? (
+                      <div className="text-sm text-white/60">Ładowanie danych...</div>
+                    ) : filteredMembers.length === 0 ? (
+                      <div className="text-sm text-white/60">Brak funkcjonariuszy spełniających kryteria.</div>
+                    ) : (
+                      <div className="space-y-4">
+                        {filteredMembers.map((member) => (
+                          <MemberRow
+                            key={member.uid}
+                            member={member}
+                            unit={section.unit}
+                            manageableRanks={manageableRanks}
+                            onSubmit={handleSubmit}
+                            saving={mutating === member.uid}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {tab === "criminal-groups" && canManage && section?.unit === "gu" && <GangUnitCriminalGroups />}
+              </div>
             </div>
           </div>
         </main>
