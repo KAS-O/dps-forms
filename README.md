@@ -36,6 +36,19 @@ Reguły obejmują m.in. możliwość zakładania teczek (`/dossiers/{id}`) przez
 - Aktualne reguły Firestore już pozwalają kadrze kierowniczej (`isBoard()`) na odczyt i modyfikację profili – nie są wymagane
   dodatkowe zmiany ani indeksy dla nowych funkcji działu kadr.
 
+### Tryb awaryjny (bez Firebase Admin)
+Jeżeli nie możesz wgrać poświadczeń usługi (np. na środowisku testowym), panel kadr potrafi teraz tworzyć konta w oparciu o
+REST API Firebase (Identity Toolkit + Firestore). Aby z niego skorzystać:
+
+1. Upewnij się, że w `.env.local`/zmiennych środowiskowych ustawione są `NEXT_PUBLIC_FIREBASE_API_KEY` oraz
+   `NEXT_PUBLIC_FIREBASE_PROJECT_ID`.
+2. Zaloguj się kontem członka dowództwa – token ID jest wykorzystywany do autoryzacji żądań REST.
+3. Po utworzeniu konta profil użytkownika zapisuje się w kolekcji `profiles`, więc pamiętaj o zdeployowaniu nowych reguł
+   Firestore (`firebase/firestore.rules`).
+
+W trybie awaryjnym dostępne jest **tworzenie kont** i edycja podstawowych pól profilu (`fullName`, `role`, `badgeNumber`).
+Zmiana loginu/hasła oraz usuwanie kont wciąż wymagają konfiguracji Firebase Admin.
+
 ### Konfiguracja Firebase Admin dla Vercel/Firebase
 1. W konsoli Firebase przejdź do **Ustawienia projektu → Konta usługi** i wygeneruj nowy klucz JSON dla konta z rolą
    co najmniej **Firebase Authentication Admin** (w praktyce rola `Editor` również działa).
