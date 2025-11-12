@@ -1,9 +1,21 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { adminAuth, adminDb, adminFieldValue } from "@/lib/firebaseAdmin";
 import { Role, normalizeRole, hasBoardAccess } from "@/lib/roles";
 
-if (!adminAuth || !adminDb || !adminFieldValue) {
-  console.warn("Firebase Admin SDK is not configured.");
+const FIREBASE_API_KEY = process.env.FIREBASE_REST_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
+const FIREBASE_PROJECT_ID =
+  process.env.FIREBASE_REST_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "";
+
+const IDENTITY_BASE_URL = "https://identitytoolkit.googleapis.com/v1";
+const FIRESTORE_BASE_URL = FIREBASE_PROJECT_ID
+  ? `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)`
+  : "";
+
+if (!FIREBASE_API_KEY) {
+  console.warn("Brak klucza API Firebase (FIREBASE_REST_API_KEY / NEXT_PUBLIC_FIREBASE_API_KEY).");
+}
+
+if (!FIREBASE_PROJECT_ID) {
+  console.warn("Brak identyfikatora projektu Firebase (FIREBASE_REST_PROJECT_ID / NEXT_PUBLIC_FIREBASE_PROJECT_ID).");
 }
 
 type AccountResponse = {
@@ -16,182 +28,288 @@ type AccountResponse = {
   badgeNumber?: string;
 };
 
-async function verifyBoardAccess(req: NextApiRequest) {
-  if (!adminAuth || !adminDb) {
-    throw new Error("Brak konfiguracji Firebase Admin");
-  }
+type IdentityToolkitUser = {
+  localId: string;
+  email?: string;
+  displayName?: string;
+};
+
+type FirestoreDocument = {
+  name?: string;
+  fields?: Record<string, any>;
+  createTime?: string;
+  updateTime?: string;
+};
+
+function extractBearerToken(req: NextApiRequest): string {
   const header = req.headers.authorization;
   if (!header || !header.startsWith("Bearer ")) {
-    throw new Error("Brak tokenu uwierzytelniającego");
+    throw Object.assign(new Error("Brak tokenu uwierzytelniającego"), { status: 401 });
   }
-  const token = header.slice(7);
-  const decoded = await adminAuth.verifyIdToken(token);
-  const profileSnap = await adminDb.collection("profiles").doc(decoded.uid).get();
-  const role = normalizeRole(profileSnap.data()?.role);
-  if (!hasBoardAccess(role)) {
-    throw new Error("FORBIDDEN");
-  }
-  return decoded;
+  return header.slice(7);
 }
 
-function profileTimestampToString(value: any): string | undefined {
-  if (!value) return undefined;
-  if (typeof value === "string") return value;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value.toDate === "function") {
-    try {
-      const date = value.toDate();
-      if (date instanceof Date) {
-        return date.toISOString();
-      }
-    } catch (err) {
-      console.warn("Nie udało się przekształcić znacznika czasu profilu na string:", err);
-    }
+async function identityToolkitRequest<T>(path: string, body: unknown): Promise<T> {
+  if (!FIREBASE_API_KEY) {
+    throw Object.assign(new Error("Brak konfiguracji Firebase API key"), { status: 500 });
   }
-  return undefined;
-}
-
-function normalizeBadgeNumber(value: unknown): string | undefined {
-  if (typeof value === "string" || typeof value === "number") {
-    const normalized = String(value).trim();
-    if (normalized) return normalized;
-  }
-  return undefined;
-}
-
-function buildAccountsFromProfiles(profiles: Map<string, any>): AccountResponse[] {
-  const fallbackAccounts: AccountResponse[] = [];
-  profiles.forEach((profile, uid) => {
-    const rawLogin = typeof profile?.login === "string" ? profile.login.trim() : "";
-    const loginFromEmail = typeof profile?.email === "string" ? profile.email.split("@")[0] : "";
-    const login = (rawLogin || loginFromEmail || uid || "").toLowerCase();
-    const email = `${login}@${LOGIN_DOMAIN}`;
-    const fullName = typeof profile?.fullName === "string" && profile.fullName ? profile.fullName : login;
-    const createdAt = profileTimestampToString(profile?.createdAt);
-    const badgeNumber = normalizeBadgeNumber(profile?.badgeNumber);
-
-    fallbackAccounts.push({
-      uid,
-      login,
-      fullName,
-      role: normalizeRole(profile?.role),
-      email,
-      ...(badgeNumber ? { badgeNumber } : {}),
-      ...(createdAt ? { createdAt } : {}),
-    });
+  const url = `${IDENTITY_BASE_URL}${path}?key=${encodeURIComponent(FIREBASE_API_KEY)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
-
-  fallbackAccounts.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login));
-  return fallbackAccounts;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = data?.error?.message || "Błąd komunikacji z Firebase Identity Toolkit";
+    throw Object.assign(new Error(mapIdentityToolkitError(message)), { status: res.status });
+  }
+  return data as T;
 }
 
-async function listAccounts(): Promise<AccountResponse[]> {
-  if (!adminDb) return [];
-
-  const profiles = new Map<string, any>();
-  try {
-    const profilesSnap = await adminDb.collection("profiles").get();
-    profilesSnap.forEach((doc) => profiles.set(doc.id, doc.data()));
-  } catch (error) {
-    console.error("Nie udało się pobrać profili użytkowników:", error);
+function mapIdentityToolkitError(message: string): string {
+  switch (message) {
+    case "EMAIL_EXISTS":
+      return "Login jest już zajęty.";
+    case "INVALID_EMAIL":
+    case "INVALID_ID_TOKEN":
+      return "Nieprawidłowe dane logowania lub token.";
+    case "WEAK_PASSWORD : Password should be at least 6 characters":
+    case "WEAK_PASSWORD":
+    case "INVALID_PASSWORD":
+      return "Hasło musi mieć co najmniej 6 znaków.";
+    default:
+      return "Błąd usługi Firebase: " + message;
   }
+}
 
-  if (!adminAuth) {
-    return buildAccountsFromProfiles(profiles);
+function decodeFirestoreValue(value: any): any {
+  if (value == null || typeof value !== "object") return undefined;
+  if ("stringValue" in value) return value.stringValue;
+  if ("integerValue" in value) return Number(value.integerValue);
+  if ("doubleValue" in value) return Number(value.doubleValue);
+  if ("booleanValue" in value) return Boolean(value.booleanValue);
+  if ("timestampValue" in value) return value.timestampValue;
+  if ("arrayValue" in value) {
+    const arr = Array.isArray(value.arrayValue?.values) ? value.arrayValue.values : [];
+    return arr.map(decodeFirestoreValue);
   }
+  if ("mapValue" in value) {
+    const fields = value.mapValue?.fields || {};
+    const result: Record<string, any> = {};
+    Object.entries(fields).forEach(([k, v]) => {
+      result[k] = decodeFirestoreValue(v);
+    });
+    return result;
+  }
+  return undefined;
+}
 
+function decodeFirestoreDocument(doc: FirestoreDocument): Record<string, any> {
+  const result: Record<string, any> = {};
+  if (!doc?.fields) return result;
+  Object.entries(doc.fields).forEach(([key, value]) => {
+    result[key] = decodeFirestoreValue(value);
+  });
+  if (doc.createTime) {
+    result.createdAt = result.createdAt || doc.createTime;
+  }
+  if (doc.updateTime) {
+    result.updatedAt = doc.updateTime;
+  }
+  return result;
+}
+
+function encodeFirestoreFields(data: Record<string, any>): Record<string, any> {
+  const fields: Record<string, any> = {};
+  Object.entries(data).forEach(([key, value]) => {
+    if (value == null) return;
+    if (typeof value === "string") {
+      fields[key] = { stringValue: value };
+    } else if (typeof value === "number") {
+      fields[key] = Number.isInteger(value)
+        ? { integerValue: value }
+        : { doubleValue: value };
+    } else if (typeof value === "boolean") {
+      fields[key] = { booleanValue: value };
+    } else if (value instanceof Date) {
+      fields[key] = { timestampValue: value.toISOString() };
+    } else {
+      fields[key] = { stringValue: String(value) };
+    }
+  });
+  return fields;
+}
+
+async function fetchFirestoreDocument(path: string, idToken: string): Promise<FirestoreDocument | null> {
+  if (!FIRESTORE_BASE_URL) {
+    throw Object.assign(new Error("Brak konfiguracji projektu Firestore"), { status: 500 });
+  }
+  const url = `${FIRESTORE_BASE_URL}/documents/${path}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+    },
+  });
+  if (res.status === 404) {
+    return null;
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = data?.error?.message || "Błąd pobierania dokumentu Firestore";
+    throw Object.assign(new Error(message), { status: res.status });
+  }
+  return data as FirestoreDocument;
+}
+
+async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]> {
+  if (!FIRESTORE_BASE_URL) {
+    throw Object.assign(new Error("Brak konfiguracji projektu Firestore"), { status: 500 });
+  }
   const accounts: AccountResponse[] = [];
   let pageToken: string | undefined;
 
-  try {
-    do {
-      const res = await adminAuth.listUsers(1000, pageToken);
-      res.users.forEach((user) => {
-        const profile = profiles.get(user.uid) || {};
-        const badgeNumber = normalizeBadgeNumber(profile?.badgeNumber);
-        accounts.push({
-          uid: user.uid,
-          login: profile.login || user.email?.split("@")[0] || "",
-          fullName: profile.fullName || user.displayName || "",
-          role: normalizeRole(profile.role),
-          email: user.email || "",
-          ...(badgeNumber ? { badgeNumber } : {}),
-          createdAt: user.metadata.creationTime || undefined,
-        });
+  do {
+    const url = new URL(`${FIRESTORE_BASE_URL}/documents/profiles`);
+    url.searchParams.set("pageSize", "200");
+    if (pageToken) {
+      url.searchParams.set("pageToken", pageToken);
+    }
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+      },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = data?.error?.message || "Nie udało się pobrać profili użytkowników.";
+      throw Object.assign(new Error(message), { status: res.status });
+    }
+    const documents: FirestoreDocument[] = Array.isArray(data?.documents) ? data.documents : [];
+    documents.forEach((doc) => {
+      const payload = decodeFirestoreDocument(doc);
+      const uid = doc.name?.split("/").pop() || payload.uid;
+      const loginRaw = typeof payload.login === "string" ? payload.login.trim() : "";
+      const login = loginRaw || (payload.email ? String(payload.email).split("@")[0] : "") || uid || "";
+      const role = normalizeRole(payload.role);
+      const badgeNumber = typeof payload.badgeNumber === "string" ? payload.badgeNumber.trim() : undefined;
+      const createdAt = typeof payload.createdAt === "string" ? payload.createdAt : undefined;
+      const fullName = typeof payload.fullName === "string" ? payload.fullName : undefined;
+      accounts.push({
+        uid: uid || login,
+        login,
+        fullName,
+        role,
+        email: login ? `${login}@${process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local"}` : "",
+        ...(badgeNumber ? { badgeNumber } : {}),
+        ...(createdAt ? { createdAt } : {}),
       });
-      pageToken = res.pageToken;
-    } while (pageToken);
-  } catch (error: any) {
-    console.warn(
-      "Nie udało się pobrać listy użytkowników z Firebase Auth, używam danych z kolekcji 'profiles'.",
-      error
-    );
-    return buildAccountsFromProfiles(profiles);
-  }
+    });
+    pageToken = data?.nextPageToken;
+  } while (pageToken);
 
-  accounts.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login));
+  accounts.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login, "pl", { sensitivity: "base" }));
   return accounts;
 }
 
-const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
-const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
-const BADGE_PATTERN = /^[0-9]{1,6}$/;
-
-function mapFirebaseAuthError(error: any): { status: number; message: string } | null {
-  if (!error || typeof error !== "object") {
-    return null;
+async function createFirestoreProfile(uid: string, fields: Record<string, any>, idToken: string) {
+  if (!FIRESTORE_BASE_URL) {
+    throw Object.assign(new Error("Brak konfiguracji projektu Firestore"), { status: 500 });
   }
-  const code = typeof error.code === "string" ? error.code : "";
-  switch (code) {
-    case "auth/email-already-exists":
-      return { status: 400, message: "Login jest już zajęty." };
-    case "auth/invalid-email":
-      return {
-        status: 400,
-        message: "Login zawiera niedozwolone znaki. Dozwolone są małe litery, cyfry, kropki, myślniki i podkreślniki.",
-      };
-    case "auth/invalid-password":
-    case "auth/weak-password":
-      return { status: 400, message: "Hasło musi mieć co najmniej 6 znaków." };
-    default:
-      return null;
+  const url = `${FIRESTORE_BASE_URL}/documents/profiles?documentId=${encodeURIComponent(uid)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ fields: encodeFirestoreFields(fields) }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const message = data?.error?.message || "Nie udało się zapisać profilu użytkownika.";
+    throw Object.assign(new Error(message), { status: res.status });
   }
 }
 
-function isAdminPermissionError(error: any): boolean {
-  if (!error || typeof error !== "object") {
-    return false;
+async function updateFirestoreProfile(uid: string, fields: Record<string, any>, idToken: string) {
+  if (!FIRESTORE_BASE_URL) {
+    throw Object.assign(new Error("Brak konfiguracji projektu Firestore"), { status: 500 });
   }
-  const code =
-    (typeof error.code === "string" && error.code) ||
-    (typeof error.errorInfo?.code === "string" && error.errorInfo.code) ||
-    "";
-  return code === "auth/insufficient-permission" || code === "auth/admin-restricted-operation";
+  const url = new URL(`${FIRESTORE_BASE_URL}/documents/profiles/${encodeURIComponent(uid)}`);
+  Object.keys(fields).forEach((key) => {
+    url.searchParams.append("updateMask.fieldPaths", key);
+  });
+  const res = await fetch(url.toString(), {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ fields: encodeFirestoreFields(fields) }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const message = data?.error?.message || "Nie udało się zaktualizować profilu użytkownika.";
+    throw Object.assign(new Error(message), { status: res.status });
+  }
+}
+
+async function ensureBoardAccess(req: NextApiRequest) {
+  const idToken = extractBearerToken(req);
+  const lookup = await identityToolkitRequest<{ users: IdentityToolkitUser[] }>("/accounts:lookup", {
+    idToken,
+  });
+  const user = lookup?.users?.[0];
+  if (!user?.localId) {
+    throw Object.assign(new Error("Nieautoryzowany"), { status: 401 });
+  }
+  const profileDoc = await fetchFirestoreDocument(`profiles/${user.localId}`, idToken);
+  const profileData = decodeFirestoreDocument(profileDoc || {});
+  const role = normalizeRole(profileData.role);
+  if (!hasBoardAccess(role)) {
+    throw Object.assign(new Error("Brak uprawnień"), { status: 403 });
+  }
+  return { idToken, uid: user.localId };
+}
+
+function validateLogin(login: string) {
+  const pattern = /^[a-z0-9._-]+$/;
+  if (!pattern.test(login)) {
+    throw Object.assign(
+      new Error("Login może zawierać jedynie małe litery, cyfry, kropki, myślniki i podkreślniki."),
+      { status: 400 }
+    );
+  }
+}
+
+function validateBadge(badge: string) {
+  const pattern = /^[0-9]{1,6}$/;
+  if (!pattern.test(badge)) {
+    throw Object.assign(new Error("Numer odznaki powinien zawierać od 1 do 6 cyfr."), { status: 400 });
+  }
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "OPTIONS") {
-    res.setHeader("Allow", "GET,POST,PATCH,DELETE,OPTIONS");
+    res.setHeader("Allow", "GET,POST,PATCH,OPTIONS");
     return res.status(204).end();
   }
 
-  try {
-    await verifyBoardAccess(req);
-  } catch (e: any) {
-    if (e.message === "FORBIDDEN") {
-      return res.status(403).json({ error: "Brak uprawnień" });
-    }
-    return res.status(401).json({ error: e?.message || "Nieautoryzowany" });
+  if (!FIREBASE_API_KEY || !FIREBASE_PROJECT_ID) {
+    return res.status(500).json({
+      error: "Brak konfiguracji Firebase REST. Ustaw zmienne FIREBASE_REST_API_KEY/NEXT_PUBLIC_FIREBASE_API_KEY i FIREBASE_REST_PROJECT_ID/NEXT_PUBLIC_FIREBASE_PROJECT_ID.",
+    });
   }
 
   try {
-    if (req.method === "GET") {
-      const accounts = await listAccounts();
-      return res.status(200).json({ accounts });
-    }
+    const { idToken } = await ensureBoardAccess(req);
 
-    if (!adminAuth || !adminDb) {
-      return res.status(500).json({ error: "Brak konfiguracji Firebase Admin" });
+    if (req.method === "GET") {
+      const accounts = await listFirestoreProfiles(idToken);
+      return res.status(200).json({ accounts });
     }
 
     if (req.method === "POST") {
@@ -200,11 +318,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: "Login i hasło są wymagane" });
       }
       const normalizedLogin = String(login).trim().toLowerCase();
-      if (!LOGIN_PATTERN.test(normalizedLogin)) {
-        return res.status(400).json({
-          error: "Login może zawierać jedynie małe litery, cyfry, kropki, myślniki i podkreślniki.",
-        });
-      }
+      validateLogin(normalizedLogin);
       if (String(password).length < 6) {
         return res.status(400).json({ error: "Hasło musi mieć co najmniej 6 znaków." });
       }
@@ -212,151 +326,77 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!normalizedBadge) {
         return res.status(400).json({ error: "Numer odznaki jest wymagany." });
       }
-      if (!BADGE_PATTERN.test(normalizedBadge)) {
-        return res.status(400).json({ error: "Numer odznaki powinien zawierać od 1 do 6 cyfr." });
-      }
-      const email = `${normalizedLogin}@${LOGIN_DOMAIN}`;
+      validateBadge(normalizedBadge);
 
-      let newUser;
-      try {
-        newUser = await adminAuth.createUser({
-          email,
-          password,
-          displayName: fullName || normalizedLogin,
-        });
-      } catch (error: any) {
-        const mapped = mapFirebaseAuthError(error);
-        if (mapped) {
-          return res.status(mapped.status).json({ error: mapped.message });
-        }
-        if (isAdminPermissionError(error)) {
-          return res.status(403).json({
-            error:
-              "Konto Firebase Admin nie ma uprawnień do tworzenia użytkowników. Sprawdź konfigurację poświadczeń w środowisku.",
-          });
-        }
-        throw error;
-      }
+      const email = `${normalizedLogin}@${process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local"}`;
+      const displayName = fullName ? String(fullName).trim() : normalizedLogin;
 
-      const createdAt = adminFieldValue?.serverTimestamp?.();
-      await adminDb.collection("profiles").doc(newUser.uid).set({
-        login: normalizedLogin,
-        fullName: fullName || normalizedLogin,
-        role: normalizeRole(role),
-        badgeNumber: normalizedBadge,
-        ...(createdAt ? { createdAt } : {}),
+      const created = await identityToolkitRequest<{ localId: string }>("/accounts:signUp", {
+        email,
+        password,
+        displayName,
+        returnSecureToken: false,
       });
 
-      return res.status(201).json({ uid: newUser.uid });
+      if (!created?.localId) {
+        throw new Error("Firebase nie zwrócił identyfikatora użytkownika.");
+      }
+
+      await createFirestoreProfile(
+        created.localId,
+        {
+          login: normalizedLogin,
+          fullName: displayName,
+          role: normalizeRole(role),
+          badgeNumber: normalizedBadge,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        idToken
+      );
+
+      return res.status(201).json({ uid: created.localId });
     }
 
     if (req.method === "PATCH") {
-      const { uid, login, fullName, role, password, badgeNumber } = req.body || {};
+      const { uid, fullName, role, badgeNumber } = req.body || {};
       if (!uid) {
         return res.status(400).json({ error: "Brak UID" });
       }
-      const updates: string[] = [];
-      const updatePayload: any = {};
-      const profilePayload: any = {};
-      if (login) {
-        const normalizedLogin = String(login).trim().toLowerCase();
-        if (!LOGIN_PATTERN.test(normalizedLogin)) {
-          return res.status(400).json({
-            error: "Login może zawierać jedynie małe litery, cyfry, kropki, myślniki i podkreślniki.",
-          });
-        }
-        updatePayload.email = `${normalizedLogin}@${LOGIN_DOMAIN}`;
-        updatePayload.displayName = fullName || normalizedLogin;
-        profilePayload.login = normalizedLogin;
-        profilePayload.fullName = fullName || normalizedLogin;
-        if (role) {
-          profilePayload.role = normalizeRole(role);
-          updates.push("role");
-        }
-        if (fullName) {
-          updates.push("fullName");
-        }
-        updates.push("login");
-      } else {
-        if (fullName) {
-          profilePayload.fullName = fullName;
-          updates.push("fullName");
-          updatePayload.displayName = fullName;
-        }
-        if (role) {
-          profilePayload.role = normalizeRole(role);
-          updates.push("role");
+      const updates: Record<string, any> = {};
+      if (typeof fullName === "string") {
+        const trimmed = fullName.trim();
+        if (trimmed) {
+          updates.fullName = trimmed;
         }
       }
+      if (role) {
+        updates.role = normalizeRole(role);
+      }
       if (badgeNumber !== undefined) {
-        const normalizedBadge = typeof badgeNumber === "string" ? badgeNumber.trim() : "";
+        const normalizedBadge = String(badgeNumber).trim();
         if (!normalizedBadge) {
           return res.status(400).json({ error: "Numer odznaki jest wymagany." });
         }
-        if (!BADGE_PATTERN.test(normalizedBadge)) {
-          return res.status(400).json({ error: "Numer odznaki powinien zawierać od 1 do 6 cyfr." });
-        }
-        profilePayload.badgeNumber = normalizedBadge;
-        updates.push("badgeNumber");
+        validateBadge(normalizedBadge);
+        updates.badgeNumber = normalizedBadge;
       }
-      if (password) {
-        if (String(password).length < 6) {
-          return res.status(400).json({ error: "Hasło musi mieć co najmniej 6 znaków." });
-        }
-        updatePayload.password = password;
-        updates.push("password");
+      if (!Object.keys(updates).length) {
+        return res.status(400).json({ error: "Brak zmian do zapisania." });
       }
-      if (Object.keys(profilePayload).length) {
-        const updatedAt = adminFieldValue?.serverTimestamp?.();
-        if (updatedAt) {
-          profilePayload.updatedAt = updatedAt;
-        }
-        await adminDb.collection("profiles").doc(uid).set(profilePayload, { merge: true });
-      }
-      if (Object.keys(updatePayload).length) {
-        try {
-          await adminAuth.updateUser(uid, updatePayload);
-        } catch (error: any) {
-          const mapped = mapFirebaseAuthError(error);
-          if (mapped) {
-            return res.status(mapped.status).json({ error: mapped.message });
-          }
-          if (isAdminPermissionError(error)) {
-            return res.status(403).json({
-              error:
-                "Konto Firebase Admin nie ma uprawnień do edycji użytkowników. Sprawdź konfigurację poświadczeń w środowisku.",
-            });
-          }
-          throw error;
-        }
-      }
-      return res.status(200).json({ ok: true, updated: updates });
-    }
-
-    if (req.method === "DELETE") {
-      const uid = String(req.query.uid || "");
-      if (!uid) {
-        return res.status(400).json({ error: "Brak UID" });
-      }
-      try {
-        await adminAuth.deleteUser(uid);
-      } catch (error: any) {
-        if (isAdminPermissionError(error)) {
-          return res.status(403).json({
-            error:
-              "Konto Firebase Admin nie ma uprawnień do usuwania użytkowników. Sprawdź konfigurację poświadczeń w środowisku.",
-          });
-        }
-        throw error;
-      }
-      await adminDb.collection("profiles").doc(uid).delete();
+      updates.updatedAt = new Date().toISOString();
+      await updateFirestoreProfile(uid, updates, idToken);
       return res.status(200).json({ ok: true });
     }
 
-    res.setHeader("Allow", "GET,POST,PATCH,DELETE,OPTIONS");
+    res.setHeader("Allow", "GET,POST,PATCH,OPTIONS");
     return res.status(405).end();
-  } catch (e: any) {
-    console.error(e);
-    return res.status(500).json({ error: e?.message || "Błąd serwera" });
+  } catch (error: any) {
+    const status = typeof error?.status === "number" ? error.status : 500;
+    const message = error?.message || "Błąd serwera";
+    if (status >= 500) {
+      console.error("HR accounts API error:", error);
+    }
+    return res.status(status).json({ error: message });
   }
 }
