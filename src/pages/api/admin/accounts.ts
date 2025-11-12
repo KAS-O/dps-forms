@@ -1,6 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { adminAuth, adminDb, adminFieldValue } from "@/lib/firebaseAdmin";
 import { Role, normalizeRole, hasBoardAccess } from "@/lib/roles";
+import {
+  firebaseAdminAvailable,
+  verifyIdentityToken,
+  ensureBoard,
+  listAccountsFallback,
+  createAccountFallback,
+  updateAccountFallback,
+  deleteAccountFallback,
+} from "@/lib/firebaseServer";
 
 if (!adminAuth || !adminDb || !adminFieldValue) {
   console.warn("Firebase Admin SDK is not configured.");
@@ -17,21 +26,30 @@ type AccountResponse = {
 };
 
 async function verifyBoardAccess(req: NextApiRequest) {
-  if (!adminAuth || !adminDb) {
-    throw new Error("Brak konfiguracji Firebase Admin");
-  }
   const header = req.headers.authorization;
   if (!header || !header.startsWith("Bearer ")) {
     throw new Error("Brak tokenu uwierzytelniającego");
   }
   const token = header.slice(7);
-  const decoded = await adminAuth.verifyIdToken(token);
-  const profileSnap = await adminDb.collection("profiles").doc(decoded.uid).get();
-  const role = normalizeRole(profileSnap.data()?.role);
+  const identity = await verifyIdentityToken(token);
+  if (!identity?.uid) {
+    throw new Error("Nieprawidłowy token użytkownika");
+  }
+
+  if (firebaseAdminAvailable && adminDb) {
+    const profileSnap = await adminDb.collection("profiles").doc(identity.uid).get();
+    const role = normalizeRole(profileSnap.data()?.role);
+    if (!hasBoardAccess(role)) {
+      throw new Error("FORBIDDEN");
+    }
+    return identity;
+  }
+
+  const { profile, role } = await ensureBoard(identity.uid);
   if (!hasBoardAccess(role)) {
     throw new Error("FORBIDDEN");
   }
-  return decoded;
+  return { ...identity, profile };
 }
 
 function profileTimestampToString(value: any): string | undefined {
@@ -86,7 +104,20 @@ function buildAccountsFromProfiles(profiles: Map<string, any>): AccountResponse[
 }
 
 async function listAccounts(): Promise<AccountResponse[]> {
-  if (!adminDb) return [];
+  if (!firebaseAdminAvailable || !adminAuth || !adminDb) {
+    const fallbackAccounts = await listAccountsFallback();
+    return fallbackAccounts
+      .map((acc) => ({
+        uid: acc.uid,
+        login: acc.login,
+        fullName: acc.fullName,
+        role: normalizeRole(acc.role) as Role,
+        email: acc.email,
+        ...(acc.badgeNumber ? { badgeNumber: acc.badgeNumber } : {}),
+        ...(acc.createdAt ? { createdAt: acc.createdAt } : {}),
+      }))
+      .sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login));
+  }
 
   const profiles = new Map<string, any>();
   try {
@@ -94,10 +125,6 @@ async function listAccounts(): Promise<AccountResponse[]> {
     profilesSnap.forEach((doc) => profiles.set(doc.id, doc.data()));
   } catch (error) {
     console.error("Nie udało się pobrać profili użytkowników:", error);
-  }
-
-  if (!adminAuth) {
-    return buildAccountsFromProfiles(profiles);
   }
 
   const accounts: AccountResponse[] = [];
@@ -158,6 +185,31 @@ function mapFirebaseAuthError(error: any): { status: number; message: string } |
   }
 }
 
+function mapIdentityToolkitError(error: any): { status: number; message: string } | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+  const code =
+    (typeof error.code === "string" && error.code) ||
+    (typeof error.message === "string" && error.message) ||
+    (typeof error.errorInfo?.code === "string" && error.errorInfo.code) ||
+    "";
+  if (!code) return null;
+  if (code.includes("EMAIL_EXISTS")) {
+    return { status: 400, message: "Login jest już zajęty." };
+  }
+  if (code.includes("INVALID_PASSWORD")) {
+    return { status: 400, message: "Hasło musi mieć co najmniej 6 znaków." };
+  }
+  if (code.includes("INVALID_EMAIL")) {
+    return {
+      status: 400,
+      message: "Login zawiera niedozwolone znaki. Dozwolone są małe litery, cyfry, kropki, myślniki i podkreślniki.",
+    };
+  }
+  return null;
+}
+
 function isAdminPermissionError(error: any): boolean {
   if (!error || typeof error !== "object") {
     return false;
@@ -190,10 +242,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ accounts });
     }
 
-    if (!adminAuth || !adminDb) {
-      return res.status(500).json({ error: "Brak konfiguracji Firebase Admin" });
-    }
-
     if (req.method === "POST") {
       const { login, fullName, role, password, badgeNumber } = req.body || {};
       if (!login || !password) {
@@ -216,6 +264,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: "Numer odznaki powinien zawierać od 1 do 6 cyfr." });
       }
       const email = `${normalizedLogin}@${LOGIN_DOMAIN}`;
+
+      if (!firebaseAdminAvailable || !adminAuth || !adminDb || !adminFieldValue) {
+        try {
+          const uid = await createAccountFallback({
+            login: normalizedLogin,
+            fullName: fullName || normalizedLogin,
+            role: normalizeRole(role),
+            password: String(password),
+            badgeNumber: normalizedBadge,
+          });
+          return res.status(201).json({ uid });
+        } catch (error: any) {
+          const mapped = mapFirebaseAuthError(error) || mapIdentityToolkitError(error);
+          if (mapped) {
+            return res.status(mapped.status).json({ error: mapped.message });
+          }
+          throw error;
+        }
+      }
 
       let newUser;
       try {
@@ -306,6 +373,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         updatePayload.password = password;
         updates.push("password");
       }
+      if (!firebaseAdminAvailable || !adminAuth || !adminDb) {
+        try {
+          await updateAccountFallback({
+            uid,
+            login: login ? String(login).trim().toLowerCase() : undefined,
+            fullName: fullName ? String(fullName).trim() : undefined,
+            role: role ? normalizeRole(role) : undefined,
+            password: password ? String(password) : undefined,
+            badgeNumber: badgeNumber !== undefined ? String(badgeNumber).trim() : undefined,
+          });
+          return res.status(200).json({ ok: true, updated: updates });
+        } catch (error: any) {
+          const mapped = mapFirebaseAuthError(error) || mapIdentityToolkitError(error);
+          if (mapped) {
+            return res.status(mapped.status).json({ error: mapped.message });
+          }
+          throw error;
+        }
+      }
+
       if (Object.keys(profilePayload).length) {
         const updatedAt = adminFieldValue?.serverTimestamp?.();
         if (updatedAt) {
@@ -337,6 +424,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const uid = String(req.query.uid || "");
       if (!uid) {
         return res.status(400).json({ error: "Brak UID" });
+      }
+      if (!firebaseAdminAvailable || !adminAuth || !adminDb) {
+        try {
+          await deleteAccountFallback(uid);
+          return res.status(200).json({ ok: true });
+        } catch (error: any) {
+          const mapped = mapFirebaseAuthError(error) || mapIdentityToolkitError(error);
+          if (mapped) {
+            return res.status(mapped.status).json({ error: mapped.message });
+          }
+          throw error;
+        }
       }
       try {
         await adminAuth.deleteUser(uid);

@@ -36,6 +36,18 @@ Reguły obejmują m.in. możliwość zakładania teczek (`/dossiers/{id}`) przez
 - Aktualne reguły Firestore już pozwalają kadrze kierowniczej (`isBoard()`) na odczyt i modyfikację profili – nie są wymagane
   dodatkowe zmiany ani indeksy dla nowych funkcji działu kadr.
 
+### Nowy system kadr – co należy skonfigurować
+1. Zainstaluj zależności po aktualizacji repozytorium: `npm install` (dodano bibliotekę `google-auth-library`).
+2. Zapewnij poświadczenia administracyjne Firebase **w jednym z obsługiwanych miejsc**:
+   - ustaw zmienną środowiskową `FIREBASE_ADMIN_SERVICE_ACCOUNT` (JSON lub Base64),
+   - lub wskaż ścieżkę w `FIREBASE_ADMIN_SERVICE_ACCOUNT_PATH` / `GOOGLE_APPLICATION_CREDENTIALS`,
+   - **albo** umieść plik JSON z kontem serwisowym w `firebase/service-account.json` (lub `serviceAccount.json` / `admin-service-account.json`).
+3. Upewnij się, że w `.env` nadal są ustawione publiczne klucze Firebase (`NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, itp.).
+4. Po każdej zmianie w `firebase/firestore.rules` wykonaj `firebase deploy --only firestore:rules` (zaktualizowano reguły tak, aby dowództwo mogło tworzyć profile nowych kont).
+5. W konsoli Firebase włącz logowanie e-mail/hasło i dodaj bazowy użytkownik dowództwa, który będzie zakładał kolejne konta.
+
+Panel kadr działa zarówno z pełnym Firebase Admin SDK, jak i w trybie awaryjnym (REST API), jeśli biblioteka `firebase-admin` nie może się zainicjalizować. W obu przypadkach wymagane są poświadczenia konta serwisowego – brak konfiguracji spowoduje komunikat o błędzie w panelu.
+
 ### Konfiguracja Firebase Admin dla Vercel/Firebase
 1. W konsoli Firebase przejdź do **Ustawienia projektu → Konta usługi** i wygeneruj nowy klucz JSON dla konta z rolą
    co najmniej **Firebase Authentication Admin** (w praktyce rola `Editor` również działa).

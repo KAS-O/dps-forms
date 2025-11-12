@@ -62,7 +62,10 @@ const serviceAccount =
   decodeServiceAccount(process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT) ||
   decodeServiceAccount(process.env.FIREBASE_ADMIN_CREDENTIALS) ||
   readServiceAccountFile(process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_PATH) ||
-  readServiceAccountFile(process.env.GOOGLE_APPLICATION_CREDENTIALS);
+  readServiceAccountFile(process.env.GOOGLE_APPLICATION_CREDENTIALS) ||
+  readServiceAccountFile(path.join(process.cwd(), "firebase", "service-account.json")) ||
+  readServiceAccountFile(path.join(process.cwd(), "firebase", "serviceAccount.json")) ||
+  readServiceAccountFile(path.join(process.cwd(), "firebase", "admin-service-account.json"));
 
 let projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 let clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
@@ -85,6 +88,10 @@ if (!rawPrivateKey && process.env.FIREBASE_ADMIN_PRIVATE_KEY_BASE64) {
 const privateKey = rawPrivateKey
   ?.replace(/\\n/g, "\n")
   .replace(/\r?\n/g, "\n");
+
+export const adminProjectId = projectId || null;
+export const adminClientEmail = clientEmail || null;
+export const adminPrivateKey = privateKey || null;
 
 const globalWithAdmin = globalThis as typeof globalThis & { __FIREBASE_ADMIN_APP__?: App };
 
