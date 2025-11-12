@@ -30,23 +30,17 @@ Reguły obejmują m.in. możliwość zakładania teczek (`/dossiers/{id}`) przez
 ## Dział kadr i konta użytkowników
 - Przy zakładaniu kont wymagany jest **numer odznaki** (1–6 cyfr). Numer można też edytować dla istniejących profili – pole jest
   przechowywane w kolekcji `profiles` jako `badgeNumber`.
-- Do poprawnego działania API działu kadr potrzebne są uprawnienia Firebase Admin. W środowisku produkcyjnym ustaw zmienne:
-  `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL` oraz `FIREBASE_ADMIN_PRIVATE_KEY` (lub skorzystaj z jednego z
-  obsługiwanych sposobów dostarczenia poświadczeń opisanych w `src/lib/firebaseAdmin.ts`).
-- Aktualne reguły Firestore już pozwalają kadrze kierowniczej (`isBoard()`) na odczyt i modyfikację profili – nie są wymagane
-  dodatkowe zmiany ani indeksy dla nowych funkcji działu kadr.
-
-### Konfiguracja Firebase Admin dla Vercel/Firebase
-1. W konsoli Firebase przejdź do **Ustawienia projektu → Konta usługi** i wygeneruj nowy klucz JSON dla konta z rolą
-   co najmniej **Firebase Authentication Admin** (w praktyce rola `Editor` również działa).
-2. Zabezpiecz plik JSON i ustaw go jako zmienną środowiskową na Vercelu, np. pod kluczem `FIREBASE_ADMIN_SERVICE_ACCOUNT`.
-   Możesz wkleić cały JSON (pamiętaj o cudzysłowach) lub wrzucić go w Base64 i użyć zmiennej `FIREBASE_ADMIN_SERVICE_ACCOUNT`
-   albo `FIREBASE_ADMIN_SERVICE_ACCOUNT_PATH` wskazującej na plik – wszystkie warianty są obsługiwane przez
-   `src/lib/firebaseAdmin.ts`.
-3. Jeżeli korzystasz z osobnych zmiennych (`FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`,
-   `FIREBASE_ADMIN_PRIVATE_KEY`), upewnij się, że klucz prywatny ma poprawnie zamienione znaki nowej linii (`\n`).
-4. Po wgraniu kluczy zrestartuj deployment. Panel kadrowy powinien zacząć pobierać konta (z fallbackiem do kolekcji `profiles`)
-   oraz umożliwi tworzenie/edycję/usuwanie użytkowników.
+- Panel kadrowy korzysta z REST API Firebase (`Identity Toolkit`) oraz kolekcji `profiles` w Firestore – nie jest już wymagane
+  konfigurowanie Firebase Admin SDK na serwerze.
+- W środowisku produkcyjnym upewnij się, że dostępne są zmienne środowiskowe:
+  - `NEXT_PUBLIC_FIREBASE_API_KEY` (możesz opcjonalnie ustawić kopię w `FIREBASE_REST_API_KEY`),
+  - `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (lub osobno `FIREBASE_REST_PROJECT_ID`).
+- Po wdrożeniu zmian zaktualizuj reguły Firestore poleceniem `firebase deploy --only firestore:rules` – nowa wersja pozwala
+  kadrze dowódczej (`isBoard()`) tworzyć profile innych użytkowników.
+- Tworzenie kont odbywa się w pełni z poziomu panelu – po wprowadzeniu loginu, hasła i numeru odznaki profil zostaje automatycznie
+  dopisany do kolekcji `profiles`.
+- Resetowanie haseł lub usuwanie kont wymaga użycia konsoli Firebase (np. zakładki **Authentication**) – panel wyświetla linki
+  i umożliwia edycję danych profilowych, ale nie usuwa kont z Firebase Auth.
 
 ## Zmiany w v2
 - Wysyłka **obrazu (PNG)** zamiast PDF – podgląd A4 robiony z HTML przez `html2canvas`.

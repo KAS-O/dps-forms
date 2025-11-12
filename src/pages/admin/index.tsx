@@ -29,7 +29,7 @@ import { deriveLoginFromEmail } from "@/lib/login";
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useAnnouncement } from "@/hooks/useAnnouncement";
-import { ROLE_LABELS, ROLE_OPTIONS, hasBoardAccess, DEFAULT_ROLE } from "@/lib/roles";
+import { ROLE_LABELS, ROLE_OPTIONS, hasBoardAccess, DEFAULT_ROLE, normalizeRole } from "@/lib/roles";
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
@@ -239,7 +239,6 @@ export default function Admin() {
     password?: string;
   } | null>(null);
   const [accountSaving, setAccountSaving] = useState(false);
-  const [accountActionUid, setAccountActionUid] = useState<string | null>(null);
 
   // ogłoszenia
   const [announcementMessage, setAnnouncementMessage] = useState("");
@@ -500,20 +499,44 @@ export default function Admin() {
     try {
       setErr(null);
       setAccountsLoading(true);
-      const user = auth.currentUser;
-      if (!user) throw new Error("Brak zalogowanego użytkownika.");
-      const token = await user.getIdToken();
-      const res = await fetch("/api/admin/accounts", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      const snap = await getDocs(collection(db, "profiles"));
+      const domain = loginDomain;
+      const arr = snap.docs.map((docSnap) => {
+        const data = docSnap.data() as any;
+        const loginRaw = typeof data?.login === "string" ? data.login.trim() : "";
+        const emailLogin =
+          typeof data?.email === "string" && data.email.includes("@") ? data.email.split("@")[0] : "";
+        const uid = docSnap.id;
+        const login = (loginRaw || emailLogin || uid || "").toLowerCase();
+        const createdAtRaw = data?.createdAt;
+        let createdAt: string | undefined;
+        if (createdAtRaw?.toDate && typeof createdAtRaw.toDate === "function") {
+          try {
+            createdAt = createdAtRaw.toDate().toISOString();
+          } catch (error) {
+            createdAt = undefined;
+          }
+        } else if (typeof createdAtRaw === "string") {
+          createdAt = createdAtRaw;
+        }
+        const badgeNumberValue =
+          typeof data?.badgeNumber === "string"
+            ? data.badgeNumber.trim()
+            : typeof data?.badgeNumber === "number"
+            ? String(data.badgeNumber)
+            : "";
+        return {
+          uid,
+          login,
+          fullName: typeof data?.fullName === "string" ? data.fullName : "",
+          role: normalizeRole(data?.role),
+          email: login ? `${login}@${domain}` : "",
+          ...(badgeNumberValue ? { badgeNumber: badgeNumberValue } : {}),
+          ...(createdAt ? { createdAt } : {}),
+        } as Account;
       });
-      if (!res.ok) {
-        const message = await readErrorResponse(res, "Nie udało się pobrać kont.");
-        throw new Error(message);
-      }
-      const data = await res.json();
-      setAccounts(data.accounts || []);
+      arr.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login, "pl", { sensitivity: "base" }));
+      setAccounts(arr);
     } catch (e: any) {
       console.error(e);
       setErr(e?.message || "Nie udało się pobrać kont.");
@@ -554,6 +577,17 @@ export default function Admin() {
       setErr("Login może zawierać jedynie małe litery, cyfry, kropki, myślniki i podkreślniki.");
       return;
     }
+    if (editorState.mode === "edit") {
+      const originalLogin = (editorState.account.login || "").trim().toLowerCase();
+      if (loginValue !== originalLogin) {
+        setErr("Zmiana loginu jest zablokowana. Utwórz nowe konto z poprawnym loginem.");
+        return;
+      }
+      if (passwordValue) {
+        setErr("Zmiana hasła jest niedostępna z poziomu panelu. Użyj resetu hasła w Firebase.");
+        return;
+      }
+    }
     if (!badgeNumberValue) {
       setErr("Numer odznaki jest wymagany.");
       return;
@@ -566,7 +600,7 @@ export default function Admin() {
       setErr("Hasło jest wymagane przy tworzeniu nowego konta.");
       return;
     }
-    if (passwordValue && passwordValue.length < 6) {
+    if (editorState.mode === "create" && passwordValue.length < 6) {
       setErr("Hasło musi mieć co najmniej 6 znaków.");
       return;
     }
@@ -577,17 +611,21 @@ export default function Admin() {
       const user = auth.currentUser;
       if (!user) throw new Error("Brak zalogowanego użytkownika.");
       const token = await user.getIdToken();
-      const payload: Record<string, any> = {
-        login: loginValue,
-        fullName: fullNameValue,
-        role: roleValue,
-        badgeNumber: badgeNumberValue,
-      };
-      if (passwordValue) payload.password = passwordValue;
-      if (editorState.mode === "edit") {
-        payload.uid = editorState.account.uid;
-      }
-
+      const payload: Record<string, any> =
+        editorState.mode === "create"
+          ? {
+              login: loginValue,
+              fullName: fullNameValue,
+              role: roleValue,
+              password: passwordValue,
+              badgeNumber: badgeNumberValue,
+            }
+          : {
+              uid: editorState.account.uid,
+              fullName: fullNameValue,
+              role: roleValue,
+              badgeNumber: badgeNumberValue,
+            };
       const res = await fetch("/api/admin/accounts", {
         method: editorState.mode === "create" ? "POST" : "PATCH",
         headers: {
@@ -608,40 +646,6 @@ export default function Admin() {
       setErr(e?.message || "Nie udało się zapisać konta.");
     } finally {
       setAccountSaving(false);
-    }
-  };
-
-  const removeAccount = async (account: Account) => {
-    const ok = await confirm({
-      title: "Usuń konto",
-      message: `Czy na pewno chcesz usunąć konto ${account.fullName || account.login}?`,
-      confirmLabel: "Usuń konto",
-      tone: "danger",
-    });
-    if (!ok) return;
-    try {
-      setAccountActionUid(account.uid);
-      setErr(null);
-      const user = auth.currentUser;
-      if (!user) throw new Error("Brak zalogowanego użytkownika.");
-      const token = await user.getIdToken();
-      const res = await fetch(`/api/admin/accounts?uid=${account.uid}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (!res.ok) {
-        const message = await readErrorResponse(res, "Nie udało się usunąć konta.");
-        throw new Error(message);
-      }
-      await loadAccounts();
-      await recalcAll();
-    } catch (e: any) {
-      console.error(e);
-      setErr(e?.message || "Nie udało się usunąć konta.");
-    } finally {
-      setAccountActionUid(null);
     }
   };
 
@@ -1477,15 +1481,11 @@ export default function Admin() {
                             Ranga: {ROLE_LABELS[acc.role] || acc.role}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col items-stretch gap-2 md:items-end">
                           <button className="btn" onClick={() => openEditAccount(acc)}>Edytuj</button>
-                          <button
-                            className="btn bg-red-700 text-white"
-                            onClick={() => removeAccount(acc)}
-                            disabled={accountActionUid === acc.uid}
-                          >
-                            {accountActionUid === acc.uid ? "Usuwanie..." : "Usuń"}
-                          </button>
+                          <span className="text-xs text-beige-600 text-left md:text-right">
+                            Usuwanie kont i reset haseł wykonaj w konsoli Firebase.
+                          </span>
                         </div>
                       </div>
                     ))
@@ -1779,7 +1779,7 @@ export default function Admin() {
         </div>
       </div>
 
-       {editorState && (
+      {editorState && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="w-full max-w-xl rounded-3xl border border-indigo-400 bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 p-6 text-white shadow-2xl">
             <div className="flex items-start justify-between gap-4">
@@ -1805,6 +1805,7 @@ export default function Admin() {
                 <div className="mt-1 flex items-center gap-2">
                   <input
                     className="input flex-1 bg-white text-black placeholder:text-slate-500"
+                    disabled={editorState.mode === "edit"}
                     value={editorState.account.login || ""}
                     onChange={(e) =>
                       setEditorState((prev) =>
@@ -1816,13 +1817,16 @@ export default function Admin() {
                 </div>
                 <p className="mt-1 text-xs text-white/60">
                   Dozwolone znaki: małe litery, cyfry, kropki, myślniki i podkreślniki.
+                  {editorState.mode === "edit"
+                    ? " Aby zmienić login, usuń konto w konsoli Firebase i utwórz je ponownie."
+                    : ""}
                 </p>
               </div>
 
               <div>
                 <label className="text-sm font-semibold text-white/80">Imię i nazwisko</label>
                 <input
-                className="input bg-white text-black placeholder:text-slate-500"
+                  className="input bg-white text-black placeholder:text-slate-500"
                   value={editorState.account.fullName || ""}
                   onChange={(e) =>
                     setEditorState((prev) =>
@@ -1868,21 +1872,25 @@ export default function Admin() {
                 </select>
               </div>
 
-              <div>
-                <label className="text-sm font-semibold text-white/80">
-                  {editorState.mode === "create" ? "Hasło" : "Nowe hasło"}
-                </label>
-                <input
-                  type="password"
-                  className="input bg-white text-black placeholder:text-slate-500"
-                  value={editorState.password || ""}
-                  placeholder={editorState.mode === "create" ? "Wprowadź hasło" : "Pozostaw puste aby nie zmieniać"}
-                  onChange={(e) =>
-                    setEditorState((prev) => (prev ? { ...prev, password: e.target.value } : prev))
-                  }
-                />
-                <p className="mt-1 text-xs text-white/60">Hasło musi mieć co najmniej 6 znaków.</p>
-              </div>
+              {editorState.mode === "create" ? (
+                <div>
+                  <label className="text-sm font-semibold text-white/80">Hasło</label>
+                  <input
+                    type="password"
+                    className="input bg-white text-black placeholder:text-slate-500"
+                    value={editorState.password || ""}
+                    placeholder="Wprowadź hasło"
+                    onChange={(e) =>
+                      setEditorState((prev) => (prev ? { ...prev, password: e.target.value } : prev))
+                    }
+                  />
+                  <p className="mt-1 text-xs text-white/60">Hasło musi mieć co najmniej 6 znaków.</p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-white/30 bg-white/10 p-3 text-xs text-white/70">
+                  Zmiana hasła jest dostępna z poziomu konsoli Firebase (wyślij reset hasła do użytkownika).
+                </div>
+              )}
             </div>
             
             <div className="mt-6 flex justify-end gap-3">
