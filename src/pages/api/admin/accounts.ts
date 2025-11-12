@@ -1,5 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Role, normalizeRole, hasBoardAccess } from "@/lib/roles";
+import {
+  type Department,
+  type InternalUnit,
+  type AdditionalRank,
+  normalizeDepartment,
+  normalizeInternalUnits,
+  normalizeAdditionalRank,
+  getAdditionalRankOption,
+  getInternalUnitOption,
+} from "@/lib/hr";
 
 const FIREBASE_API_KEY = process.env.FIREBASE_REST_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
 const FIREBASE_PROJECT_ID =
@@ -26,6 +36,9 @@ type AccountResponse = {
   email: string;
   createdAt?: string;
   badgeNumber?: string;
+  department?: Department | null;
+  units?: InternalUnit[];
+  additionalRank?: AdditionalRank | null;
 };
 
 type IdentityToolkitUser = {
@@ -120,22 +133,40 @@ function decodeFirestoreDocument(doc: FirestoreDocument): Record<string, any> {
   return result;
 }
 
+function encodeFirestoreValue(value: any): any {
+  if (value === undefined) return undefined;
+  if (value === null) return { nullValue: null };
+  if (typeof value === "string") return { stringValue: value };
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? { integerValue: value } : { doubleValue: value };
+  }
+  if (typeof value === "boolean") return { booleanValue: value };
+  if (value instanceof Date) return { timestampValue: value.toISOString() };
+  if (Array.isArray(value)) {
+    const values = value
+      .map((item) => encodeFirestoreValue(item))
+      .filter((item) => item !== undefined);
+    return { arrayValue: { values } };
+  }
+  if (typeof value === "object") {
+    const fields: Record<string, any> = {};
+    Object.entries(value).forEach(([key, val]) => {
+      const encoded = encodeFirestoreValue(val);
+      if (encoded !== undefined) {
+        fields[key] = encoded;
+      }
+    });
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(value) };
+}
+
 function encodeFirestoreFields(data: Record<string, any>): Record<string, any> {
   const fields: Record<string, any> = {};
   Object.entries(data).forEach(([key, value]) => {
-    if (value == null) return;
-    if (typeof value === "string") {
-      fields[key] = { stringValue: value };
-    } else if (typeof value === "number") {
-      fields[key] = Number.isInteger(value)
-        ? { integerValue: value }
-        : { doubleValue: value };
-    } else if (typeof value === "boolean") {
-      fields[key] = { booleanValue: value };
-    } else if (value instanceof Date) {
-      fields[key] = { timestampValue: value.toISOString() };
-    } else {
-      fields[key] = { stringValue: String(value) };
+    const encoded = encodeFirestoreValue(value);
+    if (encoded !== undefined) {
+      fields[key] = encoded;
     }
   });
   return fields;
@@ -197,6 +228,9 @@ async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]
       const badgeNumber = typeof payload.badgeNumber === "string" ? payload.badgeNumber.trim() : undefined;
       const createdAt = typeof payload.createdAt === "string" ? payload.createdAt : undefined;
       const fullName = typeof payload.fullName === "string" ? payload.fullName : undefined;
+      const department = normalizeDepartment(payload.department);
+      const units = normalizeInternalUnits(payload.units);
+      const additionalRank = normalizeAdditionalRank(payload.additionalRank);
       accounts.push({
         uid: uid || login,
         login,
@@ -205,6 +239,9 @@ async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]
         email: login ? `${login}@${process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local"}` : "",
         ...(badgeNumber ? { badgeNumber } : {}),
         ...(createdAt ? { createdAt } : {}),
+        department: department ?? null,
+        units,
+        additionalRank: additionalRank ?? null,
       });
     });
     pageToken = data?.nextPageToken;
@@ -313,7 +350,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
-      const { login, fullName, role, password, badgeNumber } = req.body || {};
+      const { login, fullName, role, password, badgeNumber, department, units, additionalRank } = req.body || {};
       if (!login || !password) {
         return res.status(400).json({ error: "Login i hasło są wymagane" });
       }
@@ -327,6 +364,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: "Numer odznaki jest wymagany." });
       }
       validateBadge(normalizedBadge);
+
+      const normalizedDepartment = normalizeDepartment(department);
+      if (!normalizedDepartment) {
+        return res.status(400).json({ error: "Wybierz poprawny departament." });
+      }
+
+      const normalizedUnits = normalizeInternalUnits(units);
+      const normalizedAdditionalRank = normalizeAdditionalRank(additionalRank);
+      if (normalizedAdditionalRank) {
+        const rankOption = getAdditionalRankOption(normalizedAdditionalRank);
+        if (rankOption && !normalizedUnits.includes(rankOption.unit)) {
+          const unitOption = getInternalUnitOption(rankOption.unit);
+          const unitLabel = unitOption?.abbreviation || rankOption.unit.toUpperCase();
+          return res
+            .status(400)
+            .json({ error: `Aby przypisać stopień ${rankOption.label}, dodaj jednostkę ${unitLabel}.` });
+        }
+      }
 
       const email = `${normalizedLogin}@${process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local"}`;
       const displayName = fullName ? String(fullName).trim() : normalizedLogin;
@@ -349,6 +404,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           fullName: displayName,
           role: normalizeRole(role),
           badgeNumber: normalizedBadge,
+          department: normalizedDepartment,
+          units: normalizedUnits,
+          additionalRank: normalizedAdditionalRank ?? null,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         },
@@ -359,10 +417,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PATCH") {
-      const { uid, fullName, role, badgeNumber } = req.body || {};
+      const { uid, fullName, role, badgeNumber, department, units, additionalRank } = req.body || {};
       if (!uid) {
         return res.status(400).json({ error: "Brak UID" });
       }
+      const profileDoc = await fetchFirestoreDocument(`profiles/${encodeURIComponent(uid)}`, idToken);
+      if (!profileDoc) {
+        return res.status(404).json({ error: "Nie znaleziono konta." });
+      }
+      const profileData = decodeFirestoreDocument(profileDoc);
       const updates: Record<string, any> = {};
       if (typeof fullName === "string") {
         const trimmed = fullName.trim();
@@ -380,6 +443,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         validateBadge(normalizedBadge);
         updates.badgeNumber = normalizedBadge;
+      }
+      if (department !== undefined) {
+        const normalizedDepartment = normalizeDepartment(department);
+        if (department && !normalizedDepartment) {
+          return res.status(400).json({ error: "Nieprawidłowy departament." });
+        }
+        updates.department = normalizedDepartment ?? null;
+      }
+
+      let normalizedUnits: InternalUnit[] = normalizeInternalUnits(profileData.units);
+      if (units !== undefined) {
+        normalizedUnits = normalizeInternalUnits(units);
+        updates.units = normalizedUnits;
+      }
+
+      if (additionalRank !== undefined) {
+        const normalizedAdditionalRank = normalizeAdditionalRank(additionalRank);
+        if (normalizedAdditionalRank) {
+          const rankOption = getAdditionalRankOption(normalizedAdditionalRank);
+          if (rankOption && !normalizedUnits.includes(rankOption.unit)) {
+            const unitOption = getInternalUnitOption(rankOption.unit);
+            const unitLabel = unitOption?.abbreviation || rankOption.unit.toUpperCase();
+            return res
+              .status(400)
+              .json({ error: `Aby przypisać stopień ${rankOption.label}, dodaj jednostkę ${unitLabel}.` });
+          }
+          updates.additionalRank = normalizedAdditionalRank;
+        } else {
+          updates.additionalRank = null;
+        }
       }
       if (!Object.keys(updates).length) {
         return res.status(400).json({ error: "Brak zmian do zapisania." });
