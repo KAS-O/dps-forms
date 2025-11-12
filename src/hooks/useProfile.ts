@@ -12,6 +12,8 @@ export function useProfile() {
   const [badgeNumber, setBadgeNumber] = useState<string | null>(null);
   const [units, setUnits] = useState<InternalUnit[]>([]);
   const [additionalRanks, setAdditionalRanks] = useState<AdditionalRank[]>([]);
+  const [photoURL, setPhotoURL] = useState<string | null>(null);
+  const [uid, setUid] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -21,10 +23,13 @@ export function useProfile() {
       setLogin(null);
       setFullName(null);
       setBadgeNumber(null);
+      setPhotoURL(null);
+      setUid(null);
       setReady(true);
       return;
     }
 
+    setUid(u.uid);
     const email = u.email || "";
     const domain = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
     const suffix = `@${domain}`;
@@ -56,13 +61,19 @@ export function useProfile() {
       }
       setUnits(normalizeInternalUnits(d.units));
       setAdditionalRanks(normalizeAdditionalRanks(d.additionalRanks ?? d.additionalRank));
+      if (typeof d.photoURL === "string") {
+        const trimmed = d.photoURL.trim();
+        setPhotoURL(trimmed ? trimmed : null);
+      } else {
+        setPhotoURL(null);
+      }
       setReady(true);
     });
 
     return () => unsub();
   }, []);
 
-  return { role, login, fullName, badgeNumber, units, additionalRanks, ready };
+  return { role, login, fullName, badgeNumber, units, additionalRanks, photoURL, uid, ready };
 }
 
 // Uprawnienia

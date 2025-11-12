@@ -1,7 +1,7 @@
 import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
 import AuthGate from "@/components/AuthGate";
-import Nav from "@/components/Nav";
+import PanelLayout from "@/components/PanelLayout";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { ROLE_LABELS, ROLE_VALUES, normalizeRole, type Role } from "@/lib/roles";
@@ -309,10 +309,9 @@ export default function ChainOfCommandPage() {
         <Head>
           <title>LSPD 77RP — Chain of Command</title>
         </Head>
-        <Nav />
-
-        <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-          <div className="card p-6 space-y-6" data-section="chain-of-command">
+        <PanelLayout>
+          <div className="space-y-6">
+            <div className="card p-6 space-y-6" data-section="chain-of-command">
             <div className="space-y-2">
               <span className="section-chip">
                 <span className="section-chip__dot" style={{ background: "#facc15" }} aria-hidden />
@@ -504,7 +503,8 @@ export default function ChainOfCommandPage() {
               </div>
             </div>
           </div>
-        </div>
+          </div>
+        </PanelLayout>
       </>
     </AuthGate>
   );

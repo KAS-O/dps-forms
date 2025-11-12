@@ -1,6 +1,6 @@
 import { useRouter } from "next/router";
 import Head from "next/head";
-import Nav from "@/components/Nav";
+import PanelLayout from "@/components/PanelLayout";
 import AuthGate from "@/components/AuthGate";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -456,8 +456,8 @@ export default function VehicleFolderPage() {
     <AuthGate>
       <>
         <Head><title>LSPD 77RP — {title}</title></Head>
-        <Nav />
-        <div className="max-w-5xl mx-auto px-4 py-6 grid gap-4">
+        <PanelLayout>
+          <div className="max-w-5xl grid gap-4">
           {err && <div className="card p-3 bg-red-50 text-red-700" data-section="vehicle">{err}</div>}
           {ok && <div className="card p-3 bg-green-50 text-green-700" data-section="vehicle">{ok}</div>}
 
@@ -648,7 +648,8 @@ export default function VehicleFolderPage() {
             })}
             {notes.length === 0 && <div className="card p-3">Brak notatek.</div>}
           </div>
-        </div>
+          </div>
+        </PanelLayout>
       </>
     </AuthGate>
   );

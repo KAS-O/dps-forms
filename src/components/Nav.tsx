@@ -7,7 +7,6 @@ import { auth } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { ROLE_LABELS, hasBoardAccess } from "@/lib/roles";
-import { UNIT_SECTIONS, unitHasAccess } from "@/lib/internalUnits";
 
 const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dashboard", label: "Dokumenty", color: "#60a5fa" },
@@ -46,7 +45,7 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 }
 
 export default function Nav() {
-  const { fullName, role, badgeNumber, additionalRanks } = useProfile();
+  const { fullName, role, badgeNumber } = useProfile();
   const roleLabel = role ? ROLE_LABELS[role] || role : "";
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
@@ -54,8 +53,6 @@ export default function Nav() {
   const archiveActive = router.pathname.startsWith("/archive");
   const adminActive = router.pathname.startsWith("/admin");
   const currentPath = router.asPath;
-  const unitLinks = UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks));
-
   const logout = async () => {
     const ok = await confirm({
       title: "Wylogowanie",
@@ -105,20 +102,6 @@ export default function Nav() {
                   >
                     <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
                     {link.label}
-                  </Link>
-                );
-              })}
-              {unitLinks.map((section) => {
-                const isActive = currentPath === section.href || currentPath.startsWith(`${section.href}/`);
-                return (
-                  <Link
-                    key={section.href}
-                    href={section.href}
-                    className={`nav-pill shrink-0${isActive ? " nav-pill--active" : ""}`}
-                    style={createNavStyle(section.navColor, isActive)}
-                  >
-                    <span className="nav-pill__dot" style={{ background: section.navColor }} aria-hidden />
-                    {section.shortLabel}
                   </Link>
                 );
               })}

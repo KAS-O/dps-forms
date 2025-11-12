@@ -1,5 +1,5 @@
 import AuthGate from "@/components/AuthGate";
-import Nav from "@/components/Nav";
+import PanelLayout from "@/components/PanelLayout";
 import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -130,9 +130,9 @@ export default function CriminalGroupsPage() {
         <Head>
           <title>LSPD 77RP — Grupy przestępcze</title>
         </Head>
-        <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6">
-          <div className="card p-6 space-y-5" data-section="criminal-groups">
+        <PanelLayout>
+          <div className="grid gap-6">
+            <div className="card p-6 space-y-5" data-section="criminal-groups">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="space-y-2">
                 <span className="section-chip">
@@ -234,7 +234,8 @@ export default function CriminalGroupsPage() {
               <p>Brak zapisanych grup przestępczych.</p>
             )}
           </div>
-        </div>
+          </div>
+        </PanelLayout>
       </>
     </AuthGate>
   );

@@ -1,5 +1,5 @@
 import Head from "next/head";
-import Nav from "@/components/Nav";
+import PanelLayout from "@/components/PanelLayout";
 import AuthGate from "@/components/AuthGate";
 import { useProfile, Role } from "@/hooks/useProfile";
 import { useLogWriter } from "@/hooks/useLogWriter";
@@ -47,7 +47,7 @@ import {
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
-type AdminSection = "overview" | "hr" | "announcements" | "logs";
+type AdminSection = "overview" | "hr" | "announcements" | "logs" | "tickets";
 
 type Account = {
   uid: string;
@@ -61,6 +61,23 @@ type Account = {
   units: InternalUnit[];
   additionalRanks: AdditionalRank[];
   additionalRank?: AdditionalRank | null;
+};
+
+type TicketAuthor = {
+  uid?: string;
+  login?: string;
+  fullName?: string;
+  badgeNumber?: string | null;
+  role?: Role;
+  department?: Department | null;
+  units?: InternalUnit[];
+};
+
+type TicketEntry = {
+  id: string;
+  message: string;
+  createdAt?: string | null;
+  author?: TicketAuthor | null;
 };
 
 const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
@@ -233,6 +250,9 @@ export default function Admin() {
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
   const [logFilters, setLogFilters] = useState(() => ({ ...INITIAL_LOG_FILTERS }));
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [tickets, setTickets] = useState<TicketEntry[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [ticketsError, setTicketsError] = useState<string | null>(null);
 
   // ogólne
   const [mandaty, setMandaty] = useState(0);
@@ -386,6 +406,12 @@ export default function Admin() {
       window.clearInterval(id);
     };
   }, [section]);
+
+  useEffect(() => {
+    if (!ready || !hasBoardAccess(role)) return;
+    if (section !== "tickets") return;
+    void loadTickets();
+  }, [ready, role, section, loadTickets]);
 
 
   // okres
@@ -572,6 +598,35 @@ export default function Admin() {
       setAccountsLoading(false);
     }
   };
+
+  const loadTickets = useCallback(async () => {
+    setTicketsLoading(true);
+    setTicketsError(null);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error("Brak zalogowanego użytkownika.");
+      }
+      const token = await user.getIdToken();
+      const res = await fetch("/api/tickets", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        const message = await readErrorResponse(res, "Nie udało się pobrać ticketów.");
+        throw new Error(message);
+      }
+      const data = await res.json();
+      const entries = Array.isArray(data?.tickets) ? (data.tickets as TicketEntry[]) : [];
+      setTickets(entries);
+    } catch (error: any) {
+      console.error(error);
+      setTicketsError(error?.message || "Nie udało się pobrać ticketów.");
+    } finally {
+      setTicketsLoading(false);
+    }
+  }, []);
 
   const openCreateAccount = () => {
     setEditorState({
@@ -1331,9 +1386,12 @@ export default function Admin() {
   if (!ready) {
     return (
       <AuthGate>
-         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
-        <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-8"><div className="card p-6">Ładowanie…</div></div>
+        <Head><title>LSPD 77RP — Panel zarządu</title></Head>
+        <PanelLayout>
+          <div className="max-w-4xl">
+            <div className="card p-6">Ładowanie…</div>
+          </div>
+        </PanelLayout>
       </AuthGate>
     );
   }
@@ -1341,12 +1399,13 @@ export default function Admin() {
     return (
       <AuthGate>
         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
-        <Nav />
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          <div className="card p-6 text-center">
-            Brak dostępu. Panel zarządu jest dostępny dla rang <b>Staff Commander</b> i wyższych.
+        <PanelLayout>
+          <div className="max-w-4xl">
+            <div className="card p-6 text-center">
+              Brak dostępu. Panel zarządu jest dostępny dla rang <b>Staff Commander</b> i wyższych.
+            </div>
           </div>
-        </div>
+        </PanelLayout>
       </AuthGate>
     );
   }
@@ -1354,9 +1413,7 @@ export default function Admin() {
   return (
     <AuthGate>
       <Head><title>LSPD 77RP — Panel zarządu</title></Head>
-      <Nav />
-
-      <div className="max-w-7xl mx-auto px-4 py-6 grid gap-5">
+      <PanelLayout contentClassName="max-w-7xl grid gap-5">
         {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
         <div className="flex flex-wrap items-center gap-3">
@@ -1383,6 +1440,10 @@ export default function Admin() {
               <button type="button" className={sectionButtonClass("logs")} onClick={() => setSection("logs")}>
                 <span className="text-base font-semibold">Logi</span>
                 <span className="block text-xs text-white/70">Aktywność kont</span>
+              </button>
+              <button type="button" className={sectionButtonClass("tickets")} onClick={() => setSection("tickets")}>
+                <span className="text-base font-semibold">Tickety</span>
+                <span className="block text-xs text-white/70">Zgłoszenia od funkcjonariuszy</span>
               </button>
             </div>
           </aside>
@@ -1925,9 +1986,92 @@ export default function Admin() {
                 </div>
               </div>
             )}
+
+            {section === "tickets" && (
+              <div className="grid gap-5">
+                <div className="card bg-gradient-to-br from-sky-900/85 via-slate-900/80 to-blue-900/75 p-6 text-white shadow-xl">
+                  <h2 className="text-xl font-semibold">Zgłoszenia od funkcjonariuszy</h2>
+                  <p className="text-sm text-white/70">
+                    Tickety trafiają do dowództwa i pozwalają śledzić prośby oraz problemy zgłaszane przez funkcjonariuszy.
+                  </p>
+                  <p className="mt-2 text-xs text-white/60">
+                    W odpowiedzi możesz skontaktować się z autorem ticketa za pośrednictwem wewnętrznych kanałów komunikacji.
+                  </p>
+                </div>
+
+                <div className="card space-y-4 bg-white/90 p-6 shadow">
+                  <div className="flex flex-wrap items-start gap-3 md:items-center md:justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900">Odebrane tickety</h3>
+                      <p className="text-sm text-slate-600">
+                        Najnowsze zgłoszenia w kolejności od najświeższych. Kliknij przycisk, aby odświeżyć listę.
+                      </p>
+                    </div>
+                    <button
+                      className="btn bg-slate-900 text-white hover:bg-slate-800"
+                      onClick={loadTickets}
+                      disabled={ticketsLoading}
+                    >
+                      {ticketsLoading ? "Ładowanie..." : "Odśwież"}
+                    </button>
+                  </div>
+
+                  {ticketsError && <div className="rounded-xl bg-red-100/80 px-4 py-3 text-sm text-red-700">{ticketsError}</div>}
+
+                  {ticketsLoading ? (
+                    <p className="text-sm text-slate-600">Trwa ładowanie ticketów...</p>
+                  ) : tickets.length === 0 ? (
+                    <p className="text-sm text-slate-600">Brak ticketów do wyświetlenia.</p>
+                  ) : (
+                    <div className="grid gap-4">
+                      {tickets.map((ticket) => {
+                        const authorName = ticket.author?.fullName || ticket.author?.login || "Nieznany funkcjonariusz";
+                        const authorLogin = ticket.author?.login;
+                        const authorBadge = ticket.author?.badgeNumber ? `#${ticket.author.badgeNumber}` : "";
+                        const authorRole = ticket.author?.role ? ROLE_LABELS[ticket.author.role] || ticket.author.role : "";
+                        const unitLabels = (ticket.author?.units || [])
+                          .map((unit) => getInternalUnitOption(unit)?.abbreviation || getInternalUnitOption(unit)?.shortLabel)
+                          .filter((value): value is string => Boolean(value));
+                        const timestampLabel = formatLogTimestamp({ createdAt: ticket.createdAt });
+                        return (
+                          <div
+                            key={ticket.id}
+                            className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+                          >
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <div>
+                                <div className="text-base font-semibold text-slate-900">{authorName}</div>
+                                <div className="text-xs text-slate-600">
+                                  {authorLogin || "—"}
+                                  {authorBadge ? ` • ${authorBadge}` : ""}
+                                  {authorRole ? ` • ${authorRole}` : ""}
+                                </div>
+                                {unitLabels && unitLabels.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {unitLabels.map((label) => (
+                                      <span
+                                        key={`${ticket.id}-${label}`}
+                                        className="rounded-full bg-slate-900/10 px-3 py-1 text-[11px] font-semibold text-slate-700"
+                                      >
+                                        {label}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-xs text-slate-500">{timestampLabel}</div>
+                            </div>
+                            <p className="mt-3 whitespace-pre-wrap text-sm text-slate-800">{ticket.message}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      </div>
 
       {editorState && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -2226,6 +2370,7 @@ export default function Admin() {
           </div>
         </div>
       )}
+      </PanelLayout>
     </AuthGate>
   );
 }
