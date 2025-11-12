@@ -13,6 +13,7 @@ const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dossiers", label: "Teczki", color: "#818cf8" },
   { href: "/criminal-groups", label: "Grupy przestępcze", color: "#f472b6" },
   { href: "/vehicle-archive", label: "Archiwum pojazdów", color: "#34d399" },
+  { href: "/chain-of-command", label: "Chain of Command", color: "#f97316" },
 ];
 
 function withAlpha(hex: string, alpha: number): string {
