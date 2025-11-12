@@ -85,7 +85,7 @@ service cloud.firestore {
     // profile
     match /profiles/{uid} {
       allow read: if signedIn();
-      allow create: if signedIn() && uid == request.auth.uid;
+      allow create: if isBoard() || (signedIn() && uid == request.auth.uid);
       allow update: if isBoard() || (signedIn() && uid == request.auth.uid);
       allow delete: if isBoard();
 
