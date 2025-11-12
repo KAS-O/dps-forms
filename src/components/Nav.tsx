@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { useProfile, can } from "@/hooks/useProfile";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { ROLE_LABELS, hasBoardAccess } from "@/lib/roles";
+import { getAdditionalRankOption, type InternalUnit } from "@/lib/hr";
 
 const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dashboard", label: "Dokumenty", color: "#60a5fa" },
@@ -14,6 +15,15 @@ const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dossiers", label: "Teczki", color: "#8b5cf6" },
   { href: "/criminal-groups", label: "Grupy przestępcze", color: "#ec4899" },
   { href: "/vehicle-archive", label: "Archiwum pojazdów", color: "#34d399" },
+];
+
+const UNIT_NAV_LINKS: { href: string; label: string; color: string; unit: InternalUnit }[] = [
+  { href: "/units/iad", label: "IAD", color: "#dc2626", unit: "iad" },
+  { href: "/units/swat-sert", label: "SWAT / SERT", color: "#1f2937", unit: "swat-sert" },
+  { href: "/units/usms", label: "USMS", color: "#2563eb", unit: "usms" },
+  { href: "/units/dtu", label: "DTU", color: "#4b5563", unit: "dtu" },
+  { href: "/units/gu", label: "GU", color: "#0ea5e9", unit: "gu" },
+  { href: "/units/ftd", label: "FTD", color: "#9333ea", unit: "ftd" },
 ];
 
 function withAlpha(hex: string, alpha: number): string {
@@ -45,13 +55,25 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 }
 
 export default function Nav() {
-  const { fullName, role, badgeNumber } = useProfile();
+  const { fullName, role, badgeNumber, units, additionalRanks } = useProfile();
   const roleLabel = role ? ROLE_LABELS[role] || role : "";
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
   const router = useRouter();
   const archiveActive = router.pathname.startsWith("/archive");
   const adminActive = router.pathname.startsWith("/admin");
+
+  const accessibleUnits = useMemo(() => {
+    const set = new Set<InternalUnit>();
+    units.forEach((unit) => set.add(unit));
+    additionalRanks.forEach((rank) => {
+      const option = getAdditionalRankOption(rank);
+      if (option) {
+        set.add(option.unit);
+      }
+    });
+    return set;
+  }, [units, additionalRanks]);
 
   const logout = async () => {
     const ok = await confirm({
@@ -93,6 +115,20 @@ export default function Nav() {
             <div className="flex min-w-max items-center gap-2 text-sm">
               {NAV_LINKS.map((link) => {
                 const isActive = router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`nav-pill shrink-0${isActive ? " nav-pill--active" : ""}`}
+                    style={createNavStyle(link.color, isActive)}
+                  >
+                    <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
+                    {link.label}
+                  </Link>
+                );
+              })}
+              {UNIT_NAV_LINKS.filter((link) => accessibleUnits.has(link.unit)).map((link) => {
+                const isActive = router.pathname.startsWith(`/units/${link.unit}`);
                 return (
                   <Link
                     key={link.href}

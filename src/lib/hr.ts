@@ -256,6 +256,15 @@ const ADDITIONAL_RANK_OPTIONS: AdditionalRankOption[] = [
   },
 ];
 
+export const UNIT_RANK_HIERARCHY: Record<InternalUnit, AdditionalRank[]> = {
+  iad: ["opiekun-iad", "iad-chief-inspector", "iad-deputy-chief-inspector"],
+  "swat-sert": ["opiekun-swat-sert", "swat-commander", "swat-deputy-commander"],
+  usms: ["opiekun-usms", "us-marshal"],
+  dtu: ["opiekun-dtu", "dtu-commander", "dtu-deputy-commander"],
+  gu: ["opiekun-gu", "gu-commander", "gu-deputy-commander"],
+  ftd: ["opiekun-ftd", "ftd-commander", "ftd-deputy-commander"],
+};
+
 export const DEPARTMENTS = DEPARTMENT_OPTIONS;
 export const INTERNAL_UNITS = INTERNAL_UNIT_OPTIONS;
 export const ADDITIONAL_RANKS = ADDITIONAL_RANK_OPTIONS;
