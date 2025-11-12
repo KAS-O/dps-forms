@@ -36,6 +36,18 @@ Reguły obejmują m.in. możliwość zakładania teczek (`/dossiers/{id}`) przez
 - Aktualne reguły Firestore już pozwalają kadrze kierowniczej (`isBoard()`) na odczyt i modyfikację profili – nie są wymagane
   dodatkowe zmiany ani indeksy dla nowych funkcji działu kadr.
 
+### Konfiguracja Firebase Admin dla Vercel/Firebase
+1. W konsoli Firebase przejdź do **Ustawienia projektu → Konta usługi** i wygeneruj nowy klucz JSON dla konta z rolą
+   co najmniej **Firebase Authentication Admin** (w praktyce rola `Editor` również działa).
+2. Zabezpiecz plik JSON i ustaw go jako zmienną środowiskową na Vercelu, np. pod kluczem `FIREBASE_ADMIN_SERVICE_ACCOUNT`.
+   Możesz wkleić cały JSON (pamiętaj o cudzysłowach) lub wrzucić go w Base64 i użyć zmiennej `FIREBASE_ADMIN_SERVICE_ACCOUNT`
+   albo `FIREBASE_ADMIN_SERVICE_ACCOUNT_PATH` wskazującej na plik – wszystkie warianty są obsługiwane przez
+   `src/lib/firebaseAdmin.ts`.
+3. Jeżeli korzystasz z osobnych zmiennych (`FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`,
+   `FIREBASE_ADMIN_PRIVATE_KEY`), upewnij się, że klucz prywatny ma poprawnie zamienione znaki nowej linii (`\n`).
+4. Po wgraniu kluczy zrestartuj deployment. Panel kadrowy powinien zacząć pobierać konta (z fallbackiem do kolekcji `profiles`)
+   oraz umożliwi tworzenie/edycję/usuwanie użytkowników.
+
 ## Zmiany w v2
 - Wysyłka **obrazu (PNG)** zamiast PDF – podgląd A4 robiony z HTML przez `html2canvas`.
 - Wiadomość na Discord zawiera **embed** z:
