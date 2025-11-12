@@ -1,5 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Role, normalizeRole, hasBoardAccess } from "@/lib/roles";
+import {
+  AUXILIARY_RANK_VALUE_SET,
+  DEPARTMENT_VALUE_SET,
+  INTERNAL_UNIT_VALUE_SET,
+  getAuxiliaryRankUnit,
+} from "@/lib/personnel";
+import type {
+  AuxiliaryRankValue,
+  DepartmentValue,
+  InternalUnitValue,
+} from "@/lib/personnel";
 
 const FIREBASE_API_KEY = process.env.FIREBASE_REST_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
 const FIREBASE_PROJECT_ID =
@@ -26,6 +37,9 @@ type AccountResponse = {
   email: string;
   createdAt?: string;
   badgeNumber?: string;
+  department?: string | null;
+  units?: string[];
+  auxiliaryRank?: string | null;
 };
 
 type IdentityToolkitUser = {
@@ -85,6 +99,7 @@ function mapIdentityToolkitError(message: string): string {
 
 function decodeFirestoreValue(value: any): any {
   if (value == null || typeof value !== "object") return undefined;
+  if ("nullValue" in value) return null;
   if ("stringValue" in value) return value.stringValue;
   if ("integerValue" in value) return Number(value.integerValue);
   if ("doubleValue" in value) return Number(value.doubleValue);
@@ -120,22 +135,52 @@ function decodeFirestoreDocument(doc: FirestoreDocument): Record<string, any> {
   return result;
 }
 
+function encodeFirestoreValue(value: any): any {
+  if (value === null) {
+    return { nullValue: null };
+  }
+  if (typeof value === "string") {
+    return { stringValue: value };
+  }
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? { integerValue: value } : { doubleValue: value };
+  }
+  if (typeof value === "boolean") {
+    return { booleanValue: value };
+  }
+  if (value instanceof Date) {
+    return { timestampValue: value.toISOString() };
+  }
+  if (Array.isArray(value)) {
+    return {
+      arrayValue: {
+        values: value.map((item) => encodeFirestoreValue(item)).filter((item) => item !== undefined),
+      },
+    };
+  }
+  if (value && typeof value === "object") {
+    const mapFields: Record<string, any> = {};
+    Object.entries(value).forEach(([key, val]) => {
+      const encoded = encodeFirestoreValue(val);
+      if (encoded !== undefined) {
+        mapFields[key] = encoded;
+      }
+    });
+    return { mapValue: { fields: mapFields } };
+  }
+  if (value === undefined) {
+    return undefined;
+  }
+  return { stringValue: String(value) };
+}
+
 function encodeFirestoreFields(data: Record<string, any>): Record<string, any> {
   const fields: Record<string, any> = {};
   Object.entries(data).forEach(([key, value]) => {
-    if (value == null) return;
-    if (typeof value === "string") {
-      fields[key] = { stringValue: value };
-    } else if (typeof value === "number") {
-      fields[key] = Number.isInteger(value)
-        ? { integerValue: value }
-        : { doubleValue: value };
-    } else if (typeof value === "boolean") {
-      fields[key] = { booleanValue: value };
-    } else if (value instanceof Date) {
-      fields[key] = { timestampValue: value.toISOString() };
-    } else {
-      fields[key] = { stringValue: String(value) };
+    if (value === undefined) return;
+    const encoded = encodeFirestoreValue(value);
+    if (encoded !== undefined) {
+      fields[key] = encoded;
     }
   });
   return fields;
@@ -197,6 +242,19 @@ async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]
       const badgeNumber = typeof payload.badgeNumber === "string" ? payload.badgeNumber.trim() : undefined;
       const createdAt = typeof payload.createdAt === "string" ? payload.createdAt : undefined;
       const fullName = typeof payload.fullName === "string" ? payload.fullName : undefined;
+      const department =
+        typeof payload.department === "string" && DEPARTMENT_VALUE_SET.has(payload.department as any)
+          ? (payload.department as string)
+          : null;
+      const units = Array.isArray(payload.units)
+        ? (payload.units as unknown[])
+            .map((unit) => (typeof unit === "string" ? unit.trim().toLowerCase() : ""))
+            .filter((unit) => unit && INTERNAL_UNIT_VALUE_SET.has(unit as any))
+        : [];
+      const auxiliaryRank =
+        typeof payload.auxiliaryRank === "string" && AUXILIARY_RANK_VALUE_SET.has(payload.auxiliaryRank as any)
+          ? (payload.auxiliaryRank as string)
+          : null;
       accounts.push({
         uid: uid || login,
         login,
@@ -205,6 +263,9 @@ async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]
         email: login ? `${login}@${process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local"}` : "",
         ...(badgeNumber ? { badgeNumber } : {}),
         ...(createdAt ? { createdAt } : {}),
+        ...(department ? { department } : { department: null }),
+        units,
+        ...(auxiliaryRank ? { auxiliaryRank } : { auxiliaryRank: null }),
       });
     });
     pageToken = data?.nextPageToken;
@@ -292,6 +353,60 @@ function validateBadge(badge: string) {
   }
 }
 
+function normalizeDepartmentInput(value: any): DepartmentValue | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  if (typeof value !== "string") {
+    throw Object.assign(new Error("Nieprawidłowy departament."), { status: 400 });
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (!DEPARTMENT_VALUE_SET.has(normalized as any)) {
+    throw Object.assign(new Error("Wybrano nieobsługiwany departament."), { status: 400 });
+  }
+  return normalized as DepartmentValue;
+}
+
+function normalizeUnitsInput(value: any): InternalUnitValue[] | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return [];
+  const arr = Array.isArray(value) ? value : [value];
+  const result: InternalUnitValue[] = [];
+  for (const entry of arr) {
+    if (typeof entry !== "string") {
+      throw Object.assign(new Error("Nieprawidłowa jednostka."), { status: 400 });
+    }
+    const normalized = entry.trim().toLowerCase();
+    if (!normalized) continue;
+    if (!INTERNAL_UNIT_VALUE_SET.has(normalized as any)) {
+      throw Object.assign(new Error("Wybrano nieobsługiwaną jednostkę."), { status: 400 });
+    }
+    const typed = normalized as InternalUnitValue;
+    if (!result.includes(typed)) {
+      result.push(typed);
+    }
+  }
+  return result;
+}
+
+function normalizeAuxiliaryRankInput(value: any): AuxiliaryRankValue | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  if (typeof value !== "string") {
+    throw Object.assign(new Error("Nieprawidłowy dodatkowy stopień."), { status: 400 });
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (!AUXILIARY_RANK_VALUE_SET.has(normalized as any)) {
+    throw Object.assign(new Error("Wybrano nieobsługiwany dodatkowy stopień."), { status: 400 });
+  }
+  return normalized as AuxiliaryRankValue;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "OPTIONS") {
     res.setHeader("Allow", "GET,POST,PATCH,OPTIONS");
@@ -313,7 +428,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
-      const { login, fullName, role, password, badgeNumber } = req.body || {};
+      const { login, fullName, role, password, badgeNumber, department, units, auxiliaryRank } = req.body || {};
       if (!login || !password) {
         return res.status(400).json({ error: "Login i hasło są wymagane" });
       }
@@ -327,6 +442,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: "Numer odznaki jest wymagany." });
       }
       validateBadge(normalizedBadge);
+
+      const normalizedDepartment = normalizeDepartmentInput(department) ?? null;
+      const normalizedUnits = normalizeUnitsInput(units) ?? [];
+      const normalizedAuxiliaryRank = normalizeAuxiliaryRankInput(auxiliaryRank) ?? null;
+
+      let unitsToSave = normalizedUnits.slice();
+      if (normalizedAuxiliaryRank) {
+        const requiredUnit = getAuxiliaryRankUnit(normalizedAuxiliaryRank);
+        if (requiredUnit && !unitsToSave.includes(requiredUnit)) {
+          unitsToSave.push(requiredUnit);
+        }
+      }
 
       const email = `${normalizedLogin}@${process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local"}`;
       const displayName = fullName ? String(fullName).trim() : normalizedLogin;
@@ -351,6 +478,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           badgeNumber: normalizedBadge,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
+          ...(normalizedDepartment ? { department: normalizedDepartment } : {}),
+          ...(unitsToSave.length ? { units: unitsToSave } : {}),
+          ...(normalizedAuxiliaryRank ? { auxiliaryRank: normalizedAuxiliaryRank } : {}),
         },
         idToken
       );
@@ -359,7 +489,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PATCH") {
-      const { uid, fullName, role, badgeNumber } = req.body || {};
+      const { uid, fullName, role, badgeNumber, department, units, auxiliaryRank } = req.body || {};
       if (!uid) {
         return res.status(400).json({ error: "Brak UID" });
       }
@@ -380,6 +510,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         validateBadge(normalizedBadge);
         updates.badgeNumber = normalizedBadge;
+      }
+      const normalizedDepartment = normalizeDepartmentInput(department);
+      if (normalizedDepartment !== undefined) {
+        updates.department = normalizedDepartment;
+      }
+      let normalizedUnits = normalizeUnitsInput(units);
+      const normalizedAuxiliaryRank = normalizeAuxiliaryRankInput(auxiliaryRank);
+      if (normalizedAuxiliaryRank !== undefined) {
+        updates.auxiliaryRank = normalizedAuxiliaryRank;
+      }
+      if (normalizedAuxiliaryRank && normalizedUnits !== undefined) {
+        const requiredUnit = getAuxiliaryRankUnit(normalizedAuxiliaryRank);
+        if (requiredUnit && !normalizedUnits.includes(requiredUnit)) {
+          normalizedUnits = [...normalizedUnits, requiredUnit];
+        }
+      }
+      if (normalizedUnits !== undefined) {
+        updates.units = normalizedUnits;
       }
       if (!Object.keys(updates).length) {
         return res.status(400).json({ error: "Brak zmian do zapisania." });

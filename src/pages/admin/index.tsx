@@ -3,7 +3,7 @@ import Nav from "@/components/Nav";
 import AuthGate from "@/components/AuthGate";
 import { useProfile, Role } from "@/hooks/useProfile";
 import { useLogWriter } from "@/hooks/useLogWriter";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, CSSProperties } from "react";
 import {
   addDoc,
   collection,
@@ -30,6 +30,23 @@ import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useAnnouncement } from "@/hooks/useAnnouncement";
 import { ROLE_LABELS, ROLE_OPTIONS, hasBoardAccess, DEFAULT_ROLE, normalizeRole } from "@/lib/roles";
+import {
+  AUXILIARY_RANK_MAP,
+  AUXILIARY_RANK_OPTIONS,
+  AUXILIARY_RANKS_BY_UNIT,
+  AUXILIARY_RANK_VALUE_SET,
+  DEPARTMENT_MAP,
+  DEPARTMENT_OPTIONS,
+  DEPARTMENT_VALUE_SET,
+  INTERNAL_UNIT_MAP,
+  INTERNAL_UNIT_OPTIONS,
+  INTERNAL_UNIT_VALUE_SET,
+  getAuxiliaryRankUnit,
+  type AuxiliaryRankValue,
+  type DepartmentValue,
+  type InternalUnitValue,
+  type BadgeTheme,
+} from "@/lib/personnel";
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
@@ -43,6 +60,9 @@ type Account = {
   email: string;
   createdAt?: string;
   badgeNumber?: string;
+  department?: DepartmentValue | null;
+  units?: InternalUnitValue[];
+  auxiliaryRank?: AuxiliaryRankValue | null;
 };
 
 const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
@@ -63,6 +83,22 @@ const ANNOUNCEMENT_WINDOWS: { value: string; label: string; ms: number | null }[
 ];
 
 const LOG_PAGE_SIZE = 150;
+
+const badgeBaseClass =
+  "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide shadow-sm transition";
+const badgeDotClass = "h-2.5 w-2.5 flex-shrink-0 rounded-full shadow";
+
+const createBadgeStyle = (theme: BadgeTheme): CSSProperties => ({
+  background: theme.background,
+  color: theme.color,
+  borderColor: theme.border,
+  boxShadow: `0 18px 32px -22px ${theme.shadow}`,
+});
+
+const createBadgeDotStyle = (theme: BadgeTheme): CSSProperties => ({
+  background: theme.background,
+  boxShadow: "0 0 0 2px rgba(255, 255, 255, 0.25)",
+});
 
 const humanizeIdentifier = (value: string) => {
   if (!value) return "";
@@ -525,6 +561,21 @@ export default function Admin() {
             : typeof data?.badgeNumber === "number"
             ? String(data.badgeNumber)
             : "";
+        const departmentRaw =
+          typeof data?.department === "string" ? data.department.trim().toLowerCase() : "";
+        const department = departmentRaw && DEPARTMENT_VALUE_SET.has(departmentRaw as DepartmentValue)
+          ? (departmentRaw as DepartmentValue)
+          : null;
+        const unitsRaw = Array.isArray(data?.units) ? data.units : [];
+        const units = unitsRaw
+          .map((unit: any) => (typeof unit === "string" ? unit.trim().toLowerCase() : ""))
+          .filter((unit: string): unit is InternalUnitValue => INTERNAL_UNIT_VALUE_SET.has(unit as InternalUnitValue));
+        const auxiliaryRankRaw =
+          typeof data?.auxiliaryRank === "string" ? data.auxiliaryRank.trim().toLowerCase() : "";
+        const auxiliaryRank =
+          auxiliaryRankRaw && AUXILIARY_RANK_VALUE_SET.has(auxiliaryRankRaw as AuxiliaryRankValue)
+            ? (auxiliaryRankRaw as AuxiliaryRankValue)
+            : null;
         return {
           uid,
           login,
@@ -533,6 +584,9 @@ export default function Admin() {
           email: login ? `${login}@${domain}` : "",
           ...(badgeNumberValue ? { badgeNumber: badgeNumberValue } : {}),
           ...(createdAt ? { createdAt } : {}),
+          department,
+          units,
+          auxiliaryRank,
         } as Account;
       });
       arr.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login, "pl", { sensitivity: "base" }));
@@ -548,7 +602,16 @@ export default function Admin() {
   const openCreateAccount = () => {
     setEditorState({
       mode: "create",
-      account: { login: "", fullName: "", role: DEFAULT_ROLE, email: "", badgeNumber: "" },
+      account: {
+        login: "",
+        fullName: "",
+        role: DEFAULT_ROLE,
+        email: "",
+        badgeNumber: "",
+        department: null,
+        units: [],
+        auxiliaryRank: null,
+      },
       password: "",
     });
   };
@@ -556,7 +619,12 @@ export default function Admin() {
   const openEditAccount = (account: Account) => {
     setEditorState({
       mode: "edit",
-      account: { ...account },
+      account: {
+        ...account,
+        department: account.department ?? null,
+        units: Array.isArray(account.units) ? [...account.units] : [],
+        auxiliaryRank: account.auxiliaryRank ?? null,
+      },
       password: "",
     });
   };
@@ -568,6 +636,28 @@ export default function Admin() {
     const roleValue: Role = editorState.account.role || DEFAULT_ROLE;
     const passwordValue = (editorState.password || "").trim();
     const badgeNumberValue = (editorState.account.badgeNumber || "").trim();
+    const departmentValue =
+      editorState.account.department && DEPARTMENT_VALUE_SET.has(editorState.account.department as DepartmentValue)
+        ? (editorState.account.department as DepartmentValue)
+        : null;
+    const unitsValue = Array.isArray(editorState.account.units)
+      ? editorState.account.units.filter((unit): unit is InternalUnitValue =>
+          INTERNAL_UNIT_VALUE_SET.has(unit as InternalUnitValue)
+        )
+      : [];
+    const auxiliaryRankValue =
+      editorState.account.auxiliaryRank &&
+      AUXILIARY_RANK_VALUE_SET.has(editorState.account.auxiliaryRank as AuxiliaryRankValue)
+        ? (editorState.account.auxiliaryRank as AuxiliaryRankValue)
+        : null;
+    let unitsToSave = unitsValue.slice();
+    if (auxiliaryRankValue) {
+      const requiredUnit = getAuxiliaryRankUnit(auxiliaryRankValue);
+      if (requiredUnit && !unitsToSave.includes(requiredUnit)) {
+        unitsToSave.push(requiredUnit);
+      }
+    }
+    unitsToSave = INTERNAL_UNIT_OPTIONS.filter((opt) => unitsToSave.includes(opt.value)).map((opt) => opt.value);
 
     if (!loginValue) {
       setErr("Login jest wymagany.");
@@ -626,6 +716,9 @@ export default function Admin() {
               role: roleValue,
               badgeNumber: badgeNumberValue,
             };
+      payload.department = departmentValue || null;
+      payload.units = unitsToSave;
+      payload.auxiliaryRank = auxiliaryRankValue || null;
       const res = await fetch("/api/admin/accounts", {
         method: editorState.mode === "create" ? "POST" : "PATCH",
         headers: {
@@ -672,6 +765,74 @@ export default function Admin() {
     });
     return base;
   }, [accounts, accountSearch, accountRoleFilter]);
+
+  const optionButtonBase =
+    "flex items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60";
+  const pillButtonClass =
+    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60";
+
+  const renderBadge = (key: string, label: string, theme: BadgeTheme, title?: string) => (
+    <span key={key} className={badgeBaseClass} style={createBadgeStyle(theme)} title={title}>
+      <span className={badgeDotClass} style={createBadgeDotStyle(theme)} aria-hidden />
+      {label}
+    </span>
+  );
+
+  const setDepartmentSelection = (value: DepartmentValue | null) => {
+    setEditorState((prev) =>
+      prev ? { ...prev, account: { ...prev.account, department: value } } : prev
+    );
+  };
+
+  const toggleUnitSelection = (unit: InternalUnitValue) => {
+    setEditorState((prev) => {
+      if (!prev) return prev;
+      const current = Array.isArray(prev.account.units) ? prev.account.units.slice() : [];
+      const exists = current.includes(unit);
+      let updated = exists ? current.filter((value) => value !== unit) : [...current, unit];
+      updated = INTERNAL_UNIT_OPTIONS.filter((opt) => updated.includes(opt.value)).map((opt) => opt.value);
+      let auxiliaryRank = prev.account.auxiliaryRank ?? null;
+      if (exists && auxiliaryRank) {
+        const rankOption = AUXILIARY_RANK_MAP.get(auxiliaryRank);
+        if (rankOption?.unit === unit) {
+          auxiliaryRank = null;
+        }
+      }
+      return {
+        ...prev,
+        account: { ...prev.account, units: updated, auxiliaryRank },
+      };
+    });
+  };
+
+  const clearUnitSelection = () => {
+    setEditorState((prev) =>
+      prev ? { ...prev, account: { ...prev.account, units: [], auxiliaryRank: null } } : prev
+    );
+  };
+
+  const setAuxiliaryRankSelection = (value: AuxiliaryRankValue | null) => {
+    setEditorState((prev) => {
+      if (!prev) return prev;
+      let unitsList = Array.isArray(prev.account.units) ? prev.account.units.slice() : [];
+      if (value) {
+        const option = AUXILIARY_RANK_MAP.get(value);
+        if (option && !unitsList.includes(option.unit)) {
+          unitsList.push(option.unit);
+        }
+        unitsList = INTERNAL_UNIT_OPTIONS.filter((opt) => unitsList.includes(opt.value)).map((opt) => opt.value);
+      }
+      return {
+        ...prev,
+        account: { ...prev.account, auxiliaryRank: value, units: unitsList },
+      };
+    });
+  };
+
+  const isUnitSelected = (unit: InternalUnitValue) =>
+    !!editorState?.account.units && editorState.account.units.includes(unit);
+
+  const selectedAuxiliaryRank = editorState?.account.auxiliaryRank || null;
 
   const publishAnnouncement = async () => {
     const message = announcementMessage.trim();
@@ -1462,33 +1623,72 @@ export default function Admin() {
                   ) : filteredAccounts.length === 0 ? (
                     <div className="card p-5 text-center">Brak kont spełniających kryteria.</div>
                   ) : (
-                    filteredAccounts.map((acc) => (
-                      <div
-                        key={acc.uid}
-                        className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
-                      >
-                        <div>
-                          <h3 className="text-lg font-semibold">{acc.fullName || "Bez nazwy"}</h3>
-                          <p className="text-sm text-beige-700">
-                            Login: <span className="font-mono text-base">{acc.login}@{loginDomain}</span>
-                          </p>
-                          {acc.badgeNumber && (
+                    filteredAccounts.map((acc) => {
+                      const departmentOption = acc.department
+                        ? DEPARTMENT_MAP.get(acc.department)
+                        : undefined;
+                      const auxiliaryOption = acc.auxiliaryRank
+                        ? AUXILIARY_RANK_MAP.get(acc.auxiliaryRank)
+                        : undefined;
+                      const auxiliaryUnit = auxiliaryOption
+                        ? INTERNAL_UNIT_MAP.get(auxiliaryOption.unit)
+                        : undefined;
+                      return (
+                        <div
+                          key={acc.uid}
+                          className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div>
+                            <h3 className="text-lg font-semibold">{acc.fullName || "Bez nazwy"}</h3>
                             <p className="text-sm text-beige-700">
-                              Numer odznaki: <span className="font-semibold">{acc.badgeNumber}</span>
+                              Login: <span className="font-mono text-base">{acc.login}@{loginDomain}</span>
                             </p>
-                          )}
-                          <p className="text-xs uppercase tracking-wide text-beige-600 mt-1">
-                            Ranga: {ROLE_LABELS[acc.role] || acc.role}
-                          </p>
+                            {acc.badgeNumber && (
+                              <p className="text-sm text-beige-700">
+                                Numer odznaki: <span className="font-semibold">{acc.badgeNumber}</span>
+                              </p>
+                            )}
+                            <p className="text-xs uppercase tracking-wide text-beige-600 mt-1">
+                              Ranga: {ROLE_LABELS[acc.role] || acc.role}
+                            </p>
+                            {(departmentOption || (acc.units && acc.units.length) || auxiliaryOption) && (
+                              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                                {departmentOption &&
+                                  renderBadge(
+                                    `dept-${acc.uid}`,
+                                    departmentOption.label,
+                                    departmentOption.theme,
+                                    departmentOption.description
+                                  )}
+                                {(acc.units || []).map((unit) => {
+                                  const unitOption = INTERNAL_UNIT_MAP.get(unit);
+                                  if (!unitOption) return null;
+                                  return renderBadge(
+                                    `unit-${acc.uid}-${unitOption.value}`,
+                                    unitOption.label,
+                                    unitOption.theme,
+                                    unitOption.description
+                                  );
+                                })}
+                                {auxiliaryOption &&
+                                  renderBadge(
+                                    `aux-${acc.uid}`,
+                                    auxiliaryOption.label,
+                                    auxiliaryOption.theme,
+                                    auxiliaryUnit ? `Jednostka: ${auxiliaryUnit.label}` : undefined
+                                  )}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-stretch gap-2 md:items-end">
+                            <button className="btn" onClick={() => openEditAccount(acc)}>Edytuj</button>
+                            <span className="text-xs text-beige-600 text-left md:text-right">
+                              Usuwanie kont i reset haseł wykonaj w konsoli Firebase.
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex flex-col items-stretch gap-2 md:items-end">
-                          <button className="btn" onClick={() => openEditAccount(acc)}>Edytuj</button>
-                          <span className="text-xs text-beige-600 text-left md:text-right">
-                            Usuwanie kont i reset haseł wykonaj w konsoli Firebase.
-                          </span>
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -1870,6 +2070,156 @@ export default function Admin() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">Departament</label>
+                <p className="mt-1 text-xs text-white/60">
+                  Wybierz departament, w którym funkcjonariusz pełni służbę.
+                </p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {DEPARTMENT_OPTIONS.map((option) => {
+                    const selected = editorState.account.department === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={`${optionButtonBase} ${
+                          selected ? "shadow-lg" : "bg-white/5 border-white/15 hover:bg-white/10 text-white/80"
+                        }`}
+                        style={selected ? createBadgeStyle(option.theme) : undefined}
+                        onClick={() => setDepartmentSelection(selected ? null : option.value)}
+                        aria-pressed={selected}
+                      >
+                        <span className={badgeDotClass} style={createBadgeDotStyle(option.theme)} aria-hidden />
+                        <span className="flex flex-col">
+                          <span className="font-semibold">{option.label}</span>
+                          <span className="text-[11px] uppercase tracking-wide opacity-70">{option.description}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    className={`${optionButtonBase} ${
+                      !editorState.account.department
+                        ? "bg-white/20 border-white/40 text-white shadow-lg"
+                        : "bg-white/5 border-white/15 hover:bg-white/10 text-white/80"
+                    }`}
+                    onClick={() => setDepartmentSelection(null)}
+                    aria-pressed={!editorState.account.department}
+                  >
+                    <span className="flex h-2.5 w-2.5 items-center justify-center rounded-full bg-white/60 text-[10px] font-bold text-slate-900">
+                      ×
+                    </span>
+                    <span className="flex flex-col">
+                      <span className="font-semibold">Brak departamentu</span>
+                      <span className="text-[11px] uppercase tracking-wide opacity-70">
+                        Nie przypisuj do departamentu
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">Jednostki wewnętrzne</label>
+                <p className="mt-1 text-xs text-white/60">
+                  Możesz dodać kilka jednostek. Odznacz wybraną pozycję, aby ją usunąć.
+                </p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {INTERNAL_UNIT_OPTIONS.map((option) => {
+                    const selected = isUnitSelected(option.value);
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={`${optionButtonBase} ${
+                          selected ? "shadow-lg" : "bg-white/5 border-white/15 hover:bg-white/10 text-white/80"
+                        }`}
+                        style={selected ? createBadgeStyle(option.theme) : undefined}
+                        onClick={() => toggleUnitSelection(option.value)}
+                        aria-pressed={selected}
+                      >
+                        <span className={badgeDotClass} style={createBadgeDotStyle(option.theme)} aria-hidden />
+                        <span className="flex flex-col">
+                          <span className="font-semibold">{option.label}</span>
+                          <span className="text-[11px] uppercase tracking-wide opacity-70">{option.description}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className={`${pillButtonClass} border-white/25 text-white/80 hover:bg-white/10`}
+                    onClick={clearUnitSelection}
+                  >
+                    Wyczyść jednostki
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">Dodatkowy stopień</label>
+                <p className="mt-1 text-xs text-white/60">
+                  Określ dodatkową funkcję w jednostce. Pozostaw puste, jeśli nie dotyczy.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className={`${pillButtonClass} ${
+                      !selectedAuxiliaryRank
+                        ? "bg-white/20 border-white/40 text-white"
+                        : "border-white/25 text-white/80 hover:bg-white/10"
+                    }`}
+                    onClick={() => setAuxiliaryRankSelection(null)}
+                    aria-pressed={!selectedAuxiliaryRank}
+                  >
+                    Brak dodatkowego stopnia
+                  </button>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {INTERNAL_UNIT_OPTIONS.map((unitOption) => {
+                    const ranks = AUXILIARY_RANKS_BY_UNIT[unitOption.value];
+                    if (!ranks || !ranks.length) return null;
+                    return (
+                      <div
+                        key={`aux-${unitOption.value}`}
+                        className="rounded-2xl border border-white/15 bg-white/5 p-3"
+                      >
+                        <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-white/70">
+                          <span className={badgeBaseClass} style={createBadgeStyle(unitOption.theme)}>
+                            <span className={badgeDotClass} style={createBadgeDotStyle(unitOption.theme)} aria-hidden />
+                            {unitOption.label}
+                          </span>
+                          <span className="text-[11px] text-white/60">{unitOption.description}</span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {ranks.map((rank) => {
+                            const selected = selectedAuxiliaryRank === rank.value;
+                            return (
+                              <button
+                                key={rank.value}
+                                type="button"
+                                className={`${optionButtonBase} ${
+                                  selected ? "shadow-lg" : "bg-white/5 border-white/15 hover:bg-white/10 text-white/80"
+                                }`}
+                                style={selected ? createBadgeStyle(rank.theme) : undefined}
+                                onClick={() => setAuxiliaryRankSelection(selected ? null : rank.value)}
+                                aria-pressed={selected}
+                              >
+                                <span className={badgeDotClass} style={createBadgeDotStyle(rank.theme)} aria-hidden />
+                                <span className="font-semibold">{rank.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               {editorState.mode === "create" ? (
