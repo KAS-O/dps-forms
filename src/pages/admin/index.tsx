@@ -42,7 +42,7 @@ import {
   getAdditionalRankOption,
   normalizeDepartment,
   normalizeInternalUnits,
-  normalizeAdditionalRank,
+  normalizeAdditionalRanks,
 } from "@/lib/hr";
 
 type Range = "all" | "30" | "7";
@@ -59,6 +59,7 @@ type Account = {
   badgeNumber?: string;
   department?: Department | null;
   units: InternalUnit[];
+  additionalRanks: AdditionalRank[];
   additionalRank?: AdditionalRank | null;
 };
 
@@ -547,7 +548,7 @@ export default function Admin() {
           : "";
       const departmentValue = normalizeDepartment(data?.department);
       const unitsValue = normalizeInternalUnits(data?.units);
-      const additionalRankValue = normalizeAdditionalRank(data?.additionalRank);
+      const additionalRanksValue = normalizeAdditionalRanks(data?.additionalRanks ?? data?.additionalRank);
       return {
         uid,
         login,
@@ -558,7 +559,8 @@ export default function Admin() {
         ...(createdAt ? { createdAt } : {}),
         department: departmentValue,
         units: unitsValue,
-        ...(additionalRankValue ? { additionalRank: additionalRankValue } : {}),
+        additionalRanks: additionalRanksValue,
+        additionalRank: additionalRanksValue[0] ?? null,
       } as Account;
     });
       arr.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login, "pl", { sensitivity: "base" }));
@@ -582,6 +584,7 @@ export default function Admin() {
         badgeNumber: "",
         department: DEPARTMENTS[0]?.value ?? null,
         units: [],
+        additionalRanks: [],
         additionalRank: null,
       },
       password: "",
@@ -595,6 +598,11 @@ export default function Admin() {
         ...account,
         units: Array.isArray(account.units) ? account.units : [],
         department: account.department ?? null,
+        additionalRanks: Array.isArray(account.additionalRanks)
+          ? account.additionalRanks
+          : account.additionalRank
+          ? [account.additionalRank]
+          : [],
         additionalRank: account.additionalRank ?? null,
       },
       password: "",
@@ -612,7 +620,7 @@ export default function Admin() {
     const unitsValue = Array.isArray(editorState.account.units)
       ? editorState.account.units.filter((unit): unit is InternalUnit => !!getInternalUnitOption(unit))
       : [];
-    const additionalRankValue = normalizeAdditionalRank(editorState.account.additionalRank);
+    const additionalRanksValue = normalizeAdditionalRanks(editorState.account.additionalRanks);
 
     if (!loginValue) {
       setErr("Login jest wymagany.");
@@ -653,8 +661,8 @@ export default function Admin() {
       setErr("Wybierz departament dla funkcjonariusza.");
       return;
     }
-    if (additionalRankValue) {
-      const rankOption = getAdditionalRankOption(additionalRankValue);
+    for (const rank of additionalRanksValue) {
+      const rankOption = getAdditionalRankOption(rank);
       if (rankOption && !unitsValue.includes(rankOption.unit)) {
         const unitOption = getInternalUnitOption(rankOption.unit);
         setErr(
@@ -682,7 +690,8 @@ export default function Admin() {
               badgeNumber: badgeNumberValue,
               department: departmentValue,
               units: unitsValue,
-              additionalRank: additionalRankValue,
+              additionalRanks: additionalRanksValue,
+              additionalRank: additionalRanksValue[0] ?? null,
             }
           : {
               uid: editorState.account.uid,
@@ -691,7 +700,8 @@ export default function Admin() {
               badgeNumber: badgeNumberValue,
               department: departmentValue,
               units: unitsValue,
-              additionalRank: additionalRankValue,
+              additionalRanks: additionalRanksValue,
+              additionalRank: additionalRanksValue[0] ?? null,
             };
       const res = await fetch("/api/admin/accounts", {
         method: editorState.mode === "create" ? "POST" : "PATCH",
@@ -729,14 +739,21 @@ export default function Admin() {
         const unitLabels = acc.units
           .map((unit) => getInternalUnitOption(unit)?.abbreviation || "")
           .map((label) => label.toLowerCase());
-        const additionalRankLabel = (getAdditionalRankOption(acc.additionalRank)?.label || "").toLowerCase();
+        const additionalRankLabels = (Array.isArray(acc.additionalRanks) && acc.additionalRanks.length
+          ? acc.additionalRanks
+          : acc.additionalRank
+          ? [acc.additionalRank]
+          : [])
+          .map((rank) => getAdditionalRankOption(rank)?.label || "")
+          .map((label) => label.toLowerCase())
+          .filter(Boolean);
         return (
           acc.login.toLowerCase().includes(phrase) ||
           fullName.includes(phrase) ||
           (badge ? badge.includes(phrase) : false) ||
           (departmentLabel ? departmentLabel.includes(phrase) : false) ||
           unitLabels.some((label) => label.includes(phrase)) ||
-          (additionalRankLabel ? additionalRankLabel.includes(phrase) : false)
+          additionalRankLabels.some((label) => label.includes(phrase))
         );
       })
       .slice();
@@ -1544,7 +1561,13 @@ export default function Admin() {
                         .filter(
                           (option): option is NonNullable<ReturnType<typeof getInternalUnitOption>> => !!option
                         );
-                      const additionalRankOption = getAdditionalRankOption(acc.additionalRank);
+                      const additionalRankOptions = (Array.isArray(acc.additionalRanks) && acc.additionalRanks.length
+                        ? acc.additionalRanks
+                        : acc.additionalRank
+                        ? [acc.additionalRank]
+                        : [])
+                        .map((rank) => getAdditionalRankOption(rank))
+                        .filter((option): option is NonNullable<ReturnType<typeof getAdditionalRankOption>> => !!option);
 
                       return (
                         <div
@@ -1564,7 +1587,7 @@ export default function Admin() {
                             <p className="text-xs uppercase tracking-wide text-beige-600 mt-1">
                               Ranga: {ROLE_LABELS[acc.role] || acc.role}
                             </p>
-                            {(departmentOption || unitOptions.length > 0 || additionalRankOption) && (
+                            {(departmentOption || unitOptions.length > 0 || additionalRankOptions.length > 0) && (
                               <div className="mt-3 flex flex-wrap gap-2">
                                 {departmentOption && (
                                   <span
@@ -1591,18 +1614,19 @@ export default function Admin() {
                                     {unit.shortLabel || unit.abbreviation}
                                   </span>
                                 ))}
-                                {additionalRankOption && (
+                                {additionalRankOptions.map((option) => (
                                   <span
+                                    key={`rank-${acc.uid}-${option.value}`}
                                     className={`${CHIP_CLASS} text-[11px]`}
                                     style={{
-                                      background: additionalRankOption.background,
-                                      color: additionalRankOption.color,
-                                      borderColor: additionalRankOption.borderColor,
+                                      background: option.background,
+                                      color: option.color,
+                                      borderColor: option.borderColor,
                                     }}
                                   >
-                                    {additionalRankOption.label}
+                                    {option.label}
                                   </span>
-                                )}
+                                ))}
                               </div>
                             )}
                           </div>
@@ -1907,7 +1931,7 @@ export default function Admin() {
 
       {editorState && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-xl rounded-3xl border border-indigo-400 bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 p-6 text-white shadow-2xl">
+          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl border border-indigo-400 bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 p-6 text-white shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-semibold">
@@ -1925,7 +1949,7 @@ export default function Admin() {
             </div>
             
 
-          <div className="mt-4 grid gap-4">
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
               <div>
                 <label className="text-sm font-semibold text-white/80">Login</label>
                 <div className="mt-1 flex items-center gap-2">
@@ -1998,7 +2022,7 @@ export default function Admin() {
                 </select>
               </div>
 
-              <div>
+              <div className="md:col-span-2">
                 <label className="text-sm font-semibold text-white/80">Departament</label>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {DEPARTMENTS.map((dept) => {
@@ -2027,7 +2051,7 @@ export default function Admin() {
                 <p className="mt-1 text-xs text-white/60">Wybierz właściwy departament służbowy.</p>
               </div>
 
-              <div>
+              <div className="md:col-span-2">
                 <label className="text-sm font-semibold text-white/80">Jednostki wewnętrzne</label>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {INTERNAL_UNITS.map((unit) => {
@@ -2076,14 +2100,25 @@ export default function Admin() {
                 ) : null}
               </div>
 
-              <div>
+              <div className="md:col-span-2">
                 <label className="text-sm font-semibold text-white/80">Dodatkowy stopień</label>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     type="button"
                     className={`${CHIP_CLASS} bg-white/10 text-white/80 hover:bg-white/20`}
                     onClick={() =>
-                      setEditorState((prev) => (prev ? { ...prev, account: { ...prev.account, additionalRank: null } } : prev))
+                      setEditorState((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              account: {
+                                ...prev.account,
+                                additionalRanks: [],
+                                additionalRank: null,
+                              },
+                            }
+                          : prev
+                      )
                     }
                   >
                     Brak dodatkowego stopnia
@@ -2098,7 +2133,9 @@ export default function Admin() {
                       </div>
                       <div className="mt-1 flex flex-wrap gap-2">
                         {group.ranks.map((rank) => {
-                          const active = editorState.account.additionalRank === rank.value;
+                          const active = Array.isArray(editorState.account.additionalRanks)
+                            ? editorState.account.additionalRanks.includes(rank.value)
+                            : editorState.account.additionalRank === rank.value;
                           return (
                             <button
                               key={rank.value}
@@ -2112,9 +2149,28 @@ export default function Admin() {
                                 borderColor: rank.borderColor,
                               }}
                               onClick={() =>
-                                setEditorState((prev) =>
-                                  prev ? { ...prev, account: { ...prev.account, additionalRank: rank.value } } : prev
-                                )
+                                setEditorState((prev) => {
+                                  if (!prev) return prev;
+                                  const list = Array.isArray(prev.account.additionalRanks)
+                                    ? prev.account.additionalRanks.slice()
+                                    : prev.account.additionalRank
+                                    ? [prev.account.additionalRank]
+                                    : [];
+                                  const idx = list.indexOf(rank.value);
+                                  if (idx >= 0) {
+                                    list.splice(idx, 1);
+                                  } else {
+                                    list.push(rank.value);
+                                  }
+                                  return {
+                                    ...prev,
+                                    account: {
+                                      ...prev.account,
+                                      additionalRanks: list,
+                                      additionalRank: list[0] ?? null,
+                                    },
+                                  };
+                                })
                               }
                             >
                               {rank.label}
@@ -2131,7 +2187,7 @@ export default function Admin() {
               </div>
 
               {editorState.mode === "create" ? (
-                <div>
+                <div className="md:col-span-2">
                   <label className="text-sm font-semibold text-white/80">Hasło</label>
                   <input
                     type="password"
@@ -2145,7 +2201,7 @@ export default function Admin() {
                   <p className="mt-1 text-xs text-white/60">Hasło musi mieć co najmniej 6 znaków.</p>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-white/30 bg-white/10 p-3 text-xs text-white/70">
+                <div className="md:col-span-2 rounded-2xl border border-white/30 bg-white/10 p-3 text-xs text-white/70">
                   Zmiana hasła jest dostępna z poziomu konsoli Firebase (wyślij reset hasła do użytkownika).
                 </div>
               )}
