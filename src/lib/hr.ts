@@ -11,6 +11,7 @@ export type AdditionalRank =
   | "swat-deputy-commander"
   | "opiekun-usms"
   | "us-marshal"
+  | "us-deputy-marshal"
   | "opiekun-dtu"
   | "dtu-commander"
   | "dtu-deputy-commander"
@@ -197,6 +198,12 @@ const ADDITIONAL_RANK_OPTIONS: AdditionalRankOption[] = [
   {
     value: "us-marshal",
     label: "U.S. Marshal",
+    unit: "usms",
+    ...UNIT_STYLES.usms,
+  },
+  {
+    value: "us-deputy-marshal",
+    label: "Deputy U.S. Marshal",
     unit: "usms",
     ...UNIT_STYLES.usms,
   },
