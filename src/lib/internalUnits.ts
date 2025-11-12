@@ -37,18 +37,20 @@ const BASE_UNIT_CONFIG: Record<InternalUnit, { navColor: string; rankHierarchy: 
   },
 };
 
-export const UNIT_SECTIONS: UnitSectionConfig[] = (Object.keys(BASE_UNIT_CONFIG) as InternalUnit[]).map((unit) => {
-  const option = getInternalUnitOption(unit);
-  const config = BASE_UNIT_CONFIG[unit];
-  return {
-    unit,
-    href: `/units/${unit}`,
-    label: option?.label || option?.abbreviation || unit.toUpperCase(),
-    shortLabel: option?.shortLabel || option?.abbreviation || unit.toUpperCase(),
-    navColor: config.navColor,
-    rankHierarchy: config.rankHierarchy.slice(),
-  };
-});
+export const UNIT_SECTIONS: UnitSectionConfig[] = (Object.keys(BASE_UNIT_CONFIG) as InternalUnit[])
+  .map((unit) => {
+    const option = getInternalUnitOption(unit);
+    const config = BASE_UNIT_CONFIG[unit];
+    return {
+      unit,
+      href: `/units/${unit}`,
+      label: option?.label || option?.abbreviation || unit.toUpperCase(),
+      shortLabel: option?.shortLabel || option?.abbreviation || unit.toUpperCase(),
+      navColor: config.navColor,
+      rankHierarchy: config.rankHierarchy.slice(),
+    };
+  })
+  .sort((a, b) => a.label.localeCompare(b.label, "pl", { sensitivity: "base" }));
 
 const UNIT_CONFIG_MAP = new Map<InternalUnit, UnitSectionConfig>(UNIT_SECTIONS.map((section) => [section.unit, section]));
 

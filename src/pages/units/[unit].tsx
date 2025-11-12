@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import { useProfile } from "@/hooks/useProfile";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import {
   getAdditionalRankOption,
   getDepartmentOption,
@@ -13,13 +13,14 @@ import {
   type Department,
   type InternalUnit,
 } from "@/lib/hr";
-import { ROLE_LABELS, type Role } from "@/lib/roles";
+import { ROLE_LABELS, isHighCommand, type Role } from "@/lib/roles";
 import {
   getUnitSection,
   resolveUnitPermission,
   formatManageableRankList,
   type UnitSectionConfig,
 } from "@/lib/internalUnits";
+import { collection, doc, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 
 const CHIP_CLASS =
   "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide shadow-sm";
@@ -57,6 +58,29 @@ type MemberRowProps = {
   manageableRanks: AdditionalRank[];
   onSubmit: (uid: string, update: MemberUpdate) => Promise<void>;
   saving: boolean;
+};
+
+type CriminalGroupRecord = {
+  id: string;
+  title?: string;
+  group?: {
+    name?: string;
+    colorName?: string;
+    colorHex?: string;
+    organizationType?: string;
+    base?: string;
+    operations?: string;
+  } | null;
+};
+
+type NewCriminalGroupInput = {
+  name: string;
+  title: string;
+  colorName: string;
+  colorHex: string;
+  organizationType: string;
+  base: string;
+  operations: string;
 };
 
 function arraysEqual<T>(a: T[], b: T[]): boolean {
@@ -238,22 +262,108 @@ export default function UnitPanelPage() {
   const unitSlug = Array.isArray(router.query.unit) ? router.query.unit[0] : router.query.unit;
   const normalizedUnit = (unitSlug ? unitSlug.toLowerCase() : "") as InternalUnit;
   const section: UnitSectionConfig | null = unitSlug ? getUnitSection(normalizedUnit) : null;
-  const { additionalRanks, ready } = useProfile();
-  const permission = useMemo(
-    () => (section ? resolveUnitPermission(section.unit, additionalRanks) : null),
-    [section, additionalRanks]
-  );
+  const { additionalRanks, ready, units: profileUnits, role } = useProfile();
+  const [activeTab, setActiveTab] = useState<"home" | "management">("home");
   const [members, setMembers] = useState<UnitMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [mutating, setMutating] = useState<string | null>(null);
+  const [criminalGroups, setCriminalGroups] = useState<CriminalGroupRecord[]>([]);
+  const [criminalGroupsLoading, setCriminalGroupsLoading] = useState(false);
+  const [criminalGroupsError, setCriminalGroupsError] = useState<string | null>(null);
+  const [groupForm, setGroupForm] = useState<NewCriminalGroupInput>({
+    name: "",
+    title: "",
+    colorName: "",
+    colorHex: "#7c3aed",
+    organizationType: "",
+    base: "",
+    operations: "",
+  });
+  const [groupSaving, setGroupSaving] = useState(false);
+  const [groupFormError, setGroupFormError] = useState<string | null>(null);
 
   const unit = section?.unit ?? null;
 
+  const permission = useMemo(
+    () => (section ? resolveUnitPermission(section.unit, additionalRanks) : null),
+    [section, additionalRanks]
+  );
+
+  const managementPermission = useMemo(() => {
+    if (permission) return permission;
+    if (!section) return null;
+    if (isHighCommand(role)) {
+      const hierarchy = section.rankHierarchy;
+      if (!hierarchy.length) return null;
+      return {
+        unit: section.unit,
+        highestRank: hierarchy[0],
+        manageableRanks: hierarchy.slice(),
+      };
+    }
+    return null;
+  }, [permission, section, role]);
+
+  const belongsToUnit = useMemo(() => {
+    if (!section) return false;
+    if (!Array.isArray(profileUnits)) return false;
+    return profileUnits.includes(section.unit);
+  }, [section, profileUnits]);
+
+  const canViewMembers = useMemo(() => {
+    if (!section) return false;
+    if (managementPermission) return true;
+    if (!ready) return false;
+    if (isHighCommand(role)) return true;
+    return belongsToUnit;
+  }, [section, managementPermission, ready, role, belongsToUnit]);
+
+  const tabs = useMemo(() => {
+    const entries: { id: "home" | "management"; label: string }[] = [];
+    const baseLabel = section?.shortLabel || section?.label || "";
+    const homeLabel = `Strona główna ${baseLabel}`.trim() || "Strona jednostki";
+    entries.push({ id: "home", label: homeLabel });
+    if (managementPermission) {
+      entries.push({ id: "management", label: "Zarządzanie jednostką" });
+    }
+    return entries;
+  }, [section, managementPermission]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const viewParam = typeof router.query.view === "string" ? router.query.view.toLowerCase() : "";
+    if (viewParam === "management" && managementPermission) {
+      setActiveTab("management");
+      return;
+    }
+    setActiveTab("home");
+    if (viewParam === "management" && !managementPermission) {
+      const nextQuery = { ...router.query };
+      delete nextQuery.view;
+      router.replace({ pathname: router.pathname, query: nextQuery }, undefined, { shallow: true });
+    }
+  }, [router.isReady, router.query.view, router.pathname, router, managementPermission]);
+
+  const handleTabChange = useCallback(
+    (tab: "home" | "management") => {
+      if (tab === "management" && !managementPermission) return;
+      setActiveTab(tab);
+      const nextQuery = { ...router.query };
+      if (tab === "home") {
+        delete nextQuery.view;
+      } else {
+        nextQuery.view = tab;
+      }
+      router.replace({ pathname: router.pathname, query: nextQuery }, undefined, { shallow: true });
+    },
+    [router, managementPermission]
+  );
+
   const loadMembers = useCallback(async () => {
-    if (!unit || !permission) return;
+    if (!unit || !canViewMembers) return;
     setLoading(true);
     setError(null);
     try {
@@ -274,19 +384,21 @@ export default function UnitPanelPage() {
     } finally {
       setLoading(false);
     }
-  }, [unit, permission]);
+  }, [unit, canViewMembers]);
 
   useEffect(() => {
-    if (unit && permission) {
+    if (unit && canViewMembers) {
       loadMembers();
-    } else {
+    } else if (ready) {
+      setMembers([]);
       setLoading(false);
+      setError(null);
     }
-  }, [unit, permission, loadMembers]);
+  }, [unit, canViewMembers, loadMembers, ready]);
 
   const handleSubmit = useCallback(
     async (uid: string, update: MemberUpdate) => {
-      if (!unit || !permission) return;
+      if (!unit || !managementPermission) return;
       setMutating(uid);
       setActionError(null);
       try {
@@ -327,7 +439,7 @@ export default function UnitPanelPage() {
         setMutating(null);
       }
     },
-    [unit, permission]
+    [unit, managementPermission]
   );
 
   const filteredMembers = useMemo(() => {
@@ -351,12 +463,12 @@ export default function UnitPanelPage() {
     });
   }, [members, search]);
 
-  const manageableRanks = permission?.manageableRanks ?? [];
-  const highestRankOption = permission ? getAdditionalRankOption(permission.highestRank) : null;
-  const manageableList = permission ? formatManageableRankList(permission.manageableRanks) : "";
+  const manageableRanks = managementPermission?.manageableRanks ?? [];
+  const highestRankOption = managementPermission ? getAdditionalRankOption(managementPermission.highestRank) : null;
+  const manageableList = managementPermission ? formatManageableRankList(managementPermission.manageableRanks) : "";
 
-  const accessMessage = permission
-    ? permission.manageableRanks.length
+  const managementMessage = managementPermission
+    ? managementPermission.manageableRanks.length
       ? `Jako ${highestRankOption?.label || "opiekun"} możesz zarządzać członkostwem w ${
           section?.shortLabel || "jednostce"
         } oraz rangami: ${manageableList}.`
@@ -364,6 +476,112 @@ export default function UnitPanelPage() {
           section?.shortLabel || "jednostce"
         }.`
     : "Brak uprawnień do zarządzania tą jednostką.";
+
+  const unitMembers = useMemo(() => {
+    if (!unit) return [] as UnitMember[];
+    return members.filter((member) => member.units.includes(unit));
+  }, [members, unit]);
+
+  const sortedCriminalGroups = useMemo(() => {
+    return [...criminalGroups].sort((a, b) => {
+      const nameA = a.group?.name || a.title || "";
+      const nameB = b.group?.name || b.title || "";
+      return nameA.localeCompare(nameB, "pl", { sensitivity: "base" });
+    });
+  }, [criminalGroups]);
+
+  useEffect(() => {
+    if (!section || section.unit !== "gu" || !managementPermission) {
+      setCriminalGroups([]);
+      setCriminalGroupsError(null);
+      setCriminalGroupsLoading(false);
+      return;
+    }
+
+    setCriminalGroupsLoading(true);
+    const groupsQuery = query(collection(db, "dossiers"), where("category", "==", "criminal-group"));
+    const unsubscribe = onSnapshot(
+      groupsQuery,
+      (snapshot) => {
+        setCriminalGroups(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) })));
+        setCriminalGroupsError(null);
+        setCriminalGroupsLoading(false);
+      },
+      (err) => {
+        console.error("Nie udało się pobrać grup przestępczych", err);
+        setCriminalGroupsError("Nie udało się wczytać grup przestępczych. Spróbuj ponownie później.");
+        setCriminalGroupsLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [section, managementPermission]);
+
+  const handleGroupSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!section || section.unit !== "gu" || !managementPermission || groupSaving) return;
+
+      const name = groupForm.name.trim();
+      const title = groupForm.title.trim();
+      const colorName = groupForm.colorName.trim();
+      const rawColorHex = groupForm.colorHex.trim();
+      const colorHex = rawColorHex.startsWith("#") ? rawColorHex : `#${rawColorHex}`;
+      const organizationType = groupForm.organizationType.trim();
+      const base = groupForm.base.trim();
+      const operations = groupForm.operations.trim();
+
+      if (!name) {
+        setGroupFormError("Podaj nazwę grupy.");
+        return;
+      }
+
+      if (!/^#[0-9a-fA-F]{6}$/.test(colorHex)) {
+        setGroupFormError("Kolor (HEX) musi mieć format #RRGGBB.");
+        return;
+      }
+
+      setGroupFormError(null);
+      setGroupSaving(true);
+
+      try {
+        const user = auth.currentUser;
+        if (!user) throw new Error("Brak zalogowanego użytkownika.");
+        const groupRef = doc(collection(db, "dossiers"));
+        await setDoc(groupRef, {
+          title: title || `Organizacja ${name}`,
+          category: "criminal-group",
+          group: {
+            name,
+            colorName,
+            colorHex,
+            organizationType,
+            base,
+            operations,
+          },
+          createdAt: serverTimestamp(),
+          createdBy: user.email || "",
+          createdByUid: user.uid || "",
+        });
+
+        setGroupForm({
+          name: "",
+          title: "",
+          colorName: "",
+          colorHex,
+          organizationType: "",
+          base: "",
+          operations: "",
+        });
+      } catch (err: any) {
+        console.error(err);
+        setGroupFormError(err?.message || "Nie udało się utworzyć grupy.");
+      } finally {
+        setGroupSaving(false);
+      }
+    },
+    [groupForm, groupSaving, section, managementPermission]
+  );
 
   return (
     <AuthGate>
@@ -373,73 +591,340 @@ export default function UnitPanelPage() {
         </Head>
         <Nav />
         <main className="min-h-screen px-4 py-8">
-          <div className="mx-auto flex max-w-5xl flex-col gap-6">
-            <div className="card space-y-5 p-6" data-section="unit-management">
-              <span className="section-chip">
-                <span
-                  className="section-chip__dot"
-                  style={{ background: section ? section.navColor : "#38bdf8" }}
-                  aria-hidden
-                />
-                Zarządzanie funkcjonariuszami
-              </span>
-              <div className="space-y-2">
-                <h1 className="text-3xl font-bold tracking-tight">
-                  {section ? section.label : "Nieznana jednostka"}
-                </h1>
-                <p className="text-sm text-white/70">{accessMessage}</p>
-              </div>
+          <div className="mx-auto flex max-w-6xl flex-col gap-6">
+            <div className="flex flex-wrap items-center gap-3">
+              {tabs.map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => handleTabChange(tab.id)}
+                    className={`nav-pill ${isActive ? "border-white/60 bg-white/15 text-white" : "text-white/60 hover:text-white"}`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
 
-              {!section && (
-                <div className="text-sm text-red-300">
-                  Nie znaleziono konfiguracji dla podanej jednostki.
-                </div>
-              )}
-
-              {ready && !permission && section && (
-                <div className="text-sm text-red-300">
-                  Nie masz uprawnień do zarządzania tą jednostką.
-                </div>
-              )}
-
-              {permission && (
-                <>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <input
-                      className="input flex-1 min-w-[200px]"
-                      placeholder="Wyszukaj funkcjonariusza..."
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+            {activeTab === "home" && (
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                <section className="card space-y-5 p-6" data-section="unit-home">
+                  <span className="section-chip">
+                    <span
+                      className="section-chip__dot"
+                      style={{ background: section ? section.navColor : "#38bdf8" }}
+                      aria-hidden
                     />
-                    <button className="btn btn--ghost btn--small" onClick={loadMembers} disabled={loading}>
-                      Odśwież
-                    </button>
+                    {tabs[0]?.label || "Strona jednostki"}
+                  </span>
+                  <div className="space-y-3">
+                    <h1 className="text-3xl font-bold tracking-tight">
+                      {section ? section.label : "Nieznana jednostka"}
+                    </h1>
+                    <p className="text-sm text-white/70">
+                      Panel informacji pozwala na przygotowanie materiałów i ogłoszeń specyficznych dla jednostki.
+                    </p>
+                    {!section && (
+                      <p className="text-sm text-red-300">Nie znaleziono konfiguracji dla podanej jednostki.</p>
+                    )}
                   </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                    <h2 className="text-base font-semibold text-white">Panel informacji</h2>
+                    <p className="mt-2 text-sm text-white/60">
+                      Dodaj tutaj kluczowe informacje operacyjne, procedury lub komunikaty dla funkcjonariuszy tej jednostki.
+                    </p>
+                  </div>
+                </section>
 
-                  {error && <div className="text-sm text-red-300">{error}</div>}
-                  {actionError && <div className="text-sm text-red-300">{actionError}</div>}
-
+                <aside className="card space-y-5 p-6" data-section="unit-roster">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-base font-semibold text-white">Funkcjonariusze jednostki</h2>
+                    <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">
+                      {canViewMembers ? unitMembers.length : 0}
+                    </span>
+                  </div>
                   {loading ? (
-                    <div className="text-sm text-white/60">Ładowanie danych...</div>
-                  ) : filteredMembers.length === 0 ? (
-                    <div className="text-sm text-white/60">Brak funkcjonariuszy spełniających kryteria.</div>
+                    <p className="text-sm text-white/60">Ładowanie danych...</p>
+                  ) : !canViewMembers ? (
+                    <p className="text-sm text-white/60">
+                      Nie masz uprawnień do podglądu listy funkcjonariuszy tej jednostki.
+                    </p>
+                  ) : unitMembers.length === 0 ? (
+                    <p className="text-sm text-white/60">Brak przypisanych funkcjonariuszy.</p>
                   ) : (
-                    <div className="space-y-4">
-                      {filteredMembers.map((member) => (
-                        <MemberRow
+                    <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+                      {unitMembers.map((member) => (
+                        <div
                           key={member.uid}
-                          member={member}
-                          unit={unit!}
-                          manageableRanks={manageableRanks}
-                          onSubmit={handleSubmit}
-                          saving={mutating === member.uid}
-                        />
+                          className="flex items-start justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
+                        >
+                          <div>
+                            <p className="text-sm font-semibold text-white">{member.fullName}</p>
+                            <p className="text-xs text-white/60">
+                              {member.login} • {ROLE_LABELS[member.role] || member.role}
+                            </p>
+                          </div>
+                          {member.badgeNumber ? (
+                            <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/70">
+                              #{member.badgeNumber}
+                            </span>
+                          ) : null}
+                        </div>
                       ))}
                     </div>
                   )}
-                </>
-              )}
-            </div>
+                </aside>
+              </div>
+            )}
+
+            {activeTab === "management" && (
+              <div className="grid gap-6">
+                <div className="card space-y-5 p-6" data-section="unit-management">
+                  <span className="section-chip">
+                    <span
+                      className="section-chip__dot"
+                      style={{ background: section ? section.navColor : "#38bdf8" }}
+                      aria-hidden
+                    />
+                    Zarządzanie funkcjonariuszami
+                  </span>
+                  <div className="space-y-2">
+                    <h1 className="text-3xl font-bold tracking-tight">
+                      {section ? section.label : "Nieznana jednostka"}
+                    </h1>
+                    <p className="text-sm text-white/70">{managementMessage}</p>
+                  </div>
+
+                  {!section && (
+                    <div className="text-sm text-red-300">Nie znaleziono konfiguracji dla podanej jednostki.</div>
+                  )}
+
+                  {ready && !managementPermission && section && (
+                    <div className="text-sm text-red-300">Nie masz uprawnień do zarządzania tą jednostką.</div>
+                  )}
+
+                  {managementPermission && (
+                    <>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <input
+                          className="input flex-1 min-w-[200px]"
+                          placeholder="Wyszukaj funkcjonariusza..."
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                        />
+                        <button className="btn btn--ghost btn--small" onClick={loadMembers} disabled={loading}>
+                          Odśwież
+                        </button>
+                      </div>
+
+                      {error && <div className="text-sm text-red-300">{error}</div>}
+                      {actionError && <div className="text-sm text-red-300">{actionError}</div>}
+
+                      {loading ? (
+                        <div className="text-sm text-white/60">Ładowanie danych...</div>
+                      ) : filteredMembers.length === 0 ? (
+                        <div className="text-sm text-white/60">Brak funkcjonariuszy spełniających kryteria.</div>
+                      ) : (
+                        <div className="space-y-4">
+                          {filteredMembers.map((member) => (
+                            <MemberRow
+                              key={member.uid}
+                              member={member}
+                              unit={unit!}
+                              manageableRanks={manageableRanks}
+                              onSubmit={handleSubmit}
+                              saving={mutating === member.uid}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {section?.unit === "gu" && managementPermission && (
+                  <div className="grid gap-6">
+                    <div className="card bg-gradient-to-br from-fuchsia-900/85 via-indigo-900/80 to-slate-900/85 p-6 text-white shadow-xl">
+                      <h2 className="text-xl font-semibold">Gang Unit — rejestr organizacji</h2>
+                      <p className="text-sm text-white/70">
+                        Zarządzaj profilem grup przestępczych obserwowanych przez jednostkę. Dodawaj nowe wpisy, aktualizuj
+                        informacje operacyjne i kieruj funkcjonariuszy do odpowiednich kart.
+                      </p>
+                    </div>
+
+                    <form className="card bg-white/95 p-6 shadow" onSubmit={handleGroupSubmit}>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <label className="grid gap-1 text-sm">
+                          <span className="font-semibold text-slate-700">Nazwa grupy *</span>
+                          <input
+                            className="input bg-white"
+                            value={groupForm.name}
+                            onChange={(e) => setGroupForm((prev) => ({ ...prev, name: e.target.value }))}
+                            placeholder="np. Vagos"
+                            required
+                          />
+                        </label>
+                        <label className="grid gap-1 text-sm">
+                          <span className="font-semibold text-slate-700">Tytuł (opcjonalnie)</span>
+                          <input
+                            className="input bg-white"
+                            value={groupForm.title}
+                            onChange={(e) => setGroupForm((prev) => ({ ...prev, title: e.target.value }))}
+                            placeholder="np. Organizacja Vagos"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-sm">
+                          <span className="font-semibold text-slate-700">Kolor — nazwa</span>
+                          <input
+                            className="input bg-white"
+                            value={groupForm.colorName}
+                            onChange={(e) => setGroupForm((prev) => ({ ...prev, colorName: e.target.value }))}
+                            placeholder="np. Żółta"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-sm">
+                          <span className="font-semibold text-slate-700">Kolor — HEX *</span>
+                          <div className="flex items-center gap-3">
+                            <input
+                              className="input bg-white"
+                              value={groupForm.colorHex}
+                              onChange={(e) => setGroupForm((prev) => ({ ...prev, colorHex: e.target.value }))}
+                              placeholder="#7c3aed"
+                              pattern="#?[0-9a-fA-F]{6}"
+                              required
+                            />
+                            <span
+                              className="h-10 w-10 rounded-full border border-slate-300"
+                              style={{
+                                background: /^#?[0-9a-fA-F]{6}$/i.test(groupForm.colorHex.trim())
+                                  ? groupForm.colorHex.trim().startsWith("#")
+                                    ? groupForm.colorHex.trim()
+                                    : `#${groupForm.colorHex.trim()}`
+                                  : "#7c3aed",
+                              }}
+                            />
+                          </div>
+                        </label>
+                        <label className="grid gap-1 text-sm">
+                          <span className="font-semibold text-slate-700">Rodzaj organizacji</span>
+                          <input
+                            className="input bg-white"
+                            value={groupForm.organizationType}
+                            onChange={(e) => setGroupForm((prev) => ({ ...prev, organizationType: e.target.value }))}
+                            placeholder="np. Gang uliczny"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-sm">
+                          <span className="font-semibold text-slate-700">Baza operacyjna</span>
+                          <input
+                            className="input bg-white"
+                            value={groupForm.base}
+                            onChange={(e) => setGroupForm((prev) => ({ ...prev, base: e.target.value }))}
+                            placeholder="np. Grove Street"
+                          />
+                        </label>
+                      </div>
+                      <label className="mt-4 grid gap-1 text-sm">
+                        <span className="font-semibold text-slate-700">Zakres działalności</span>
+                        <textarea
+                          className="input min-h-[120px] bg-white"
+                          value={groupForm.operations}
+                          onChange={(e) => setGroupForm((prev) => ({ ...prev, operations: e.target.value }))}
+                          placeholder="Opis działań, np. handel narkotykami, bronią, napady"
+                        />
+                      </label>
+                      {groupFormError && (
+                        <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+                          {groupFormError}
+                        </div>
+                      )}
+                      <div className="mt-4 flex items-center justify-between gap-3">
+                        <span className="text-xs text-slate-500">Pola oznaczone * są wymagane.</span>
+                        <button
+                          type="submit"
+                          className="btn bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-60"
+                          disabled={groupSaving}
+                        >
+                          {groupSaving ? "Zapisywanie..." : "Dodaj grupę"}
+                        </button>
+                      </div>
+                    </form>
+
+                    {criminalGroupsError && (
+                      <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                        {criminalGroupsError}
+                      </div>
+                    )}
+
+                    {criminalGroupsLoading ? (
+                      <div className="card bg-white/10 p-5 text-sm text-white/70">Wczytywanie profili grup...</div>
+                    ) : sortedCriminalGroups.length === 0 ? (
+                      <div className="card bg-white/10 p-5 text-sm text-white/70">
+                        Brak zapisanych grup przestępczych. Dodaj pierwszą organizację, aby rozpocząć ewidencję.
+                      </div>
+                    ) : (
+                      <div className="grid gap-4 md:grid-cols-2">
+                        {sortedCriminalGroups.map((group) => {
+                          const rawColor = group.group?.colorHex || "#7c3aed";
+                          const normalizedColor = /^#?[0-9a-fA-F]{6}$/i.test(rawColor)
+                            ? rawColor.startsWith("#")
+                              ? rawColor
+                              : `#${rawColor}`
+                            : "#7c3aed";
+                          const gradient = `linear-gradient(135deg, ${normalizedColor}33, rgba(15, 23, 42, 0.92))`;
+                          const organizationName = group.group?.name || group.title || group.id;
+                          return (
+                            <div
+                              key={group.id}
+                              className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-5 text-white shadow-lg"
+                              style={{ background: gradient }}
+                            >
+                              <span
+                                className="pointer-events-none absolute inset-0 opacity-40"
+                                style={{ background: `radial-gradient(circle at 20% 20%, ${normalizedColor}33, transparent 65%)` }}
+                              />
+                              <div className="relative flex flex-col gap-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <h3 className="text-xl font-semibold tracking-tight">{organizationName}</h3>
+                                    <p className="text-xs uppercase tracking-[0.3em] text-white/70">
+                                      Kolorystyka: {group.group?.colorName || "—"}
+                                    </p>
+                                  </div>
+                                  <span className="rounded-full border border-white/30 bg-black/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide">
+                                    {group.group?.organizationType || "Nieokreślono"}
+                                  </span>
+                                </div>
+                                <div className="grid gap-2 text-sm text-white/85">
+                                  <div className="flex items-center gap-2">
+                                    <span aria-hidden>📍</span>
+                                    <span>Baza: {group.group?.base || "—"}</span>
+                                  </div>
+                                  {group.group?.operations && (
+                                    <div className="flex items-start gap-2">
+                                      <span aria-hidden>⚔️</span>
+                                      <span className="leading-relaxed">Zakres działalności: {group.group.operations}</span>
+                                    </div>
+                                  )}
+                                </div>
+                                <a
+                                  href={`/criminal-groups/${group.id}`}
+                                  className="mt-2 inline-flex w-max items-center gap-2 rounded-full border border-white/40 bg-white/15 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-white transition hover:bg-white/25"
+                                >
+                                  Otwórz kartę
+                                </a>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </main>
       </>

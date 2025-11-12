@@ -261,7 +261,7 @@ export default function UnitSidebar() {
 
   return (
     <aside
-      className={`hidden lg:flex fixed left-0 top-0 h-full ${widthClass} flex-col gap-6 overflow-y-auto px-5 pb-10 pt-28`}
+      className={`hidden lg:flex fixed left-0 top-0 h-full ${widthClass} flex-col gap-6 overflow-y-visible px-5 pb-10 pt-28`}
       aria-label="Panel funkcjonariusza"
     >
       <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-5 shadow-[0_24px_48px_-24px_rgba(59,130,246,0.5)] backdrop-blur">
@@ -340,7 +340,7 @@ export default function UnitSidebar() {
         </div>
       </div>
 
-      <div className="rounded-3xl border border-white/10 bg-[var(--card)]/85 p-5 shadow-[0_20px_40px_-24px_rgba(34,197,94,0.4)] backdrop-blur">
+        <div className="rounded-3xl border border-white/10 bg-[var(--card)]/85 p-5 shadow-[0_20px_40px_-24px_rgba(34,197,94,0.4)] backdrop-blur">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-white/70">Sekcje jednostek</h2>
           <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-white/60">
@@ -358,8 +358,10 @@ export default function UnitSidebar() {
                 <Link
                   key={section.href}
                   href={section.href}
-                  className={`group relative overflow-hidden rounded-2xl border border-white/10 p-4 transition-all ${
-                    isActive ? "border-white/40 shadow-[0_16px_32px_-24px_rgba(59,130,246,0.7)]" : "hover:-translate-y-1"
+                  className={`group relative overflow-hidden rounded-2xl border border-white/10 p-5 transition-all ${
+                    isActive
+                      ? "border-white/40 shadow-[0_16px_32px_-24px_rgba(59,130,246,0.7)]"
+                      : "hover:-translate-y-1"
                   }`}
                   style={{
                     background: `linear-gradient(135deg, ${section.navColor}33, rgba(8,18,36,0.85))`,
@@ -367,7 +369,7 @@ export default function UnitSidebar() {
                 >
                   <div className="flex items-center gap-3">
                     <span
-                      className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-semibold text-white"
+                      className="flex h-10 w-10 items-center justify-center rounded-xl text-sm font-semibold text-white"
                       style={{ background: section.navColor }}
                     >
                       {section.shortLabel}
