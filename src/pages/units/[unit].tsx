@@ -10,6 +10,7 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
+import { useDialog } from "@/components/DialogProvider";
 import { useProfile } from "@/hooks/useProfile";
 import { auth, db } from "@/lib/firebase";
 import {
@@ -27,7 +28,7 @@ import {
   formatManageableRankList,
   type UnitSectionConfig,
 } from "@/lib/internalUnits";
-import { collection, doc, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 
 const CHIP_CLASS =
   "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide shadow-sm";
@@ -277,6 +278,7 @@ export default function UnitPanelPage() {
   const normalizedUnit = (unitSlug ? unitSlug.toLowerCase() : "") as InternalUnit;
   const section: UnitSectionConfig | null = unitSlug ? getUnitSection(normalizedUnit) : null;
   const { role, additionalRanks, ready } = useProfile();
+  const { confirm, alert } = useDialog();
   const permission = useMemo(
     () => (section ? resolveUnitPermission(section.unit, additionalRanks) : null),
     [section, additionalRanks]
@@ -291,6 +293,11 @@ export default function UnitPanelPage() {
   const [criminalGroups, setCriminalGroups] = useState<CriminalGroupRecord[]>([]);
   const [criminalGroupsLoading, setCriminalGroupsLoading] = useState(false);
   const [criminalGroupsError, setCriminalGroupsError] = useState<string | null>(null);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [addSearch, setAddSearch] = useState("");
+  const [selectedOfficer, setSelectedOfficer] = useState<string>("");
+  const [selectedRank, setSelectedRank] = useState<AdditionalRank | "">("");
+  const [addingMember, setAddingMember] = useState(false);
   const [groupForm, setGroupForm] = useState<NewCriminalGroupInput>({
     name: "",
     title: "",
@@ -304,7 +311,7 @@ export default function UnitPanelPage() {
   const [groupSaving, setGroupSaving] = useState(false);
 
   const unit = section?.unit ?? null;
-  const isGu = unit === "gu";
+  const supportsCriminalGroups = unit === "gu" || unit === "dtu";
 
   const managementPermission = useMemo(() => {
     if (permission) {
@@ -340,12 +347,12 @@ export default function UnitPanelPage() {
     ];
     if (canManage) {
       tabs.push({ id: "management", label: "Zarządzanie jednostką" });
-      if (isGu) {
+      if (supportsCriminalGroups) {
         tabs.push({ id: "groups", label: "Grupy przestępcze" });
       }
     }
     return tabs;
-  }, [section, canManage, isGu]);
+  }, [section, canManage, supportsCriminalGroups]);
 
   useEffect(() => {
     if (!availableTabs.some((tab) => tab.id === activeTab)) {
@@ -436,10 +443,21 @@ export default function UnitPanelPage() {
     [unit, managementPermission]
   );
 
-  const filteredMembers = useMemo(() => {
-    if (!search.trim()) return members;
-    const q = search.trim().toLowerCase();
+  const assignedMembers = useMemo(() => {
+    if (!unit) return [] as UnitMember[];
+    const rankSet = new Set(section?.rankHierarchy ?? []);
     return members.filter((member) => {
+      const inUnit = member.units.includes(unit);
+      if (!inUnit) return false;
+      if (rankSet.size === 0) return true;
+      return member.additionalRanks.some((rank) => rankSet.has(rank));
+    });
+  }, [members, unit, section]);
+
+  const filteredMembers = useMemo(() => {
+    if (!search.trim()) return assignedMembers;
+    const q = search.trim().toLowerCase();
+    return assignedMembers.filter((member) => {
       if (member.fullName.toLowerCase().includes(q)) return true;
       if (member.login.toLowerCase().includes(q)) return true;
       if (member.badgeNumber && member.badgeNumber.toLowerCase().includes(q)) return true;
@@ -455,9 +473,69 @@ export default function UnitPanelPage() {
       if (rankLabels.some((label) => label && label.includes(q))) return true;
       return false;
     });
-  }, [members, search]);
+  }, [assignedMembers, search]);
 
-  const manageableRanks = managementPermission?.manageableRanks ?? [];
+  const availableCandidates = useMemo(() => {
+    if (!unit) return [] as UnitMember[];
+    const assignedSet = new Set(assignedMembers.map((member) => member.uid));
+    return members.filter((member) => !assignedSet.has(member.uid));
+  }, [members, assignedMembers, unit]);
+
+  const filteredCandidates = useMemo(() => {
+    if (!addSearch.trim()) return availableCandidates;
+    const q = addSearch.trim().toLowerCase();
+    return availableCandidates.filter((member) => {
+      if (member.fullName.toLowerCase().includes(q)) return true;
+      if (member.login.toLowerCase().includes(q)) return true;
+      if (member.badgeNumber && member.badgeNumber.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [availableCandidates, addSearch]);
+
+  const selectedCandidate = useMemo(() => {
+    if (!selectedOfficer) return null;
+    return availableCandidates.find((candidate) => candidate.uid === selectedOfficer) ?? null;
+  }, [availableCandidates, selectedOfficer]);
+
+  useEffect(() => {
+    if (!addDialogOpen) return;
+    const defaultOfficer = availableCandidates[0]?.uid ?? "";
+    const defaultRank = manageableRanks.length
+      ? manageableRanks[manageableRanks.length - 1]
+      : ("" as AdditionalRank | "");
+    setSelectedOfficer(defaultOfficer);
+    setSelectedRank(defaultRank);
+  }, [addDialogOpen, availableCandidates, manageableRanks]);
+
+  useEffect(() => {
+    if (!addDialogOpen) return;
+    if (selectedOfficer && filteredCandidates.some((candidate) => candidate.uid === selectedOfficer)) {
+      return;
+    }
+    const fallback = filteredCandidates[0]?.uid ?? availableCandidates[0]?.uid ?? "";
+    setSelectedOfficer(fallback);
+  }, [addDialogOpen, filteredCandidates, availableCandidates, selectedOfficer]);
+
+  useEffect(() => {
+    if (!addDialogOpen) return;
+    if (selectedRank && manageableRanks.includes(selectedRank as AdditionalRank)) {
+      return;
+    }
+    const fallback = manageableRanks.length ? manageableRanks[manageableRanks.length - 1] : "";
+    setSelectedRank(fallback);
+  }, [addDialogOpen, manageableRanks, selectedRank]);
+
+  const manageableRanks = useMemo(
+    () => managementPermission?.manageableRanks ?? [],
+    [managementPermission]
+  );
+  const manageableRankOptions = useMemo(
+    () =>
+      manageableRanks
+        .map((rank) => getAdditionalRankOption(rank))
+        .filter((option): option is NonNullable<ReturnType<typeof getAdditionalRankOption>> => !!option),
+    [manageableRanks]
+  );
   const highestRankOption = managementPermission ? getAdditionalRankOption(managementPermission.highestRank) : null;
   const manageableList = managementPermission ? formatManageableRankList(managementPermission.manageableRanks) : "";
 
@@ -480,7 +558,7 @@ export default function UnitPanelPage() {
   }, [criminalGroups]);
 
   useEffect(() => {
-    if (!isGu || !canManage) {
+    if (!supportsCriminalGroups || !canManage) {
       setCriminalGroups([]);
       setCriminalGroupsLoading(false);
       setCriminalGroupsError(null);
@@ -504,12 +582,12 @@ export default function UnitPanelPage() {
     );
 
     return () => unsubscribe();
-  }, [isGu, canManage]);
+  }, [supportsCriminalGroups, canManage]);
 
   const handleGroupSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!isGu || !canManage || groupSaving) return;
+      if (!supportsCriminalGroups || !canManage || groupSaving) return;
 
       const name = groupForm.name.trim();
       const title = groupForm.title.trim();
@@ -568,7 +646,80 @@ export default function UnitPanelPage() {
         setGroupSaving(false);
       }
     },
-    [canManage, groupForm, groupSaving, isGu]
+    [canManage, groupForm, groupSaving, supportsCriminalGroups]
+  );
+
+  const handleAddMember = useCallback(async () => {
+    if (!unit || !managementPermission) return;
+    if (!selectedOfficer) {
+      await alert({
+        tone: "danger",
+        title: "Brak wyboru",
+        message: "Wybierz funkcjonariusza, którego chcesz dodać do jednostki.",
+      });
+      return;
+    }
+
+    const fallbackRank = manageableRanks.length ? manageableRanks[manageableRanks.length - 1] : "";
+    const rankToAssign = (selectedRank as AdditionalRank | "") || fallbackRank;
+    if (!rankToAssign && manageableRanks.length > 0) {
+      await alert({
+        tone: "danger",
+        title: "Brak rangi",
+        message: "Wybierz rangę jednostki dla dodawanego funkcjonariusza.",
+      });
+      return;
+    }
+
+    setAddingMember(true);
+    try {
+      await handleSubmit(selectedOfficer, {
+        membership: true,
+        ranks: rankToAssign ? [rankToAssign] : [],
+      });
+      setAddDialogOpen(false);
+      setAddSearch("");
+    } finally {
+      setAddingMember(false);
+    }
+  }, [unit, managementPermission, selectedOfficer, manageableRanks, selectedRank, alert, handleSubmit]);
+
+  const handleDeleteGroup = useCallback(
+    async (groupId: string, groupName: string) => {
+      if (!supportsCriminalGroups || !canManage) return;
+      const firstConfirm = await confirm({
+        title: "Usuń grupę",
+        message: `Czy na pewno chcesz usunąć grupę "${groupName}" z rejestru?`,
+        confirmLabel: "Usuń",
+        cancelLabel: "Anuluj",
+        tone: "danger",
+      });
+      if (!firstConfirm) return;
+      const secondConfirm = await confirm({
+        title: "Potwierdź usunięcie",
+        message: `Ta operacja jest nieodwracalna. Potwierdź, że chcesz usunąć grupę "${groupName}".`,
+        confirmLabel: "Potwierdź usunięcie",
+        cancelLabel: "Anuluj",
+        tone: "danger",
+      });
+      if (!secondConfirm) return;
+
+      try {
+        await deleteDoc(doc(db, "dossiers", groupId));
+        await alert({
+          tone: "info",
+          title: "Usunięto grupę",
+          message: `Grupa "${groupName}" została usunięta.`,
+        });
+      } catch (error: any) {
+        await alert({
+          tone: "danger",
+          title: "Błąd",
+          message: error?.message || "Nie udało się usunąć grupy.",
+        });
+      }
+    },
+    [supportsCriminalGroups, canManage, confirm, alert]
   );
 
   return (
@@ -646,7 +797,7 @@ export default function UnitPanelPage() {
                       <p className="text-xs text-white/60">Aktualna lista funkcjonariuszy przypisanych do jednostki.</p>
                     </div>
                     <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
-                      {members.length}
+                      {assignedMembers.length}
                     </span>
                   </div>
                   {error && (
@@ -670,14 +821,14 @@ export default function UnitPanelPage() {
                       Brak uprawnień do podglądu składu jednostki.
                     </div>
                   )}
-                  {!loading && canManage && members.length === 0 && !error && (
+                  {!loading && canManage && assignedMembers.length === 0 && !error && (
                     <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
                       Brak funkcjonariuszy spełniających kryteria.
                     </div>
                   )}
-                  {canManage && members.length > 0 && (
+                  {canManage && assignedMembers.length > 0 && (
                     <ul className="max-h-64 space-y-2 overflow-y-auto pr-1 text-sm text-white/80">
-                      {members.map((member) => (
+                      {assignedMembers.map((member) => (
                         <li key={member.uid} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
                           <div className="flex items-center justify-between gap-3">
                             <span className="font-semibold text-white">{member.fullName}</span>
@@ -726,6 +877,17 @@ export default function UnitPanelPage() {
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                       />
+                      <button
+                        type="button"
+                        className="btn btn--primary btn--small"
+                        onClick={() => {
+                          setAddSearch("");
+                          setAddDialogOpen(true);
+                        }}
+                        disabled={availableCandidates.length === 0}
+                      >
+                        Dodaj do jednostki
+                      </button>
                       <button className="btn btn--ghost btn--small" onClick={loadMembers} disabled={loading}>
                         Odśwież
                       </button>
@@ -757,12 +919,14 @@ export default function UnitPanelPage() {
               </div>
             )}
 
-            {activeTab === "groups" && isGu && canManage && (
+            {activeTab === "groups" && supportsCriminalGroups && canManage && (
               <div className="grid gap-6">
                 <div className="card bg-gradient-to-br from-fuchsia-900/85 via-indigo-900/80 to-slate-900/85 p-6 text-white shadow-xl">
-                  <h2 className="text-xl font-semibold">Gang Unit — rejestr organizacji</h2>
+                  <h2 className="text-xl font-semibold">
+                    {unit === "dtu" ? "Detective Task Unit" : "Gang Unit"} — rejestr organizacji
+                  </h2>
                   <p className="text-sm text-white/70">
-                    Zarządzaj profilem grup przestępczych obserwowanych przez GU. Dodawaj nowe wpisy i aktualizuj informacje operacyjne.
+                    Zarządzaj profilem grup przestępczych obserwowanych przez {unit === "dtu" ? "DTU" : "GU"}. Dodawaj nowe wpisy i aktualizuj informacje operacyjne.
                   </p>
                 </div>
 
@@ -905,9 +1069,18 @@ export default function UnitPanelPage() {
                                   Kolorystyka: {group.group?.colorName || "—"}
                                 </p>
                               </div>
-                              <span className="rounded-full border border-white/30 bg-black/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide">
-                                {group.group?.organizationType || "Nieokreślono"}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="rounded-full border border-white/30 bg-black/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide">
+                                  {group.group?.organizationType || "Nieokreślono"}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-white/40 bg-white/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white transition hover:bg-white/25"
+                                  onClick={() => handleDeleteGroup(group.id, organizationName)}
+                                >
+                                  Usuń
+                                </button>
+                              </div>
                             </div>
                             <div className="grid gap-2 text-sm text-white/85">
                               <div className="flex items-center gap-2">
@@ -937,6 +1110,117 @@ export default function UnitPanelPage() {
             )}
           </div>
         </main>
+        {addDialogOpen && (
+          <div
+            className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 px-4"
+            role="dialog"
+            aria-modal="true"
+            onClick={(event) => {
+              if (event.target === event.currentTarget && !addingMember) {
+                setAddDialogOpen(false);
+              }
+            }}
+          >
+            <div className="w-full max-w-xl rounded-3xl border border-white/20 bg-[var(--card)]/95 p-6 shadow-2xl">
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-2xl font-semibold text-white">Dodaj do jednostki</h2>
+                  <p className="text-sm text-white/70">
+                    Wybierz funkcjonariusza, którego chcesz przypisać do sekcji {section?.shortLabel || section?.label}.
+                  </p>
+                </div>
+                {availableCandidates.length === 0 ? (
+                  <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
+                    Brak dostępnych funkcjonariuszy do dodania.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="grid gap-1 text-sm text-white/80">
+                        <span>Wyszukaj funkcjonariusza</span>
+                        <input
+                          className="input"
+                          placeholder="np. Imię, login lub numer odznaki"
+                          value={addSearch}
+                          onChange={(event) => setAddSearch(event.target.value)}
+                        />
+                      </label>
+                      <label className="grid gap-1 text-sm text-white/80">
+                        <span>Funkcjonariusz</span>
+                        {filteredCandidates.length > 0 ? (
+                          <select
+                            className="input bg-white text-slate-900"
+                            value={selectedOfficer}
+                            onChange={(event) => setSelectedOfficer(event.target.value)}
+                          >
+                            {filteredCandidates.map((candidate) => (
+                              <option key={candidate.uid} value={candidate.uid}>
+                                {candidate.fullName}
+                                {candidate.badgeNumber ? ` (#${candidate.badgeNumber})` : ""} — {ROLE_LABELS[candidate.role] || candidate.role}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+                            Brak funkcjonariuszy spełniających kryteria wyszukiwania.
+                          </div>
+                        )}
+                      </label>
+                      {manageableRankOptions.length > 0 && (
+                        <label className="grid gap-1 text-sm text-white/80">
+                          <span>Ranga jednostki</span>
+                          <select
+                            className="input bg-white text-slate-900"
+                            value={selectedRank || ""}
+                            onChange={(event) => setSelectedRank(event.target.value as AdditionalRank | "")}
+                          >
+                            <option value="">Wybierz rangę</option>
+                            {manageableRankOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                    </div>
+                    {selectedCandidate && (
+                      <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/75">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-semibold text-white">{selectedCandidate.fullName}</span>
+                          {selectedCandidate.badgeNumber && (
+                            <span className="text-xs font-mono text-white/50">#{selectedCandidate.badgeNumber}</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-white/60">
+                          {selectedCandidate.login} • {ROLE_LABELS[selectedCandidate.role] || selectedCandidate.role}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--small"
+                    onClick={() => setAddDialogOpen(false)}
+                    disabled={addingMember}
+                  >
+                    Anuluj
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--small"
+                    onClick={handleAddMember}
+                    disabled={addingMember || !selectedOfficer || availableCandidates.length === 0}
+                  >
+                    {addingMember ? "Dodawanie..." : "Dodaj funkcjonariusza"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </>
     </AuthGate>
   );
