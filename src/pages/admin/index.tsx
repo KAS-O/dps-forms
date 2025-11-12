@@ -217,6 +217,7 @@ const ACTION_LABELS: Record<string, string> = {
   "dossier.create": "Nowa teczka",
   "dossier.delete": "Usunięcie teczki",
   "criminal_group.open": "Podgląd organizacji",
+  "gu.group.create": "Dodanie grupy przestępczej",
   "document.send": "Wygenerowanie dokumentu",
   "stats.clear": "Czyszczenie statystyk",
   "auth.login_success": "Udane logowanie",
@@ -241,43 +242,37 @@ const ADMIN_SECTION_ORDER: AdminSection[] = [
 
 const ADMIN_SECTION_META: Record<
   AdminSection,
-  { label: string; description: string; icon: string; accent: string }
+  { label: string; description: string; icon: string }
 > = {
   overview: {
     label: "Podsumowanie",
     description: "Statystyki i finanse",
     icon: "📊",
-    accent: "#38bdf8",
   },
   hr: {
     label: "Dział Kadr",
     description: "Kontrola kont i rang",
     icon: "🛡️",
-    accent: "#6366f1",
   },
   gu: {
     label: "Gang Unit",
     description: "Grupy przestępcze",
     icon: "🕶️",
-    accent: "#f472b6",
   },
   announcements: {
     label: "Ogłoszenia",
     description: "Komunikaty dla funkcjonariuszy",
     icon: "📣",
-    accent: "#f59e0b",
   },
   tickets: {
     label: "Tickety",
     description: "Zgłoszenia od funkcjonariuszy",
     icon: "🎟️",
-    accent: "#34d399",
   },
   logs: {
     label: "Logi",
     description: "Aktywność kont",
     icon: "🗂️",
-    accent: "#38bdf8",
   },
 };
 
@@ -719,6 +714,7 @@ export default function Admin() {
       try {
         const user = auth.currentUser;
         const groupRef = doc(collection(db, "dossiers"));
+        const groupId = groupRef.id;
         await setDoc(groupRef, {
           title: title || `Organizacja ${name}`,
           category: "criminal-group",
@@ -733,6 +729,22 @@ export default function Admin() {
           createdAt: serverTimestamp(),
           createdBy: user?.email || "",
           createdByUid: user?.uid || "",
+        });
+
+        await writeLog({
+          type: "criminal_group_create",
+          section: "panel-zarzadu",
+          action: "gu.group.create",
+          message: `Dodano organizację ${name}.`,
+          groupId,
+          details: {
+            name,
+            title: title || null,
+            colorName: colorName || null,
+            colorHex,
+            organizationType: organizationType || null,
+            base: base || null,
+          },
         });
 
         setGroupForm({
@@ -751,7 +763,7 @@ export default function Admin() {
         setGroupSaving(false);
       }
     },
-    [groupForm, groupSaving]
+    [groupForm, groupSaving, writeLog]
   );
 
   useEffect(() => {
@@ -1810,62 +1822,82 @@ export default function Admin() {
           </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-          <aside className="rounded-3xl border border-white/20 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-6 text-white shadow-xl">
-            <div className="flex flex-col gap-6">
-              <div className="rounded-2xl border border-white/15 bg-white/5 p-4 shadow-inner">
-                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Twoje konto</span>
-                <div className="mt-2 text-lg font-semibold tracking-tight text-white">{displayName}</div>
-                <div className="text-sm text-white/70">
-                  Login: <span className="font-mono">{displayLogin}</span>
+        <div className="grid gap-6 lg:grid-cols-[320px_1fr] xl:grid-cols-[360px_1fr]">
+          <aside className="space-y-6 lg:sticky lg:top-6 lg:self-start">
+            <section className="relative overflow-hidden rounded-3xl border border-slate-800/60 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 px-6 py-6 text-white shadow-2xl">
+              <span
+                className="pointer-events-none absolute inset-0 opacity-40"
+                style={{
+                  background:
+                    "radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.35), transparent 55%)",
+                }}
+              />
+              <div className="relative grid gap-3">
+                <span className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">Konto funkcyjnego</span>
+                <div>
+                  <div className="text-2xl font-semibold tracking-tight text-white">{displayName}</div>
+                  <div className="text-xs uppercase tracking-[0.25em] text-white/60">{ROLE_LABELS[role] || role || "—"}</div>
                 </div>
-                {badgeNumber && (
-                  <div className="text-xs text-white/60">Odznaka: <span className="font-semibold text-white/80">#{badgeNumber}</span></div>
-                )}
+                <div className="grid gap-1 text-sm text-white/70">
+                  <div>
+                    Login: <span className="font-mono text-white/90">{displayLogin}</span>
+                  </div>
+                  {badgeNumber && (
+                    <div>
+                      Numer odznaki: <span className="font-semibold text-white/90">#{badgeNumber}</span>
+                    </div>
+                  )}
+                </div>
               </div>
+            </section>
 
-              <nav className="grid gap-3">
+            <nav className="rounded-3xl border border-slate-200/20 bg-white/80 p-4 shadow-lg backdrop-blur">
+              <span className="mb-3 block text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">Sekcje</span>
+              <div className="grid gap-2">
                 {ADMIN_SECTION_ORDER.map((value) => {
                   const meta = ADMIN_SECTION_META[value];
                   const active = section === value;
-                  const accent = meta.accent;
                   return (
                     <button
                       key={value}
                       type="button"
                       onClick={() => setSection(value)}
-                      className={`group relative overflow-hidden rounded-2xl border px-5 py-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
-                        active ? "border-white/40 bg-white/15 shadow-[0_24px_60px_-28px_rgba(59,130,246,0.8)]" : "border-white/10 bg-white/5 hover:bg-white/10"
+                      className={`group relative flex items-center gap-3 rounded-2xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${
+                        active
+                          ? "border-slate-900/50 bg-slate-900 text-white shadow-lg"
+                          : "border-slate-200/80 bg-white text-slate-700 hover:border-slate-900/30 hover:bg-slate-900/5"
                       }`}
-                      style={{ borderColor: active ? `${accent}aa` : undefined }}
+                      aria-current={active ? "page" : undefined}
                     >
                       <span
-                        className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-40"
-                        style={{ background: `radial-gradient(circle at 15% 15%, ${accent}33, transparent 60%)` }}
-                      />
-                      <div className="relative flex items-start gap-3">
-                        <span className="text-2xl" aria-hidden>
-                          {meta.icon}
+                        className={`grid h-10 w-10 place-items-center rounded-xl text-lg font-semibold transition ${
+                          active ? "bg-white/15 text-white" : "bg-slate-900/5 text-slate-700"
+                        }`}
+                        aria-hidden="true"
+                      >
+                        {meta.icon}
+                      </span>
+                      <span className="flex-1">
+                        <span className={`block text-sm font-semibold tracking-tight ${active ? "text-white" : "text-slate-800"}`}>
+                          {meta.label}
                         </span>
-                        <div>
-                          <div className="text-base font-semibold tracking-tight text-white">{meta.label}</div>
-                          <div className="text-xs text-white/70">{meta.description}</div>
-                        </div>
-                      </div>
+                        <span className={`block text-xs ${active ? "text-white/70" : "text-slate-500"}`}>
+                          {meta.description}
+                        </span>
+                      </span>
                     </button>
                   );
                 })}
-              </nav>
-
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-white/70">
-                <div className="font-semibold text-white/80">Domena logowania</div>
-                <div className="font-mono text-sm text-white/80">@{loginDomain}</div>
-                <p className="mt-2 leading-relaxed">
-                  Pamiętaj o ochronie danych. Panel nie posiada własnego resetu hasła — korzystaj z konsoli Firebase w razie
-                  potrzeby.
-                </p>
               </div>
-            </div>
+            </nav>
+
+            <section className="rounded-3xl border border-slate-200/30 bg-white/80 p-5 text-sm text-slate-600 shadow">
+              <div className="font-semibold text-slate-800">Domena logowania</div>
+              <div className="font-mono text-base text-slate-900">@{loginDomain}</div>
+              <p className="mt-3 text-xs leading-relaxed text-slate-500">
+                Dane dostępowe chronimy zgodnie z procedurami. Zmiany haseł wykonasz przez konsolę Firebase.
+              </p>
+            </section>
           </aside>
 
           <div className="grid gap-6">
@@ -2273,12 +2305,12 @@ export default function Admin() {
                             </div>
                             <div className="grid gap-2 text-sm text-white/85">
                               <div className="flex items-center gap-2">
-                                <span aria-hidden>📍</span>
+                                <span aria-hidden="true">📍</span>
                                 <span>Baza: {group.group?.base || "—"}</span>
                               </div>
                               {group.group?.operations && (
                                 <div className="flex items-start gap-2">
-                                  <span aria-hidden>⚔️</span>
+                                  <span aria-hidden="true">⚔️</span>
                                   <span className="leading-relaxed">Zakres działalności: {group.group.operations}</span>
                                 </div>
                               )}
