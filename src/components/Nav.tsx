@@ -14,7 +14,6 @@ const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dashboard", label: "Dokumenty", color: "#60a5fa" },
   { href: "/chain-of-command", label: "Chain of Command", color: "#f97316" },
   { href: "/dossiers", label: "Teczki", color: "#8b5cf6" },
-  { href: "/criminal-groups", label: "Grupy przestępcze", color: "#ec4899" },
   { href: "/vehicle-archive", label: "Archiwum pojazdów", color: "#34d399" },
 ];
 
