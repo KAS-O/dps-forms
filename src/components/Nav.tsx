@@ -6,7 +6,7 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
-import { ROLE_LABELS, hasBoardAccess } from "@/lib/roles";
+import { hasBoardAccess } from "@/lib/roles";
 import { UNIT_SECTIONS, unitHasAccess } from "@/lib/internalUnits";
 import UnitSidebar from "@/components/UnitSidebar";
 
@@ -47,8 +47,7 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 }
 
 export default function Nav() {
-  const { fullName, role, badgeNumber, additionalRanks } = useProfile();
-  const roleLabel = role ? ROLE_LABELS[role] || role : "";
+  const { role, additionalRanks } = useProfile();
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
   const router = useRouter();
@@ -81,16 +80,9 @@ export default function Nav() {
                 Los Santos Police Department
               </span>
             </div>
-            <div className="flex items-center gap-2 whitespace-nowrap text-sm">
-              <span className="px-2 py-1 rounded bg-white/10 text-beige-900">
-                {fullName || "—"}
-                {badgeNumber ? ` • #${badgeNumber}` : ""}
-                {role ? ` • ${roleLabel}` : ""}
-              </span>
-              <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold">
-                Wyloguj
-              </button>
-            </div>
+            <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold self-start sm:self-auto">
+              Wyloguj
+            </button>
           </div>
           <div className="flex items-center">
             <div className="flex-1 overflow-x-auto pb-1">
