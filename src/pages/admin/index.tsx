@@ -1796,7 +1796,7 @@ export default function Admin() {
         {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
         <div className="rounded-3xl border border-white/60 bg-white/70 px-6 py-6 shadow-sm backdrop-blur">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-2">
               <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
                 Command Center
@@ -1807,63 +1807,91 @@ export default function Admin() {
                 wyspecjalizowanych jednostek w jednym miejscu.
               </p>
             </div>
+            <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 text-sm text-slate-600 shadow-sm">
+              <span className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">Twoje konto</span>
+              <div className="mt-3 space-y-2">
+                <div className="text-lg font-semibold text-slate-900">{displayName}</div>
+                <div className="grid gap-1 text-xs sm:text-sm">
+                  <span>
+                    Login: <span className="font-mono text-slate-800">{displayLogin}</span>
+                  </span>
+                  {badgeNumber && (
+                    <span>
+                      Odznaka: <span className="font-semibold text-slate-800">#{badgeNumber}</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-          <aside className="rounded-3xl border border-white/20 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-6 text-white shadow-xl">
-            <div className="flex flex-col gap-6">
-              <div className="rounded-2xl border border-white/15 bg-white/5 p-4 shadow-inner">
-                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Twoje konto</span>
-                <div className="mt-2 text-lg font-semibold tracking-tight text-white">{displayName}</div>
-                <div className="text-sm text-white/70">
-                  Login: <span className="font-mono">{displayLogin}</span>
+        <div className="grid gap-6 lg:grid-cols-[minmax(260px,300px)_1fr] lg:items-start">
+          <aside className="lg:sticky lg:top-24">
+            <div className="rounded-3xl border border-white/20 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-6 text-white shadow-xl">
+              <div className="flex flex-col gap-6">
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Sekcje panelu</span>
+                  <h2 className="text-lg font-semibold text-white">Nawigacja modułów</h2>
+                  <p className="text-sm text-white/70">
+                    Wybierz obszar pracy zarządu, aby szybko przejść do potrzebnych narzędzi.
+                  </p>
                 </div>
-                {badgeNumber && (
-                  <div className="text-xs text-white/60">Odznaka: <span className="font-semibold text-white/80">#{badgeNumber}</span></div>
-                )}
-              </div>
 
-              <nav className="grid gap-3">
-                {ADMIN_SECTION_ORDER.map((value) => {
-                  const meta = ADMIN_SECTION_META[value];
-                  const active = section === value;
-                  const accent = meta.accent;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setSection(value)}
-                      className={`group relative overflow-hidden rounded-2xl border px-5 py-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
-                        active ? "border-white/40 bg-white/15 shadow-[0_24px_60px_-28px_rgba(59,130,246,0.8)]" : "border-white/10 bg-white/5 hover:bg-white/10"
-                      }`}
-                      style={{ borderColor: active ? `${accent}aa` : undefined }}
-                    >
-                      <span
-                        className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-40"
-                        style={{ background: `radial-gradient(circle at 15% 15%, ${accent}33, transparent 60%)` }}
-                      />
-                      <div className="relative flex items-start gap-3">
-                        <span className="text-2xl" aria-hidden>
+                <nav className="grid gap-2">
+                  {ADMIN_SECTION_ORDER.map((value) => {
+                    const meta = ADMIN_SECTION_META[value];
+                    const active = section === value;
+                    const accent = meta.accent;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setSection(value)}
+                        className={`group relative flex items-start gap-3 rounded-2xl border px-4 py-4 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
+                          active
+                            ? "border-white/60 bg-white text-slate-900 shadow-[0_24px_60px_-28px_rgba(59,130,246,0.8)]"
+                            : "border-white/10 bg-white/5 text-white/70 hover:border-white/25 hover:bg-white/10 hover:text-white"
+                        }`}
+                        style={
+                          active
+                            ? {
+                                borderColor: `${accent}aa`,
+                                boxShadow: `0 24px 60px -28px ${accent}aa`,
+                              }
+                            : undefined
+                        }
+                      >
+                        <span
+                          className="flex h-10 w-10 items-center justify-center rounded-xl text-lg font-semibold transition-colors"
+                          style={{
+                            background: active ? `${accent}1f` : `${accent}26`,
+                            color: active ? accent : "#f8fafc",
+                            boxShadow: active ? `0 12px 28px -18px ${accent}aa` : undefined,
+                          }}
+                          aria-hidden
+                        >
                           {meta.icon}
                         </span>
-                        <div>
-                          <div className="text-base font-semibold tracking-tight text-white">{meta.label}</div>
-                          <div className="text-xs text-white/70">{meta.description}</div>
+                        <div className="space-y-1">
+                          <div className={`text-base font-semibold tracking-tight ${active ? "text-slate-900" : "text-white"}`}>
+                            {meta.label}
+                          </div>
+                          <div className={`text-xs ${active ? "text-slate-600" : "text-white/70"}`}>{meta.description}</div>
                         </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </nav>
+                      </button>
+                    );
+                  })}
+                </nav>
 
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-white/70">
-                <div className="font-semibold text-white/80">Domena logowania</div>
-                <div className="font-mono text-sm text-white/80">@{loginDomain}</div>
-                <p className="mt-2 leading-relaxed">
-                  Pamiętaj o ochronie danych. Panel nie posiada własnego resetu hasła — korzystaj z konsoli Firebase w razie
-                  potrzeby.
-                </p>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-white/70">
+                  <div className="font-semibold text-white/80">Domena logowania</div>
+                  <div className="font-mono text-sm text-white/80">@{loginDomain}</div>
+                  <p className="mt-2 leading-relaxed">
+                    Pamiętaj o ochronie danych. Panel nie posiada własnego resetu hasła — korzystaj z konsoli Firebase w razie
+                    potrzeby.
+                  </p>
+                </div>
               </div>
             </div>
           </aside>
