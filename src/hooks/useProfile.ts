@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { Role, normalizeRole, hasBoardAccess, DEFAULT_ROLE } from "@/lib/roles";
+import { type InternalUnit, type AdditionalRank, normalizeInternalUnits, normalizeAdditionalRanks } from "@/lib/hr";
 export type { Role } from "@/lib/roles";
 
 export function useProfile() {
@@ -9,6 +10,8 @@ export function useProfile() {
   const [login, setLogin] = useState<string | null>(null);
   const [fullName, setFullName] = useState<string | null>(null);
   const [badgeNumber, setBadgeNumber] = useState<string | null>(null);
+  const [units, setUnits] = useState<InternalUnit[]>([]);
+  const [additionalRanks, setAdditionalRanks] = useState<AdditionalRank[]>([]);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -18,6 +21,8 @@ export function useProfile() {
       setLogin(null);
       setFullName(null);
       setBadgeNumber(null);
+      setUnits([]);
+      setAdditionalRanks([]);
       setReady(true);
       return;
     }
@@ -51,13 +56,15 @@ export function useProfile() {
       } else {
         setBadgeNumber(null);
       }
+      setUnits(normalizeInternalUnits(d.units));
+      setAdditionalRanks(normalizeAdditionalRanks(d.additionalRanks ?? d.additionalRank));
       setReady(true);
     });
 
     return () => unsub();
   }, []);
 
-  return { role, login, fullName, badgeNumber, ready };
+  return { role, login, fullName, badgeNumber, units, additionalRanks, ready };
 }
 
 // Uprawnienia
