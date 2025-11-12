@@ -59,6 +59,36 @@ export const ROLE_OPTIONS: { value: Role; label: string }[] = ROLE_VALUES.map((r
   label: ROLE_LABELS[role],
 }));
 
+const ROLE_GROUP_LABEL_MAP: Record<Role, string> = {
+  director: "Zarząd i administracja",
+  admin: "Zarząd i administracja",
+  "chief-of-police": "High Command",
+  "assistant-chief": "High Command",
+  "deputy-chief": "High Command",
+  "executive-commander": "High Command",
+  "staff-commander": "High Command",
+  "captain-iii": "Command",
+  "captain-ii": "Command",
+  "captain-i": "Command",
+  "lieutenant-ii": "Command",
+  "lieutenant-i": "Command",
+  "sergeant-iii": "Supervisors",
+  "sergeant-ii": "Supervisors",
+  "sergeant-i": "Supervisors",
+  "officer-iii-plus-i": "Officers",
+  "officer-iii": "Officers",
+  "officer-ii": "Officers",
+  "officer-i": "Officers",
+  "solo-cadet": "Trainee",
+  cadet: "Trainee",
+  fib: "Federal Investigation Bureau",
+};
+
+export function getRoleGroupLabel(role: Role | null | undefined): string | null {
+  if (!role) return null;
+  return ROLE_GROUP_LABEL_MAP[role] || null;
+}
+
 const ROLE_ALIASES: Record<string, Role> = {
   "cadet": "cadet",
   "solo cadet": "solo-cadet",
@@ -124,6 +154,22 @@ const BOARD_ROLE_SET = new Set<Role>(BOARD_ROLES);
 
 export function hasBoardAccess(role: Role | null | undefined): role is Role {
   return !!role && BOARD_ROLE_SET.has(role);
+}
+
+export const HIGH_COMMAND_ROLES: Role[] = [
+  "staff-commander",
+  "executive-commander",
+  "deputy-chief",
+  "assistant-chief",
+  "chief-of-police",
+  "director",
+  "admin",
+];
+
+const HIGH_COMMAND_ROLE_SET = new Set<Role>(HIGH_COMMAND_ROLES);
+
+export function isHighCommand(role: Role | null | undefined): role is Role {
+  return !!role && HIGH_COMMAND_ROLE_SET.has(role);
 }
 
 const FALLBACK_ROLE: Role = DEFAULT_ROLE;

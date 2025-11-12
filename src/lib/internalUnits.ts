@@ -1,4 +1,5 @@
 import { getAdditionalRankOption, getInternalUnitOption, type AdditionalRank, type InternalUnit } from "@/lib/hr";
+import { isHighCommand, type Role } from "@/lib/roles";
 
 export type UnitSectionConfig = {
   unit: InternalUnit;
@@ -55,7 +56,14 @@ export function getUnitSection(unit: InternalUnit): UnitSectionConfig | null {
   return UNIT_CONFIG_MAP.get(unit) || null;
 }
 
-export function unitHasAccess(unit: InternalUnit, ranks: AdditionalRank[] | null | undefined): boolean {
+export function unitHasAccess(
+  unit: InternalUnit,
+  ranks: AdditionalRank[] | null | undefined,
+  role?: Role | null | undefined
+): boolean {
+  if (isHighCommand(role)) {
+    return true;
+  }
   if (!Array.isArray(ranks) || ranks.length === 0) {
     return false;
   }
@@ -73,7 +81,10 @@ export type UnitPermission = {
   manageableRanks: AdditionalRank[];
 };
 
-export function resolveUnitPermission(unit: InternalUnit, ranks: AdditionalRank[] | null | undefined): UnitPermission | null {
+export function resolveUnitPermission(
+  unit: InternalUnit,
+  ranks: AdditionalRank[] | null | undefined
+): UnitPermission | null {
   if (!Array.isArray(ranks) || ranks.length === 0) {
     return null;
   }

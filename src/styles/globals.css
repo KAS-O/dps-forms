@@ -29,6 +29,17 @@ body {
   overflow-x: hidden;
 }
 
+body.has-unit-sidebar {
+  padding-left: clamp(260px, 20vw, 320px);
+  transition: padding-left 0.35s ease;
+}
+
+@media (max-width: 1023px) {
+  body.has-unit-sidebar {
+    padding-left: 0;
+  }
+}
+
 .card {
   background: linear-gradient(145deg, rgba(17, 34, 63, 0.8), rgba(17, 34, 63, 0.6));
   border-radius: 1.25rem;
