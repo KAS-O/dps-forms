@@ -126,6 +126,42 @@ export function hasBoardAccess(role: Role | null | undefined): role is Role {
   return !!role && BOARD_ROLE_SET.has(role);
 }
 
+export type RoleGroup = "trainee" | "officer" | "command" | "high-command";
+
+const COMMAND_ROLE_SET = new Set<Role>([
+  "sergeant-i",
+  "sergeant-ii",
+  "sergeant-iii",
+  "lieutenant-i",
+  "lieutenant-ii",
+  "captain-i",
+  "captain-ii",
+  "captain-iii",
+]);
+
+export const ROLE_GROUP_LABELS: Record<RoleGroup, string> = {
+  trainee: "Trainee",
+  officer: "Officers",
+  command: "Command",
+  "high-command": "High Command",
+};
+
+export function getRoleGroup(role: Role | null | undefined): RoleGroup {
+  if (!role) {
+    return "officer";
+  }
+  if (hasBoardAccess(role)) {
+    return "high-command";
+  }
+  if (role === "cadet" || role === "solo-cadet") {
+    return "trainee";
+  }
+  if (COMMAND_ROLE_SET.has(role)) {
+    return "command";
+  }
+  return "officer";
+}
+
 const FALLBACK_ROLE: Role = DEFAULT_ROLE;
 
 export function normalizeRole(value: unknown): Role {

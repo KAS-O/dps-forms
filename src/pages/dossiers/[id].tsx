@@ -1,6 +1,6 @@
 import { useRouter } from "next/router";
 import Head from "next/head";
-import Nav from "@/components/Nav";
+import PanelLayout from "@/components/PanelLayout";
 import AuthGate from "@/components/AuthGate";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { auth, db, storage } from "@/lib/firebase";
@@ -1930,12 +1930,12 @@ export default function DossierPage() {
         <Head>
           <title>LSPD 77RP — {personTitle}</title>
         </Head>
-        <Nav />
-        <div
-          className={`${isCriminalGroup ? "max-w-6xl" : "max-w-5xl"} mx-auto px-4 py-6 grid gap-4 ${
-            isCriminalGroup ? "md:grid-cols-[minmax(0,1fr)_320px]" : ""
-          }`}
-        >
+        <PanelLayout>
+          <div
+            className={`${isCriminalGroup ? "max-w-6xl" : "max-w-5xl"} grid gap-4 ${
+              isCriminalGroup ? "md:grid-cols-[minmax(0,1fr)_320px]" : ""
+            }`}
+          >
           <div className="grid gap-4">
             {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
@@ -2369,7 +2369,8 @@ export default function DossierPage() {
               </div>
             </aside>
           ) : null}
-        </div>
+          </div>
+        </PanelLayout>
 
         {activeForm ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
