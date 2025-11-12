@@ -116,7 +116,7 @@ const INTERNAL_UNIT_OPTIONS: InternalUnitOption[] = [
   },
   {
     value: "swat-sert",
-    label: "Special Weapons And Tactics / SERT",
+    label: "Special Weapons And Tactics / Special Emergency Response Team",
     abbreviation: "SWAT / SERT",
     shortLabel: "SWAT / SERT",
     ...UNIT_STYLES["swat-sert"],
@@ -130,7 +130,7 @@ const INTERNAL_UNIT_OPTIONS: InternalUnitOption[] = [
   },
   {
     value: "dtu",
-    label: "Detective Training Unit",
+    label: "Detective Task Unit",
     abbreviation: "DTU",
     shortLabel: "DTU",
     ...UNIT_STYLES.dtu,
@@ -144,7 +144,7 @@ const INTERNAL_UNIT_OPTIONS: InternalUnitOption[] = [
   },
   {
     value: "ftd",
-    label: "Field Training Department",
+    label: "Field Training Division",
     abbreviation: "FTD",
     shortLabel: "FTD",
     ...UNIT_STYLES.ftd,
@@ -264,6 +264,14 @@ const DEPARTMENT_MAP = new Map(DEPARTMENT_OPTIONS.map((option) => [option.value,
 const INTERNAL_UNIT_MAP = new Map(INTERNAL_UNIT_OPTIONS.map((option) => [option.value, option]));
 const ADDITIONAL_RANK_MAP = new Map(ADDITIONAL_RANK_OPTIONS.map((option) => [option.value, option]));
 
+function normalizeAdditionalRankValue(value: unknown): AdditionalRank | null {
+  if (value == null) return null;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  return (ADDITIONAL_RANK_MAP.get(normalized as AdditionalRank) || null)?.value ?? null;
+}
+
 export function normalizeDepartment(value: unknown): Department | null {
   if (value == null) return null;
   if (typeof value !== "string") return null;
@@ -304,11 +312,26 @@ export function getInternalUnitOption(value: InternalUnit | string | null | unde
 }
 
 export function normalizeAdditionalRank(value: unknown): AdditionalRank | null {
-  if (value == null) return null;
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) return null;
-  return (ADDITIONAL_RANK_OPTIONS.find((option) => option.value === normalized) || null)?.value ?? null;
+  if (Array.isArray(value)) {
+    if (!value.length) return null;
+    return normalizeAdditionalRankValue(value[0]);
+  }
+  return normalizeAdditionalRankValue(value);
+}
+
+export function normalizeAdditionalRanks(value: unknown): AdditionalRank[] {
+  if (Array.isArray(value)) {
+    const seen = new Set<AdditionalRank>();
+    value.forEach((item) => {
+      const normalized = normalizeAdditionalRankValue(item);
+      if (normalized) {
+        seen.add(normalized);
+      }
+    });
+    return Array.from(seen);
+  }
+  const single = normalizeAdditionalRank(value);
+  return single ? [single] : [];
 }
 
 export function getAdditionalRankOption(
@@ -317,6 +340,22 @@ export function getAdditionalRankOption(
   if (!value) return null;
   const key = typeof value === "string" ? (value.trim().toLowerCase() as AdditionalRank) : value;
   return ADDITIONAL_RANK_MAP.get(key) || null;
+}
+
+export function getAdditionalRankOptions(
+  values: (AdditionalRank | string)[] | null | undefined
+): AdditionalRankOption[] {
+  if (!values || !values.length) return [];
+  const seen = new Set<string>();
+  const result: AdditionalRankOption[] = [];
+  values.forEach((value) => {
+    const option = getAdditionalRankOption(value);
+    if (option && !seen.has(option.value)) {
+      seen.add(option.value);
+      result.push(option);
+    }
+  });
+  return result;
 }
 
 export const ADDITIONAL_RANK_GROUPS = INTERNAL_UNIT_OPTIONS.map((unit) => ({

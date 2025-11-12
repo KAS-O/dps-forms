@@ -8,6 +8,7 @@ export function useProfile() {
   const [role, setRole] = useState<Role | null>(null);
   const [login, setLogin] = useState<string | null>(null);
   const [fullName, setFullName] = useState<string | null>(null);
+  const [badgeNumber, setBadgeNumber] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -37,13 +38,20 @@ export function useProfile() {
       const d = s.data() || {};
       setRole(normalizeRole(d.role));
       setFullName(d.fullName || userLogin);
+      if (typeof d.badgeNumber === "string") {
+        setBadgeNumber(d.badgeNumber);
+      } else if (typeof d.badgeNumber === "number") {
+        setBadgeNumber(String(d.badgeNumber));
+      } else {
+        setBadgeNumber(null);
+      }
       setReady(true);
     });
 
     return () => unsub();
   }, []);
 
-  return { role, login, fullName, ready };
+  return { role, login, fullName, badgeNumber, ready };
 }
 
 // Uprawnienia

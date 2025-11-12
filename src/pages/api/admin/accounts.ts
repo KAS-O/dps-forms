@@ -6,7 +6,7 @@ import {
   type AdditionalRank,
   normalizeDepartment,
   normalizeInternalUnits,
-  normalizeAdditionalRank,
+  normalizeAdditionalRanks,
   getAdditionalRankOption,
   getInternalUnitOption,
 } from "@/lib/hr";
@@ -38,7 +38,7 @@ type AccountResponse = {
   badgeNumber?: string;
   department?: Department | null;
   units?: InternalUnit[];
-  additionalRank?: AdditionalRank | null;
+  additionalRanks?: AdditionalRank[];
 };
 
 type IdentityToolkitUser = {
@@ -230,7 +230,7 @@ async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]
       const fullName = typeof payload.fullName === "string" ? payload.fullName : undefined;
       const department = normalizeDepartment(payload.department);
       const units = normalizeInternalUnits(payload.units);
-      const additionalRank = normalizeAdditionalRank(payload.additionalRank);
+      const additionalRanks = normalizeAdditionalRanks(payload.additionalRank);
       accounts.push({
         uid: uid || login,
         login,
@@ -241,7 +241,7 @@ async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]
         ...(createdAt ? { createdAt } : {}),
         department: department ?? null,
         units,
-        additionalRank: additionalRank ?? null,
+        ...(additionalRanks.length ? { additionalRanks } : { additionalRanks: [] }),
       });
     });
     pageToken = data?.nextPageToken;
@@ -350,7 +350,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
-      const { login, fullName, role, password, badgeNumber, department, units, additionalRank } = req.body || {};
+      const { login, fullName, role, password, badgeNumber, department, units, additionalRank, additionalRanks } =
+        req.body || {};
       if (!login || !password) {
         return res.status(400).json({ error: "Login i hasło są wymagane" });
       }
@@ -371,9 +372,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       const normalizedUnits = normalizeInternalUnits(units);
-      const normalizedAdditionalRank = normalizeAdditionalRank(additionalRank);
-      if (normalizedAdditionalRank) {
-        const rankOption = getAdditionalRankOption(normalizedAdditionalRank);
+      const normalizedAdditionalRanks = normalizeAdditionalRanks(additionalRanks ?? additionalRank);
+      for (const rankValue of normalizedAdditionalRanks) {
+        const rankOption = getAdditionalRankOption(rankValue);
         if (rankOption && !normalizedUnits.includes(rankOption.unit)) {
           const unitOption = getInternalUnitOption(rankOption.unit);
           const unitLabel = unitOption?.abbreviation || rankOption.unit.toUpperCase();
@@ -406,7 +407,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           badgeNumber: normalizedBadge,
           department: normalizedDepartment,
           units: normalizedUnits,
-          additionalRank: normalizedAdditionalRank ?? null,
+          additionalRank: normalizedAdditionalRanks,
+          additionalRanks: normalizedAdditionalRanks,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         },
@@ -417,7 +419,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PATCH") {
-      const { uid, fullName, role, badgeNumber, department, units, additionalRank } = req.body || {};
+      const { uid, fullName, role, badgeNumber, department, units, additionalRank, additionalRanks } = req.body || {};
       if (!uid) {
         return res.status(400).json({ error: "Brak UID" });
       }
@@ -458,10 +460,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         updates.units = normalizedUnits;
       }
 
-      if (additionalRank !== undefined) {
-        const normalizedAdditionalRank = normalizeAdditionalRank(additionalRank);
-        if (normalizedAdditionalRank) {
-          const rankOption = getAdditionalRankOption(normalizedAdditionalRank);
+      if (additionalRank !== undefined || additionalRanks !== undefined) {
+        const normalized = normalizeAdditionalRanks(additionalRanks ?? additionalRank);
+        for (const rankValue of normalized) {
+          const rankOption = getAdditionalRankOption(rankValue);
           if (rankOption && !normalizedUnits.includes(rankOption.unit)) {
             const unitOption = getInternalUnitOption(rankOption.unit);
             const unitLabel = unitOption?.abbreviation || rankOption.unit.toUpperCase();
@@ -469,10 +471,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               .status(400)
               .json({ error: `Aby przypisać stopień ${rankOption.label}, dodaj jednostkę ${unitLabel}.` });
           }
-          updates.additionalRank = normalizedAdditionalRank;
-        } else {
-          updates.additionalRank = null;
         }
+        updates.additionalRank = normalized;
+        updates.additionalRanks = normalized;
       }
       if (!Object.keys(updates).length) {
         return res.status(400).json({ error: "Brak zmian do zapisania." });
