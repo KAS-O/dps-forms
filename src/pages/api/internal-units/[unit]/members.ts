@@ -16,8 +16,8 @@ import {
   normalizeDepartment,
   type Department,
 } from "@/lib/hr";
-import { normalizeRole, type Role } from "@/lib/roles";
-import { resolveUnitPermission, getUnitSection } from "@/lib/internalUnits";
+import { normalizeRole, isHighCommand, type Role } from "@/lib/roles";
+import { resolveUnitPermission, getUnitSection, unitHasAccess } from "@/lib/internalUnits";
 
 const SUPPORTED_UNITS = new Set<InternalUnit>(["iad", "swat-sert", "usms", "dtu", "gu", "ftd"]);
 
@@ -38,7 +38,7 @@ type UpdatePayload = {
   ranks?: AdditionalRank[];
 };
 
-async function ensureUnitAccess(req: NextApiRequest, unit: InternalUnit) {
+async function ensureUnitContext(req: NextApiRequest, unit: InternalUnit) {
   const idToken = extractBearerToken(req);
   const lookup = await identityToolkitRequest<{ users: IdentityToolkitUser[] }>("/accounts:lookup", {
     idToken,
@@ -50,11 +50,25 @@ async function ensureUnitAccess(req: NextApiRequest, unit: InternalUnit) {
   const profileDoc = await fetchFirestoreDocument(`profiles/${user.localId}`, idToken);
   const profileData = decodeFirestoreDocument(profileDoc);
   const additionalRanks = normalizeAdditionalRanks(profileData.additionalRanks ?? profileData.additionalRank);
-  const permission = resolveUnitPermission(unit, additionalRanks);
-  if (!permission) {
+  const units = normalizeInternalUnits(profileData.units);
+  const role = normalizeRole(profileData.role);
+  const basePermission = resolveUnitPermission(unit, additionalRanks);
+  const config = getUnitSection(unit);
+  const elevatedPermission =
+    basePermission ||
+    (config && isHighCommand(role)
+      ? {
+          unit,
+          highestRank: config.rankHierarchy[0],
+          manageableRanks: config.rankHierarchy.slice(),
+        }
+      : null);
+  const hasMembership = Array.isArray(units) && units.includes(unit);
+  const canView = Boolean(elevatedPermission) || isHighCommand(role) || hasMembership || unitHasAccess(unit, additionalRanks, role);
+  if (!canView) {
     throw Object.assign(new Error("Brak uprawnień"), { status: 403 });
   }
-  return { idToken, permission };
+  return { idToken, permission: elevatedPermission, canView };
 }
 
 function parseUnitParam(value: string | string[] | undefined): InternalUnit | null {
@@ -162,13 +176,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { idToken, permission } = await ensureUnitAccess(req, unit);
+    const { idToken, permission } = await ensureUnitContext(req, unit);
 
     if (req.method === "GET") {
       const documents = await listFirestoreCollection("profiles", idToken, { pageSize: 200 });
       const members = documents.map(buildMember);
       members.sort((a, b) => a.fullName.localeCompare(b.fullName, "pl", { sensitivity: "base" }));
       return res.status(200).json({ members });
+    }
+
+    if (!permission) {
+      return res.status(403).json({ error: "Brak uprawnień do zarządzania tą jednostką." });
     }
 
     const payload = readBody(req);
