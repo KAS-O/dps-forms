@@ -1,5 +1,5 @@
 import AuthGate from "@/components/AuthGate";
-import Nav from "@/components/Nav";
+import PanelLayout from "@/components/PanelLayout";
 import Head from "next/head";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -192,8 +192,7 @@ export default function VehicleArchivePage() {
     <AuthGate>
       <>
         <Head><title>LSPD 77RP — Archiwum pojazdów</title></Head>
-        <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_320px]">
+        <PanelLayout rightAside={<AnnouncementSpotlight />}>
           <div className="grid gap-6">
             <div className="card p-6 space-y-4" data-section="vehicle">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -332,8 +331,7 @@ export default function VehicleArchivePage() {
               {creating ? "Tworzenie..." : "Utwórz teczkę"}
             </button>
           </div>
-          <AnnouncementSpotlight />
-        </div>
+        </PanelLayout>
       </>
     </AuthGate>
   );

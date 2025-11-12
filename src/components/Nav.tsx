@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
 import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
@@ -7,7 +8,6 @@ import { auth } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { ROLE_LABELS, hasBoardAccess } from "@/lib/roles";
-import { UNIT_SECTIONS, unitHasAccess } from "@/lib/internalUnits";
 
 const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dashboard", label: "Dokumenty", color: "#60a5fa" },
@@ -46,7 +46,7 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 }
 
 export default function Nav() {
-  const { fullName, role, badgeNumber, additionalRanks } = useProfile();
+  const { fullName, role, badgeNumber, photoURL } = useProfile();
   const roleLabel = role ? ROLE_LABELS[role] || role : "";
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
@@ -54,8 +54,6 @@ export default function Nav() {
   const archiveActive = router.pathname.startsWith("/archive");
   const adminActive = router.pathname.startsWith("/admin");
   const currentPath = router.asPath;
-  const unitLinks = UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks));
-
   const logout = async () => {
     const ok = await confirm({
       title: "Wylogowanie",
@@ -81,10 +79,19 @@ export default function Nav() {
             </span>
           </div>
           <div className="flex items-center gap-2 whitespace-nowrap text-sm">
-            <span className="px-2 py-1 rounded bg-white/10 text-beige-900">
-              {fullName || "—"}
-              {badgeNumber ? ` • #${badgeNumber}` : ""}
-              {role ? ` • ${roleLabel}` : ""}
+            <span className="flex items-center gap-2 px-2 py-1 rounded bg-white/10 text-beige-900">
+              <span className="relative inline-flex h-7 w-7 overflow-hidden rounded-full border border-white/20 bg-white/10">
+                {photoURL ? (
+                  <img src={photoURL} alt={fullName || "Profil"} className="h-full w-full object-cover" />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-xs">👮‍♂️</span>
+                )}
+              </span>
+              <span>
+                {fullName || "—"}
+                {badgeNumber ? ` • #${badgeNumber}` : ""}
+                {role ? ` • ${roleLabel}` : ""}
+              </span>
             </span>
             <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold">
               Wyloguj
@@ -105,20 +112,6 @@ export default function Nav() {
                   >
                     <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
                     {link.label}
-                  </Link>
-                );
-              })}
-              {unitLinks.map((section) => {
-                const isActive = currentPath === section.href || currentPath.startsWith(`${section.href}/`);
-                return (
-                  <Link
-                    key={section.href}
-                    href={section.href}
-                    className={`nav-pill shrink-0${isActive ? " nav-pill--active" : ""}`}
-                    style={createNavStyle(section.navColor, isActive)}
-                  >
-                    <span className="nav-pill__dot" style={{ background: section.navColor }} aria-hidden />
-                    {section.shortLabel}
                   </Link>
                 );
               })}

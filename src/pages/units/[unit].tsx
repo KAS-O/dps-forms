@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
-import Nav from "@/components/Nav";
+import PanelLayout from "@/components/PanelLayout";
 import { useProfile } from "@/hooks/useProfile";
 import { auth } from "@/lib/firebase";
 import {
@@ -371,8 +371,7 @@ export default function UnitPanelPage() {
         <Head>
           <title>Panel jednostki — {section?.label || "Jednostka"}</title>
         </Head>
-        <Nav />
-        <main className="min-h-screen px-4 py-8">
+        <PanelLayout>
           <div className="mx-auto flex max-w-5xl flex-col gap-6">
             <div className="card space-y-5 p-6" data-section="unit-management">
               <span className="section-chip">
@@ -441,7 +440,7 @@ export default function UnitPanelPage() {
               )}
             </div>
           </div>
-        </main>
+        </PanelLayout>
       </>
     </AuthGate>
   );

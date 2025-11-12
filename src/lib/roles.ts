@@ -59,6 +59,61 @@ export const ROLE_OPTIONS: { value: Role; label: string }[] = ROLE_VALUES.map((r
   label: ROLE_LABELS[role],
 }));
 
+export const ROLE_GROUP_DEFINITIONS: { id: string; title: string; accent: string; roles: Role[] }[] = [
+  {
+    id: "board",
+    title: "Zarząd i administracja",
+    accent: "#f97316",
+    roles: ["director", "admin"],
+  },
+  {
+    id: "command",
+    title: "High Command",
+    accent: "#fb7185",
+    roles: ["chief-of-police", "assistant-chief", "deputy-chief", "executive-commander", "staff-commander"],
+  },
+  {
+    id: "executive",
+    title: "Command",
+    accent: "#38bdf8",
+    roles: ["captain-iii", "captain-ii", "captain-i", "lieutenant-ii", "lieutenant-i"],
+  },
+  {
+    id: "supervisors",
+    title: "Supervisors",
+    accent: "#22c55e",
+    roles: ["sergeant-iii", "sergeant-ii", "sergeant-i"],
+  },
+  {
+    id: "officers",
+    title: "Officers",
+    accent: "#6366f1",
+    roles: ["officer-iii-plus-i", "officer-iii", "officer-ii", "officer-i"],
+  },
+  {
+    id: "trainee",
+    title: "Trainee",
+    accent: "#f59e0b",
+    roles: ["solo-cadet", "cadet"],
+  },
+  {
+    id: "fib",
+    title: "Federal Investigation Bureau",
+    accent: "#facc15",
+    roles: ["fib"],
+  },
+];
+
+const ROLE_GROUP_BY_ROLE = (() => {
+  const map = new Map<Role, (typeof ROLE_GROUP_DEFINITIONS)[number]>();
+  ROLE_GROUP_DEFINITIONS.forEach((group) => {
+    group.roles.forEach((role) => {
+      map.set(role, group);
+    });
+  });
+  return map;
+})();
+
 const ROLE_ALIASES: Record<string, Role> = {
   "cadet": "cadet",
   "solo cadet": "solo-cadet",
@@ -124,6 +179,29 @@ const BOARD_ROLE_SET = new Set<Role>(BOARD_ROLES);
 
 export function hasBoardAccess(role: Role | null | undefined): role is Role {
   return !!role && BOARD_ROLE_SET.has(role);
+}
+
+export const HIGH_COMMAND_ROLES: Role[] = [
+  "staff-commander",
+  "executive-commander",
+  "deputy-chief",
+  "assistant-chief",
+  "chief-of-police",
+  "director",
+  "admin",
+];
+
+const HIGH_COMMAND_ROLE_SET = new Set<Role>(HIGH_COMMAND_ROLES);
+
+export function isHighCommandRole(role: Role | null | undefined): role is Role {
+  return !!role && HIGH_COMMAND_ROLE_SET.has(role);
+}
+
+export function resolveRoleGroup(role: Role | null | undefined) {
+  if (!role) {
+    return null;
+  }
+  return ROLE_GROUP_BY_ROLE.get(role) || null;
 }
 
 const FALLBACK_ROLE: Role = DEFAULT_ROLE;

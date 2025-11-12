@@ -1,5 +1,5 @@
 import AuthGate from "@/components/AuthGate";
-import Nav from "@/components/Nav";
+import PanelLayout from "@/components/PanelLayout";
 import Head from "next/head";
 import { TEMPLATES } from "@/lib/templates";
 import Link from "next/link";
@@ -25,9 +25,7 @@ export default function Dashboard() {
           <title>LSPD 77RP — Dashboard</title>
         </Head>
 
-        <Nav />
-
-        <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
+        <PanelLayout rightAside={<AnnouncementSpotlight />}>
           <div className="space-y-6">
             <div className="card p-6 space-y-5" data-section="documents">
               <div className="space-y-3">
@@ -93,8 +91,7 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          <AnnouncementSpotlight />
-        </div>
+        </PanelLayout>
       </>
     </AuthGate>
   );

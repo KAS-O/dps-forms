@@ -1,10 +1,16 @@
 import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
 import AuthGate from "@/components/AuthGate";
-import Nav from "@/components/Nav";
+import PanelLayout from "@/components/PanelLayout";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { ROLE_LABELS, ROLE_VALUES, normalizeRole, type Role } from "@/lib/roles";
+import {
+  ROLE_LABELS,
+  ROLE_VALUES,
+  ROLE_GROUP_DEFINITIONS,
+  normalizeRole,
+  type Role,
+} from "@/lib/roles";
 import {
   DEPARTMENTS,
   INTERNAL_UNITS,
@@ -23,51 +29,6 @@ import { useProfile } from "@/hooks/useProfile";
 import { useSessionActivity } from "@/components/ActivityLogger";
 
 const ROLE_ORDER = new Map<Role, number>(ROLE_VALUES.map((role, index) => [role, index]));
-
-const ROLE_GROUPS: { id: string; title: string; accent: string; roles: Role[] }[] = [
-  {
-    id: "board",
-    title: "Zarząd i administracja",
-    accent: "#f97316",
-    roles: ["director", "admin"],
-  },
-  {
-    id: "command",
-    title: "High Command",
-    accent: "#fb7185",
-    roles: ["chief-of-police", "assistant-chief", "deputy-chief", "executive-commander", "staff-commander"],
-  },
-  {
-    id: "executive",
-    title: "Command",
-    accent: "#38bdf8",
-    roles: ["captain-iii", "captain-ii", "captain-i", "lieutenant-ii", "lieutenant-i"],
-  },
-  {
-    id: "supervisors",
-    title: "Supervisors",
-    accent: "#22c55e",
-    roles: ["sergeant-iii", "sergeant-ii", "sergeant-i"],
-  },
-  {
-    id: "officers",
-    title: "Officers",
-    accent: "#6366f1",
-    roles: ["officer-iii-plus-i", "officer-iii", "officer-ii", "officer-i"],
-  },
-  {
-    id: "trainee",
-    title: "Trainee",
-    accent: "#f59e0b",
-    roles: ["solo-cadet", "cadet"],
-  },
-  {
-    id: "fib",
-    title: "Federal Investigation Bureau",
-    accent: "#facc15",
-    roles: ["fib"],
-  },
-];
 
 const CHIP_CLASS =
   "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide";
@@ -260,7 +221,7 @@ export default function ChainOfCommandPage() {
   }, [members]);
 
   const roleGroups: RoleGroup[] = useMemo(() => {
-    return ROLE_GROUPS.map((group) => ({
+    return ROLE_GROUP_DEFINITIONS.map((group) => ({
       ...group,
       roles: group.roles.map((role) => ({
         role,
@@ -309,9 +270,7 @@ export default function ChainOfCommandPage() {
         <Head>
           <title>LSPD 77RP — Chain of Command</title>
         </Head>
-        <Nav />
-
-        <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+        <PanelLayout>
           <div className="card p-6 space-y-6" data-section="chain-of-command">
             <div className="space-y-2">
               <span className="section-chip">
@@ -504,7 +463,7 @@ export default function ChainOfCommandPage() {
               </div>
             </div>
           </div>
-        </div>
+        </PanelLayout>
       </>
     </AuthGate>
   );

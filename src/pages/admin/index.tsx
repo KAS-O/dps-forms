@@ -1,5 +1,5 @@
 import Head from "next/head";
-import Nav from "@/components/Nav";
+import PanelLayout from "@/components/PanelLayout";
 import AuthGate from "@/components/AuthGate";
 import { useProfile, Role } from "@/hooks/useProfile";
 import { useLogWriter } from "@/hooks/useLogWriter";
@@ -9,6 +9,7 @@ import {
   collection,
   query,
   where,
+  onSnapshot,
   getCountFromServer,
   getDoc,
   getDocs,
@@ -47,7 +48,7 @@ import {
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
-type AdminSection = "overview" | "hr" | "announcements" | "logs";
+type AdminSection = "overview" | "hr" | "announcements" | "logs" | "tickets";
 
 type Account = {
   uid: string;
@@ -61,6 +62,19 @@ type Account = {
   units: InternalUnit[];
   additionalRanks: AdditionalRank[];
   additionalRank?: AdditionalRank | null;
+};
+
+type TicketEntry = {
+  id: string;
+  authorUid: string;
+  authorLogin?: string | null;
+  authorName?: string | null;
+  authorBadgeNumber?: string | null;
+  authorRole?: Role | null;
+  authorUnits?: InternalUnit[];
+  content: string;
+  status?: string;
+  createdAt?: Timestamp;
 };
 
 const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
@@ -96,6 +110,24 @@ const humanizeIdentifier = (value: string) => {
   if (!normalized) return value.trim();
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 };
+
+function withAlpha(hex: string, alpha: number): string {
+  const normalized = hex.replace(/[^0-9a-fA-F]/g, "");
+  const expand = (value: string) => (value.length === 1 ? value + value : value);
+  if (normalized.length === 3) {
+    const r = parseInt(expand(normalized[0]), 16);
+    const g = parseInt(expand(normalized[1]), 16);
+    const b = parseInt(expand(normalized[2]), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  if (normalized.length === 6) {
+    const r = parseInt(normalized.slice(0, 2), 16);
+    const g = parseInt(normalized.slice(2, 4), 16);
+    const b = parseInt(normalized.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return `rgba(56, 189, 248, ${alpha})`;
+}
 
 const SECTION_LABELS: Record<string, string> = {
   sesja: "Sesja",
@@ -226,6 +258,9 @@ export default function Admin() {
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
   const [logsError, setLogsError] = useState<string | null>(null);
+  const [tickets, setTickets] = useState<TicketEntry[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(true);
+  const [ticketsError, setTicketsError] = useState<string | null>(null);
   const [logPage, setLogPage] = useState(0);
   const [logPages, setLogPages] = useState<any[][]>([]);
   const [logCursors, setLogCursors] = useState<(QueryDocumentSnapshot | null)[]>([]);
@@ -310,6 +345,46 @@ export default function Admin() {
     setLogsError(null);
     setLogPage(0);
   }, [logFilters, role]);
+
+  useEffect(() => {
+    if (!hasBoardAccess(role)) {
+      setTickets([]);
+      setTicketsLoading(false);
+      return;
+    }
+    setTicketsLoading(true);
+    setTicketsError(null);
+    const ticketsQuery = query(collection(db, "tickets"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(
+      ticketsQuery,
+      (snapshot) => {
+        const docs = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as any;
+          return {
+            id: docSnap.id,
+            authorUid: typeof data.authorUid === "string" ? data.authorUid : "",
+            authorLogin: typeof data.authorLogin === "string" ? data.authorLogin : null,
+            authorName: typeof data.authorName === "string" ? data.authorName : null,
+            authorBadgeNumber: typeof data.authorBadgeNumber === "string" ? data.authorBadgeNumber : null,
+            authorRole: data.authorRole ? normalizeRole(data.authorRole) : null,
+            authorUnits: normalizeInternalUnits(data.authorUnits),
+            content: typeof data.content === "string" ? data.content : "",
+            status: typeof data.status === "string" ? data.status : "open",
+            createdAt: data.createdAt,
+          } as TicketEntry;
+        });
+        setTickets(docs);
+        setTicketsLoading(false);
+      },
+      (error) => {
+        console.error("Nie udało się pobrać ticketów:", error);
+        setTicketsError(error?.message || "Nie udało się pobrać ticketów.");
+        setTickets([]);
+        setTicketsLoading(false);
+      }
+    );
+    return () => unsub();
+  }, [role]);
 
   useEffect(() => {
     if (!hasBoardAccess(role)) {
@@ -913,6 +988,43 @@ export default function Admin() {
     }
   };
 
+  const formatTicketTimestamp = (ticket: TicketEntry) => {
+    const raw = ticket.createdAt as any;
+    if (raw?.toDate && typeof raw.toDate === "function") {
+      try {
+        return raw.toDate().toLocaleString("pl-PL");
+      } catch (error) {
+        return raw.toDate().toISOString();
+      }
+    }
+    if (raw instanceof Date) {
+      try {
+        return raw.toLocaleString("pl-PL");
+      } catch (error) {
+        return raw.toISOString();
+      }
+    }
+    if (typeof raw === "string") {
+      const parsed = Date.parse(raw);
+      if (!Number.isNaN(parsed)) {
+        try {
+          return new Date(parsed).toLocaleString("pl-PL");
+        } catch (error) {
+          return new Date(parsed).toISOString();
+        }
+      }
+      return raw;
+    }
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      try {
+        return new Date(raw).toLocaleString("pl-PL");
+      } catch (error) {
+        return new Date(raw).toISOString();
+      }
+    }
+    return "—";
+  };
+
   const resolveSectionLabel = (value?: string | null) => {
     if (!value) return "—";
     return SECTION_LABELS[value] || value;
@@ -1331,9 +1443,10 @@ export default function Admin() {
   if (!ready) {
     return (
       <AuthGate>
-         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
-        <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-8"><div className="card p-6">Ładowanie…</div></div>
+        <Head><title>LSPD 77RP — Panel zarządu</title></Head>
+        <PanelLayout>
+          <div className="card p-6 text-sm text-white/70">Ładowanie…</div>
+        </PanelLayout>
       </AuthGate>
     );
   }
@@ -1341,12 +1454,11 @@ export default function Admin() {
     return (
       <AuthGate>
         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
-        <Nav />
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          <div className="card p-6 text-center">
+        <PanelLayout>
+          <div className="card p-6 text-center text-sm text-white/80">
             Brak dostępu. Panel zarządu jest dostępny dla rang <b>Staff Commander</b> i wyższych.
           </div>
-        </div>
+        </PanelLayout>
       </AuthGate>
     );
   }
@@ -1354,17 +1466,16 @@ export default function Admin() {
   return (
     <AuthGate>
       <Head><title>LSPD 77RP — Panel zarządu</title></Head>
-      <Nav />
+      <PanelLayout>
+        <div className="grid gap-5">
+          {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
-      <div className="max-w-7xl mx-auto px-4 py-6 grid gap-5">
-        {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-bold">Panel zarządu</h1>
+            <span className="text-sm text-beige-700">Zalogowany: {fullName || login} ({login})</span>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold">Panel zarządu</h1>
-          <span className="text-sm text-beige-700">Zalogowany: {fullName || login} ({login})</span>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
+          <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
           <aside className="card bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900 text-white p-5 shadow-xl">
             <h2 className="text-lg font-semibold mb-4">Sekcje</h2>
             <div className="grid gap-2 text-sm">
@@ -1379,6 +1490,10 @@ export default function Admin() {
               <button type="button" className={sectionButtonClass("announcements")} onClick={() => setSection("announcements")}>
                 <span className="text-base font-semibold">Ogłoszenia</span>
                 <span className="block text-xs text-white/70">Komunikaty dla funkcjonariuszy</span>
+              </button>
+              <button type="button" className={sectionButtonClass("tickets")} onClick={() => setSection("tickets")}>
+                <span className="text-base font-semibold">Tickety</span>
+                <span className="block text-xs text-white/70">Zgłoszenia od funkcjonariuszy</span>
               </button>
               <button type="button" className={sectionButtonClass("logs")} onClick={() => setSection("logs")}>
                 <span className="text-base font-semibold">Logi</span>
@@ -1709,7 +1824,101 @@ export default function Admin() {
                 </div>
               </div>
             )}
-            
+
+            {section === "tickets" && (
+              <div className="grid gap-5" data-section="tickets">
+                <div className="card bg-gradient-to-br from-sky-900/85 via-indigo-900/80 to-blue-900/80 text-white p-6 shadow-xl">
+                  <h2 className="text-xl font-semibold">Tickety</h2>
+                  <p className="text-sm text-white/70">
+                    Podgląd zgłoszeń przesłanych przez funkcjonariuszy. Odpowiedz na nie w komunikatorze lub na służbie.
+                  </p>
+                  <div className="mt-4 text-xs text-white/60">
+                    Łącznie: {tickets.length} • Otwartych: {tickets.filter((ticket) => (ticket.status || "open") !== "closed").length}
+                  </div>
+                </div>
+
+                {ticketsError && <div className="card p-4 bg-red-50 text-red-700">{ticketsError}</div>}
+
+                {ticketsLoading ? (
+                  <div className="card p-4 text-sm text-white/70">Ładowanie ticketów…</div>
+                ) : tickets.length ? (
+                  <div className="grid gap-4">
+                    {tickets.map((ticket) => {
+                      const unitOptions = (ticket.authorUnits || [])
+                        .map((unit) => getInternalUnitOption(unit))
+                        .filter((option): option is NonNullable<ReturnType<typeof getInternalUnitOption>> => !!option);
+                      const roleLabel = ticket.authorRole ? ROLE_LABELS[ticket.authorRole] || ticket.authorRole : "—";
+                      const status = ticket.status || "open";
+                      const statusLabel = status === "closed" ? "Zamknięty" : "Otwarty";
+                      const statusAccent = status === "closed" ? "#34d399" : "#38bdf8";
+                      const createdAtLabel = formatTicketTimestamp(ticket);
+                      const authorLabel = ticket.authorName || ticket.authorLogin || `UID: ${ticket.authorUid}`;
+                      return (
+                        <div
+                          key={ticket.id}
+                          className="card relative overflow-hidden border border-white/10 bg-white/5 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.45)]"
+                        >
+                          <span
+                            className="pointer-events-none absolute inset-0 opacity-40"
+                            style={{ background: `radial-gradient(circle at top, ${withAlpha(statusAccent, 0.22)}, transparent 70%)` }}
+                          />
+                          <div className="relative flex flex-col gap-3">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="space-y-1">
+                                <span className="text-[11px] uppercase tracking-[0.35em] text-white/50">Zgłoszenie</span>
+                                <div className="text-lg font-semibold text-white">{authorLabel}</div>
+                                <div className="text-xs text-white/60">
+                                  {ticket.authorLogin || "—"}
+                                  {ticket.authorBadgeNumber ? ` • #${ticket.authorBadgeNumber}` : ""}
+                                  {roleLabel ? ` • ${roleLabel}` : ""}
+                                </div>
+                              </div>
+                              <div className="text-right text-xs text-white/60">
+                                <div>{createdAtLabel}</div>
+                                <div
+                                  className="mt-2 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide"
+                                  style={{
+                                    borderColor: withAlpha(statusAccent, 0.65),
+                                    background: withAlpha(statusAccent, 0.2),
+                                    color: "#f8fafc",
+                                  }}
+                                >
+                                  <span className="h-2 w-2 rounded-full" style={{ background: statusAccent }} aria-hidden />
+                                  {statusLabel}
+                                </div>
+                              </div>
+                            </div>
+
+                            <p className="text-sm leading-relaxed text-white/80 whitespace-pre-wrap">{ticket.content}</p>
+
+                            {unitOptions.length > 0 && (
+                              <div className="flex flex-wrap gap-2">
+                                {unitOptions.map((unit) => (
+                                  <span
+                                    key={`ticket-${ticket.id}-unit-${unit.value}`}
+                                    className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold"
+                                    style={{
+                                      background: unit.background,
+                                      color: unit.color,
+                                      borderColor: unit.borderColor,
+                                    }}
+                                  >
+                                    {unit.shortLabel || unit.abbreviation || unit.label}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="card p-4 text-sm text-white/70">Brak zgłoszeń w kolejce.</div>
+                )}
+              </div>
+            )}
+
             {section === "logs" && (
               <div className="grid gap-5">
                 <div className="card bg-gradient-to-br from-amber-900/85 via-amber-800/85 to-stone-900/80 text-white p-6 shadow-xl">
@@ -1928,6 +2137,7 @@ export default function Admin() {
           </div>
         </div>
       </div>
+      </PanelLayout>
 
       {editorState && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
