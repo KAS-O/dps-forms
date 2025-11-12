@@ -22,6 +22,7 @@ import {
   orderBy,
   limit,
   startAfter,
+  onSnapshot,
   QueryConstraint,
   QueryDocumentSnapshot,
 } from "firebase/firestore";
@@ -47,7 +48,7 @@ import {
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
-type AdminSection = "overview" | "hr" | "announcements" | "logs";
+type AdminSection = "overview" | "hr" | "announcements" | "logs" | "tickets";
 
 type Account = {
   uid: string;
@@ -61,6 +62,20 @@ type Account = {
   units: InternalUnit[];
   additionalRanks: AdditionalRank[];
   additionalRank?: AdditionalRank | null;
+};
+
+type TicketRecord = {
+  id: string;
+  message: string;
+  createdAt: Date | null;
+  authorUid: string | null;
+  authorName: string;
+  authorLogin: string;
+  authorBadgeNumber?: string | null;
+  authorRoleLabel?: string | null;
+  authorRoleGroup?: string | null;
+  authorUnits: InternalUnit[];
+  authorRanks: AdditionalRank[];
 };
 
 const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
@@ -265,6 +280,9 @@ export default function Admin() {
   const [announcementMessage, setAnnouncementMessage] = useState("");
   const [announcementDuration, setAnnouncementDuration] = useState<string>("30m");
   const [announcementSaving, setAnnouncementSaving] = useState(false);
+  const [tickets, setTickets] = useState<TicketRecord[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(true);
+  const [ticketsError, setTicketsError] = useState<string | null>(null);
   const rangeLabel = useMemo(() => {
     switch (range) {
       case "30":
@@ -310,6 +328,77 @@ export default function Admin() {
     setLogsError(null);
     setLogPage(0);
   }, [logFilters, role]);
+
+  useEffect(() => {
+    if (!hasBoardAccess(role)) {
+      setTickets([]);
+      setTicketsLoading(false);
+      setTicketsError(null);
+      return;
+    }
+
+    setTicketsLoading(true);
+    const ticketsQuery = query(collection(db, "tickets"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(
+      ticketsQuery,
+      (snapshot) => {
+        const records: TicketRecord[] = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          const rawCreatedAt = data?.createdAt;
+          let createdAt: Date | null = null;
+          if (rawCreatedAt?.toDate && typeof rawCreatedAt.toDate === "function") {
+            try {
+              createdAt = rawCreatedAt.toDate();
+            } catch (error) {
+              createdAt = null;
+            }
+          } else if (rawCreatedAt instanceof Date) {
+            createdAt = rawCreatedAt;
+          } else if (typeof rawCreatedAt === "string") {
+            const parsed = Date.parse(rawCreatedAt);
+            createdAt = Number.isNaN(parsed) ? null : new Date(parsed);
+          }
+
+          const authorUnits = normalizeInternalUnits(data?.authorUnits);
+          const authorRanks = normalizeAdditionalRanks(data?.authorRanks ?? data?.authorRank);
+          const authorLogin = typeof data?.authorLogin === "string" ? data.authorLogin.trim() : "";
+          const authorFullName = typeof data?.authorFullName === "string" ? data.authorFullName.trim() : "";
+          const authorName =
+            authorFullName ||
+            authorLogin ||
+            (typeof data?.authorUid === "string" ? data.authorUid : "Nieznany funkcjonariusz");
+          const badgeNumber = typeof data?.authorBadgeNumber === "string" ? data.authorBadgeNumber.trim() : null;
+          const roleLabel = typeof data?.authorRoleLabel === "string" ? data.authorRoleLabel.trim() : null;
+          const roleGroup = typeof data?.authorRoleGroup === "string" ? data.authorRoleGroup.trim() : null;
+          const message = typeof data?.message === "string" ? data.message.trim() : "";
+
+          return {
+            id: docSnap.id,
+            message,
+            createdAt,
+            authorUid: typeof data?.authorUid === "string" ? data.authorUid : null,
+            authorName,
+            authorLogin,
+            authorBadgeNumber: badgeNumber,
+            authorRoleLabel: roleLabel,
+            authorRoleGroup: roleGroup,
+            authorUnits,
+            authorRanks,
+          };
+        });
+        setTickets(records);
+        setTicketsError(null);
+        setTicketsLoading(false);
+      },
+      (error) => {
+        console.error("Nie udało się pobrać ticketów", error);
+        setTicketsError("Nie udało się wczytać ticketów. Spróbuj ponownie później.");
+        setTicketsLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [role]);
 
   useEffect(() => {
     if (!hasBoardAccess(role)) {
@@ -1380,6 +1469,10 @@ export default function Admin() {
                 <span className="text-base font-semibold">Ogłoszenia</span>
                 <span className="block text-xs text-white/70">Komunikaty dla funkcjonariuszy</span>
               </button>
+              <button type="button" className={sectionButtonClass("tickets")} onClick={() => setSection("tickets")}>
+                <span className="text-base font-semibold">Tickety</span>
+                <span className="block text-xs text-white/70">Zgłoszenia od funkcjonariuszy</span>
+              </button>
               <button type="button" className={sectionButtonClass("logs")} onClick={() => setSection("logs")}>
                 <span className="text-base font-semibold">Logi</span>
                 <span className="block text-xs text-white/70">Aktywność kont</span>
@@ -1709,7 +1802,101 @@ export default function Admin() {
                 </div>
               </div>
             )}
-            
+
+            {section === "tickets" && (
+              <div className="grid gap-5">
+                <div className="card bg-gradient-to-br from-emerald-900/80 via-slate-900/80 to-slate-950/85 p-6 text-white shadow-xl">
+                  <h2 className="text-xl font-semibold">Zgłoszenia od funkcjonariuszy</h2>
+                  <p className="text-sm text-white/70">
+                    Lista ticketów przesłanych do zarządu. Zawiera dane autora, przypisania jednostek oraz opis zgłoszenia.
+                  </p>
+                  <p className="mt-2 text-xs text-white/60">
+                    Tickety są sortowane od najnowszych. Po obsłużeniu zgłoszenia możesz je zarchiwizować w bazie, aby
+                    utrzymać porządek na liście.
+                  </p>
+                </div>
+
+                {ticketsError && (
+                  <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                    {ticketsError}
+                  </div>
+                )}
+
+                {ticketsLoading ? (
+                  <div className="card bg-white/10 p-5 text-sm text-white/70">Wczytywanie ticketów...</div>
+                ) : tickets.length === 0 ? (
+                  <div className="card bg-white/10 p-5 text-sm text-white/70">
+                    Brak aktywnych ticketów. Wszystkie zgłoszenia zostały obsłużone.
+                  </div>
+                ) : (
+                  <div className="grid gap-4">
+                    {tickets.map((ticket) => {
+                      const unitOptions = ticket.authorUnits
+                        .map((unit) => getInternalUnitOption(unit))
+                        .filter((option): option is NonNullable<ReturnType<typeof getInternalUnitOption>> => !!option);
+                      const rankOptions = ticket.authorRanks
+                        .map((rank) => getAdditionalRankOption(rank))
+                        .filter((option): option is NonNullable<ReturnType<typeof getAdditionalRankOption>> => !!option);
+
+                      return (
+                        <div
+                          key={ticket.id}
+                          className="card bg-gradient-to-br from-slate-900/85 via-slate-900/75 to-slate-950/80 p-6 text-white shadow-lg"
+                        >
+                          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                            <div className="space-y-1">
+                              <div className="text-lg font-semibold text-white">{ticket.authorName}</div>
+                              <div className="text-xs text-white/70">
+                                {ticket.authorLogin || "—"}
+                                {ticket.authorBadgeNumber ? ` • #${ticket.authorBadgeNumber}` : ""}
+                              </div>
+                              <div className="text-xs text-white/60">
+                                {ticket.authorRoleLabel || "Brak stopnia"}
+                                {ticket.authorRoleGroup ? ` • ${ticket.authorRoleGroup}` : ""}
+                              </div>
+                            </div>
+                            <div className="text-xs font-mono uppercase tracking-wide text-white/50">
+                              {ticket.createdAt ? ticket.createdAt.toLocaleString("pl-PL") : "Brak daty"}
+                            </div>
+                          </div>
+
+                          <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
+                            {ticket.message || "Brak treści"}
+                          </div>
+
+                          {(unitOptions.length > 0 || rankOptions.length > 0) && (
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              {unitOptions.map((option) => (
+                                <span
+                                  key={`ticket-unit-${option.value}`}
+                                  className="rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide"
+                                  style={{
+                                    background: option.background,
+                                    color: option.color,
+                                    borderColor: option.borderColor,
+                                  }}
+                                >
+                                  {option.shortLabel || option.abbreviation}
+                                </span>
+                              ))}
+                              {rankOptions.map((option) => (
+                                <span
+                                  key={`ticket-rank-${option.value}`}
+                                  className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/80"
+                                >
+                                  {option.label}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {section === "logs" && (
               <div className="grid gap-5">
                 <div className="card bg-gradient-to-br from-amber-900/85 via-amber-800/85 to-stone-900/80 text-white p-6 shadow-xl">

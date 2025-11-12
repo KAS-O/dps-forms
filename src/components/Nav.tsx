@@ -8,6 +8,7 @@ import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { ROLE_LABELS, hasBoardAccess } from "@/lib/roles";
 import { UNIT_SECTIONS, unitHasAccess } from "@/lib/internalUnits";
+import UnitSidebar from "@/components/UnitSidebar";
 
 const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dashboard", label: "Dokumenty", color: "#60a5fa" },
@@ -54,7 +55,7 @@ export default function Nav() {
   const archiveActive = router.pathname.startsWith("/archive");
   const adminActive = router.pathname.startsWith("/admin");
   const currentPath = router.asPath;
-  const unitLinks = UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks));
+  const unitLinks = UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks, role));
 
   const logout = async () => {
     const ok = await confirm({
@@ -65,87 +66,91 @@ export default function Nav() {
       tone: "danger",
     });
     if (!ok) return;
-    await logLogout("logout")
+    await logLogout("logout");
     await signOut(auth);
   };
 
-
   return (
-    <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
-      <div className="max-w-6xl mx-auto w-full px-4 py-4 flex flex-col gap-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3 min-w-[220px]">
-            <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />
-            <span className="font-semibold tracking-wide text-beige-900/90">
-              Los Santos Police Department
-            </span>
+    <>
+      <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
+        <div className="max-w-6xl mx-auto w-full px-4 py-4 flex flex-col gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3 min-w-[220px]">
+              <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />
+              <span className="font-semibold tracking-wide text-beige-900/90">
+                Los Santos Police Department
+              </span>
+            </div>
+            <div className="flex items-center gap-2 whitespace-nowrap text-sm">
+              <span className="px-2 py-1 rounded bg-white/10 text-beige-900">
+                {fullName || "—"}
+                {badgeNumber ? ` • #${badgeNumber}` : ""}
+                {role ? ` • ${roleLabel}` : ""}
+              </span>
+              <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold">
+                Wyloguj
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2 whitespace-nowrap text-sm">
-            <span className="px-2 py-1 rounded bg-white/10 text-beige-900">
-              {fullName || "—"}
-              {badgeNumber ? ` • #${badgeNumber}` : ""}
-              {role ? ` • ${roleLabel}` : ""}
-            </span>
-            <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold">
-              Wyloguj
-            </button>
-          </div>
-        </div>
-        <div className="flex items-center">
-          <div className="flex-1 overflow-x-auto pb-1">
-            <div className="flex min-w-max items-center gap-2 text-sm">
-              {NAV_LINKS.map((link) => {
-                const isActive = router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
-                return (
+          <div className="flex items-center">
+            <div className="flex-1 overflow-x-auto pb-1">
+              <div className="flex min-w-max items-center gap-2 text-sm">
+                {NAV_LINKS.map((link) => {
+                  const isActive = router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
+                  return (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      className={`nav-pill shrink-0${isActive ? " nav-pill--active" : ""}`}
+                      style={createNavStyle(link.color, isActive)}
+                    >
+                      <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
+                      {link.label}
+                    </Link>
+                  );
+                })}
+                <div className="flex items-center gap-2 lg:hidden">
+                  {unitLinks.map((section) => {
+                    const isActive = currentPath === section.href || currentPath.startsWith(`${section.href}/`);
+                    return (
+                      <Link
+                        key={section.href}
+                        href={section.href}
+                        className={`nav-pill shrink-0${isActive ? " nav-pill--active" : ""}`}
+                        style={createNavStyle(section.navColor, isActive)}
+                      >
+                        <span className="nav-pill__dot" style={{ background: section.navColor }} aria-hidden />
+                        {section.shortLabel}
+                      </Link>
+                    );
+                  })}
+                </div>
+                {can.seeArchive(role) && (
                   <Link
-                    key={link.href}
-                    href={link.href}
-                    className={`nav-pill shrink-0${isActive ? " nav-pill--active" : ""}`}
-                    style={createNavStyle(link.color, isActive)}
+                    href="/archive"
+                    className={`nav-pill shrink-0${archiveActive ? " nav-pill--active" : ""}`}
+                    style={createNavStyle("#facc15", archiveActive)}
                   >
-                    <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
-                    {link.label}
+                    <span className="nav-pill__dot" style={{ background: "#facc15" }} aria-hidden />
+                    Archiwum
                   </Link>
-                );
-              })}
-              {unitLinks.map((section) => {
-                const isActive = currentPath === section.href || currentPath.startsWith(`${section.href}/`);
-                return (
+                )}
+                {hasBoardAccess(role) && (
                   <Link
-                    key={section.href}
-                    href={section.href}
-                    className={`nav-pill shrink-0${isActive ? " nav-pill--active" : ""}`}
-                    style={createNavStyle(section.navColor, isActive)}
+                    href="/admin"
+                    className={`nav-pill shrink-0${adminActive ? " nav-pill--active" : ""}`}
+                    style={createNavStyle("#0ea5e9", adminActive)}
                   >
-                    <span className="nav-pill__dot" style={{ background: section.navColor }} aria-hidden />
-                    {section.shortLabel}
+                    <span className="nav-pill__dot" style={{ background: "#0ea5e9" }} aria-hidden />
+                    Panel zarządu
                   </Link>
-                );
-              })}
-              {can.seeArchive(role) && (
-                <Link
-                  href="/archive"
-                  className={`nav-pill shrink-0${archiveActive ? " nav-pill--active" : ""}`}
-                  style={createNavStyle("#facc15", archiveActive)}
-                >
-                  <span className="nav-pill__dot" style={{ background: "#facc15" }} aria-hidden />
-                  Archiwum
-                </Link>
-              )}
-              {hasBoardAccess(role) && (
-                <Link
-                  href="/admin"
-                  className={`nav-pill shrink-0${adminActive ? " nav-pill--active" : ""}`}
-                  style={createNavStyle("#0ea5e9", adminActive)}
-                >
-                  <span className="nav-pill__dot" style={{ background: "#0ea5e9" }} aria-hidden />
-                  Panel zarządu
-                </Link>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </nav>
+      </nav>
+      <UnitSidebar />
+    </>
   );
 }
