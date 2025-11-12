@@ -3,7 +3,7 @@ import Nav from "@/components/Nav";
 import AuthGate from "@/components/AuthGate";
 import { useProfile, Role } from "@/hooks/useProfile";
 import { useLogWriter } from "@/hooks/useLogWriter";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   addDoc,
   collection,
@@ -25,12 +25,14 @@ import {
   onSnapshot,
   QueryConstraint,
   QueryDocumentSnapshot,
+  deleteDoc,
 } from "firebase/firestore";
 import { deriveLoginFromEmail } from "@/lib/login";
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useAnnouncement } from "@/hooks/useAnnouncement";
 import { ROLE_LABELS, ROLE_OPTIONS, hasBoardAccess, DEFAULT_ROLE, normalizeRole } from "@/lib/roles";
+import { useCriminalGroups, withAlpha } from "@/hooks/useCriminalGroups";
 import {
   DEPARTMENTS,
   INTERNAL_UNITS,
@@ -48,7 +50,8 @@ import {
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
-type AdminSection = "overview" | "hr" | "announcements" | "logs" | "tickets";
+type AdminSection = "overview" | "hr" | "announcements" | "logs" | "tickets" | "gu";
+type TicketView = "active" | "archive";
 
 type Account = {
   uid: string;
@@ -76,6 +79,122 @@ type TicketRecord = {
   authorRoleGroup?: string | null;
   authorUnits: InternalUnit[];
   authorRanks: AdditionalRank[];
+  archivedAt?: Date | null;
+  archivedByName?: string | null;
+  archivedByLogin?: string | null;
+  archivedByBadgeNumber?: string | null;
+  raw: Record<string, any>;
+};
+
+type CriminalGroupForm = {
+  name: string;
+  colorName: string;
+  colorHex: string;
+  organizationType: string;
+  base: string;
+  operations: string;
+};
+
+const ADMIN_NAV_ITEMS: { id: AdminSection; title: string; description: string; icon: string; gradient: string }[] = [
+  {
+    id: "overview",
+    title: "Podsumowanie",
+    description: "Statystyki i finanse",
+    icon: "📊",
+    gradient: "from-sky-500/25 via-blue-500/20 to-slate-900/50",
+  },
+  {
+    id: "hr",
+    title: "Dział Kadr",
+    description: "Kontrola kont i rang",
+    icon: "🧑‍💼",
+    gradient: "from-violet-500/25 via-indigo-500/20 to-slate-900/50",
+  },
+  {
+    id: "announcements",
+    title: "Ogłoszenia",
+    description: "Komunikaty dla funkcjonariuszy",
+    icon: "📢",
+    gradient: "from-amber-500/25 via-orange-500/20 to-slate-900/50",
+  },
+  {
+    id: "tickets",
+    title: "Tickety",
+    description: "Zgłoszenia i archiwum",
+    icon: "🎫",
+    gradient: "from-emerald-500/25 via-teal-500/20 to-slate-900/50",
+  },
+  {
+    id: "gu",
+    title: "Sekcja GU",
+    description: "Grupy przestępcze",
+    icon: "🛡️",
+    gradient: "from-lime-500/25 via-emerald-500/20 to-slate-900/50",
+  },
+  {
+    id: "logs",
+    title: "Logi",
+    description: "Aktywność kont",
+    icon: "📜",
+    gradient: "from-fuchsia-500/25 via-purple-500/20 to-slate-900/50",
+  },
+];
+
+const parseDateValue = (value: any): Date | null => {
+  if (value?.toDate && typeof value.toDate === "function") {
+    try {
+      return value.toDate();
+    } catch (error) {
+      return null;
+    }
+  }
+  if (value instanceof Date) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : new Date(parsed);
+  }
+  return null;
+};
+
+const mapTicketRecord = (docSnap: QueryDocumentSnapshot): TicketRecord => {
+  const data = docSnap.data() || {};
+  const authorUnits = normalizeInternalUnits(data?.authorUnits);
+  const authorRanks = normalizeAdditionalRanks(data?.authorRanks ?? data?.authorRank);
+  const authorLogin = typeof data?.authorLogin === "string" ? data.authorLogin.trim() : "";
+  const authorFullName = typeof data?.authorFullName === "string" ? data.authorFullName.trim() : "";
+  const authorName =
+    authorFullName ||
+    authorLogin ||
+    (typeof data?.authorUid === "string" ? data.authorUid : "Nieznany funkcjonariusz");
+  const badgeNumber = typeof data?.authorBadgeNumber === "string" ? data.authorBadgeNumber.trim() : null;
+  const roleLabel = typeof data?.authorRoleLabel === "string" ? data.authorRoleLabel.trim() : null;
+  const roleGroup = typeof data?.authorRoleGroup === "string" ? data.authorRoleGroup.trim() : null;
+  const message = typeof data?.message === "string" ? data.message.trim() : "";
+  const archivedByName = typeof data?.archivedByName === "string" ? data.archivedByName.trim() : null;
+  const archivedByLogin = typeof data?.archivedByLogin === "string" ? data.archivedByLogin.trim() : null;
+  const archivedByBadgeNumber =
+    typeof data?.archivedByBadgeNumber === "string" ? data.archivedByBadgeNumber.trim() : null;
+
+  return {
+    id: docSnap.id,
+    message,
+    createdAt: parseDateValue(data?.createdAt),
+    authorUid: typeof data?.authorUid === "string" ? data.authorUid : null,
+    authorName,
+    authorLogin,
+    authorBadgeNumber: badgeNumber,
+    authorRoleLabel: roleLabel,
+    authorRoleGroup: roleGroup,
+    authorUnits,
+    authorRanks,
+    archivedAt: parseDateValue(data?.archivedAt),
+    archivedByName,
+    archivedByLogin,
+    archivedByBadgeNumber,
+    raw: data,
+  };
 };
 
 const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
@@ -188,6 +307,9 @@ const ACTION_LABELS: Record<string, string> = {
   "dossier.create": "Nowa teczka",
   "dossier.delete": "Usunięcie teczki",
   "criminal_group.open": "Podgląd organizacji",
+  "criminal_group.create": "Dodanie grupy przestępczej",
+  "ticket.archive": "Archiwizacja ticketa",
+  "ticket.delete": "Usunięcie ticketa",
   "document.send": "Wygenerowanie dokumentu",
   "stats.clear": "Czyszczenie statystyk",
   "auth.login_success": "Udane logowanie",
@@ -229,7 +351,7 @@ async function readErrorResponse(res: Response, fallback: string) {
 
 
 export default function Admin() {
-  const { role, login, fullName, ready } = useProfile();
+  const { role, login, fullName, badgeNumber, ready } = useProfile();
   const { writeLog } = useLogWriter();
   const { confirm, prompt, alert } = useDialog();
   const { announcement } = useAnnouncement();
@@ -283,40 +405,39 @@ export default function Admin() {
   const [tickets, setTickets] = useState<TicketRecord[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(true);
   const [ticketsError, setTicketsError] = useState<string | null>(null);
-  const rangeLabel = useMemo(() => {
-    switch (range) {
-      case "30":
-        return "Ostatnie 30 dni";
-      case "7":
-        return "Ostatnie 7 dni";
-      default:
-        return "Od początku";
-    }
-  }, [range]);
+  const [ticketView, setTicketView] = useState<TicketView>("active");
+  const [archivedTickets, setArchivedTickets] = useState<TicketRecord[]>([]);
+  const [archivedTicketsLoading, setArchivedTicketsLoading] = useState(true);
+  const [archivedTicketsError, setArchivedTicketsError] = useState<string | null>(null);
+  const [ticketActionId, setTicketActionId] = useState<string | null>(null);
+  const {
+    groups: criminalGroups,
+    loading: criminalGroupsLoading,
+    error: criminalGroupsError,
+  } = useCriminalGroups();
+  const [newGroupForm, setNewGroupForm] = useState<CriminalGroupForm>({
+    name: "",
+    colorName: "",
+    colorHex: "",
+    organizationType: "",
+    base: "",
+    operations: "",
+  });
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [criminalGroupNotice, setCriminalGroupNotice] = useState<string | null>(null);
+  const [criminalGroupActionError, setCriminalGroupActionError] = useState<string | null>(null);
 
-  const buildLogsQuery = useCallback(
-    (cursor: QueryDocumentSnapshot | null) => {
-      if (!db) throw new Error("Brak połączenia z bazą danych.");
-      const constraints: QueryConstraint[] = [];
-      const fromDate = logFilters.from ? new Date(logFilters.from) : null;
-      if (fromDate && Number.isNaN(fromDate.getTime())) throw new Error("Nieprawidłowa data początkowa.");
-      const toDate = logFilters.to ? new Date(logFilters.to) : null;
-      if (toDate && Number.isNaN(toDate.getTime())) throw new Error("Nieprawidłowa data końcowa.");
-      if (fromDate && toDate && fromDate > toDate) {
-        throw new Error("Początek zakresu nie może być później niż koniec.");
-      }
-      if (logFilters.actorUid) constraints.push(where("actorUid", "==", logFilters.actorUid));
-      if (logFilters.section) constraints.push(where("section", "==", logFilters.section));
-      if (logFilters.action) constraints.push(where("action", "==", logFilters.action));
-      if (fromDate) constraints.push(where("ts", ">=", Timestamp.fromDate(fromDate)));
-      if (toDate) constraints.push(where("ts", "<=", Timestamp.fromDate(toDate)));
-      const ordered: QueryConstraint[] = [orderBy("ts", "desc")];
-      if (cursor) ordered.push(startAfter(cursor));
-      ordered.push(limit(LOG_PAGE_SIZE));
-      return query(collection(db, "logs"), ...constraints, ...ordered);
-    },
-    [logFilters]
-  );
+
+
+  const roleLabel = useMemo(() => {
+    if (!role) return "Brak przypisanej roli";
+    return ROLE_LABELS[role] || humanizeIdentifier(role);
+  }, [role]);
+
+  const isArchiveView = ticketView === "archive";
+  const currentTickets = isArchiveView ? archivedTickets : tickets;
+  const currentTicketsLoading = isArchiveView ? archivedTicketsLoading : ticketsLoading;
+  const currentTicketsError = isArchiveView ? archivedTicketsError : ticketsError;
 
   useEffect(() => {
     if (!hasBoardAccess(role)) return;
@@ -334,6 +455,10 @@ export default function Admin() {
       setTickets([]);
       setTicketsLoading(false);
       setTicketsError(null);
+      setArchivedTickets([]);
+      setArchivedTicketsLoading(false);
+      setArchivedTicketsError(null);
+      setTicketView("active");
       return;
     }
 
@@ -342,50 +467,7 @@ export default function Admin() {
     const unsubscribe = onSnapshot(
       ticketsQuery,
       (snapshot) => {
-        const records: TicketRecord[] = snapshot.docs.map((docSnap) => {
-          const data = docSnap.data();
-          const rawCreatedAt = data?.createdAt;
-          let createdAt: Date | null = null;
-          if (rawCreatedAt?.toDate && typeof rawCreatedAt.toDate === "function") {
-            try {
-              createdAt = rawCreatedAt.toDate();
-            } catch (error) {
-              createdAt = null;
-            }
-          } else if (rawCreatedAt instanceof Date) {
-            createdAt = rawCreatedAt;
-          } else if (typeof rawCreatedAt === "string") {
-            const parsed = Date.parse(rawCreatedAt);
-            createdAt = Number.isNaN(parsed) ? null : new Date(parsed);
-          }
-
-          const authorUnits = normalizeInternalUnits(data?.authorUnits);
-          const authorRanks = normalizeAdditionalRanks(data?.authorRanks ?? data?.authorRank);
-          const authorLogin = typeof data?.authorLogin === "string" ? data.authorLogin.trim() : "";
-          const authorFullName = typeof data?.authorFullName === "string" ? data.authorFullName.trim() : "";
-          const authorName =
-            authorFullName ||
-            authorLogin ||
-            (typeof data?.authorUid === "string" ? data.authorUid : "Nieznany funkcjonariusz");
-          const badgeNumber = typeof data?.authorBadgeNumber === "string" ? data.authorBadgeNumber.trim() : null;
-          const roleLabel = typeof data?.authorRoleLabel === "string" ? data.authorRoleLabel.trim() : null;
-          const roleGroup = typeof data?.authorRoleGroup === "string" ? data.authorRoleGroup.trim() : null;
-          const message = typeof data?.message === "string" ? data.message.trim() : "";
-
-          return {
-            id: docSnap.id,
-            message,
-            createdAt,
-            authorUid: typeof data?.authorUid === "string" ? data.authorUid : null,
-            authorName,
-            authorLogin,
-            authorBadgeNumber: badgeNumber,
-            authorRoleLabel: roleLabel,
-            authorRoleGroup: roleGroup,
-            authorUnits,
-            authorRanks,
-          };
-        });
+        const records: TicketRecord[] = snapshot.docs.map((docSnap) => mapTicketRecord(docSnap));
         setTickets(records);
         setTicketsError(null);
         setTicketsLoading(false);
@@ -394,6 +476,31 @@ export default function Admin() {
         console.error("Nie udało się pobrać ticketów", error);
         setTicketsError("Nie udało się wczytać ticketów. Spróbuj ponownie później.");
         setTicketsLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [role]);
+
+  useEffect(() => {
+    if (!hasBoardAccess(role)) {
+      return;
+    }
+
+    setArchivedTicketsLoading(true);
+    const archiveQuery = query(collection(db, "tickets-archive"), orderBy("archivedAt", "desc"));
+    const unsubscribe = onSnapshot(
+      archiveQuery,
+      (snapshot) => {
+        const records: TicketRecord[] = snapshot.docs.map((docSnap) => mapTicketRecord(docSnap));
+        setArchivedTickets(records);
+        setArchivedTicketsError(null);
+        setArchivedTicketsLoading(false);
+      },
+      (error) => {
+        console.error("Nie udało się pobrać archiwum ticketów", error);
+        setArchivedTicketsError("Nie udało się wczytać archiwum ticketów. Spróbuj ponownie później.");
+        setArchivedTicketsLoading(false);
       }
     );
 
@@ -940,12 +1047,202 @@ export default function Admin() {
     }
   };
 
-  const sectionButtonClass = (value: AdminSection) =>
-    `rounded-2xl px-4 py-3 text-left transition border ${
-      section === value
-        ? "bg-white/20 border-white/50 shadow-[0_0_18px_rgba(59,130,246,0.45)]"
-        : "bg-white/5 border-white/10 hover:bg-white/15"
-    }`;
+  const archiveTicket = async (ticket: TicketRecord) => {
+    const ok = await confirm({
+      title: "Archiwizuj ticket",
+      message: `Czy na pewno chcesz przenieść ticket funkcjonariusza ${ticket.authorName} do archiwum?`,
+      confirmLabel: "Archiwizuj",
+      cancelLabel: "Anuluj",
+    });
+    if (!ok) return;
+
+    try {
+      setTicketActionId(ticket.id);
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error("Brak zalogowanego użytkownika.");
+      }
+      const ticketRef = doc(db, "tickets", ticket.id);
+      const ticketSnap = await getDoc(ticketRef);
+      const data = ticketSnap.exists() ? ticketSnap.data() : ticket.raw;
+      const archiveRef = doc(db, "tickets-archive", ticket.id);
+      const actorLogin = login || deriveLoginFromEmail(user.email || "");
+      const archivePayload = {
+        ...data,
+        archivedAt: serverTimestamp(),
+        archivedByUid: user.uid,
+        archivedByLogin: actorLogin,
+        archivedByName: fullName || actorLogin || "Nieznany użytkownik",
+        archivedByBadgeNumber: badgeNumber || "",
+      };
+      const batch = writeBatch(db);
+      batch.set(archiveRef, archivePayload);
+      batch.delete(ticketRef);
+      await batch.commit();
+      await writeLog({
+        type: "ticket_archive",
+        section: "panel-zarzadu",
+        action: "ticket.archive",
+        message: `Zarchiwizowano ticket funkcjonariusza ${ticket.authorName}.`,
+        details: {
+          ticketId: ticket.id,
+          autorLogin: ticket.authorLogin,
+          autorNazwisko: ticket.authorName,
+        },
+      });
+      setTicketView("active");
+    } catch (error: any) {
+      console.error("Nie udało się zarchiwizować ticketa", error);
+      await alert({
+        tone: "danger",
+        title: "Błąd archiwizacji",
+        message: error?.message || "Nie udało się zarchiwizować ticketa.",
+      });
+    } finally {
+      setTicketActionId(null);
+    }
+  };
+
+  const deleteTicket = async (ticket: TicketRecord, source: "tickets" | "tickets-archive") => {
+    const isArchive = source === "tickets-archive";
+    const ok = await confirm({
+      title: isArchive ? "Usuń ticket z archiwum" : "Usuń ticket",
+      message: isArchive
+        ? `Czy na pewno chcesz trwale usunąć archiwalny ticket funkcjonariusza ${ticket.authorName}?`
+        : `Czy na pewno chcesz usunąć ticket funkcjonariusza ${ticket.authorName}?`,
+      confirmLabel: "Usuń",
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    try {
+      setTicketActionId(ticket.id);
+      const ref = doc(db, source, ticket.id);
+      await deleteDoc(ref);
+      await writeLog({
+        type: "ticket_delete",
+        section: "panel-zarzadu",
+        action: "ticket.delete",
+        message: `${isArchive ? "Usunięto archiwalny" : "Usunięto"} ticket funkcjonariusza ${ticket.authorName}.`,
+        details: {
+          ticketId: ticket.id,
+          autorLogin: ticket.authorLogin,
+          autorNazwisko: ticket.authorName,
+          zArchiwum: isArchive,
+        },
+      });
+    } catch (error: any) {
+      console.error("Nie udało się usunąć ticketa", error);
+      await alert({
+        tone: "danger",
+        title: "Błąd usuwania",
+        message: error?.message || "Nie udało się usunąć ticketa.",
+      });
+    } finally {
+      setTicketActionId(null);
+    }
+  };
+
+  const resetGroupForm = () => {
+    setNewGroupForm({
+      name: "",
+      colorName: "",
+      colorHex: "",
+      organizationType: "",
+      base: "",
+      operations: "",
+    });
+  };
+
+  const updateNewGroupForm = (field: keyof CriminalGroupForm, value: string) => {
+    setNewGroupForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleCreateCriminalGroup = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setCriminalGroupActionError(null);
+    setCriminalGroupNotice(null);
+
+    const trimmed = {
+      name: newGroupForm.name.trim(),
+      colorName: newGroupForm.colorName.trim(),
+      colorHex: newGroupForm.colorHex.trim(),
+      organizationType: newGroupForm.organizationType.trim(),
+      base: newGroupForm.base.trim(),
+      operations: newGroupForm.operations.trim(),
+    };
+
+    if (!trimmed.name || !trimmed.colorName || !trimmed.colorHex || !trimmed.organizationType || !trimmed.base || !trimmed.operations) {
+      setCriminalGroupActionError("Uzupełnij wszystkie pola przed dodaniem nowej grupy.");
+      return;
+    }
+
+    let normalizedHex = trimmed.colorHex;
+    if (!/^#?[0-9a-fA-F]{3,6}$/.test(normalizedHex)) {
+      setCriminalGroupActionError("Podaj prawidłowy kod koloru (np. #7c3aed).");
+      return;
+    }
+    if (!normalizedHex.startsWith("#")) {
+      normalizedHex = `#${normalizedHex}`;
+    }
+
+    try {
+      setCreatingGroup(true);
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error("Brak zalogowanego użytkownika.");
+      }
+
+      const slug = trimmed.name
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      const baseId = slug ? `group-${slug}` : `group-${Date.now()}`;
+      let groupId = baseId;
+      let groupRef = doc(db, "dossiers", groupId);
+      const existing = await getDoc(groupRef);
+      if (existing.exists()) {
+        groupId = `${baseId}-${Date.now()}`;
+        groupRef = doc(db, "dossiers", groupId);
+      }
+
+      await setDoc(groupRef, {
+        title: `Organizacja ${trimmed.name}`,
+        category: "criminal-group",
+        group: {
+          name: trimmed.name,
+          colorName: trimmed.colorName,
+          colorHex: normalizedHex,
+          organizationType: trimmed.organizationType,
+          base: trimmed.base,
+          operations: trimmed.operations,
+        },
+        createdAt: serverTimestamp(),
+        createdBy: user.email || "",
+        createdByUid: user.uid,
+      });
+
+      resetGroupForm();
+      setCriminalGroupNotice(`Dodano nową grupę przestępczą: ${trimmed.name}.`);
+      await writeLog({
+        type: "criminal_group_create",
+        section: "panel-zarzadu",
+        action: "criminal_group.create",
+        message: `Dodano nową grupę przestępczą ${trimmed.name} w sekcji GU.`,
+        details: {
+          groupId,
+          kolor: normalizedHex,
+        },
+      });
+    } catch (error: any) {
+      console.error("Nie udało się dodać grupy", error);
+      setCriminalGroupActionError(error?.message || "Nie udało się dodać grupy przestępczej.");
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
 
   const getLogTimestampMs = (log: any): number | null => {
     const raw = log?.ts || log?.createdAt;
@@ -1448,36 +1745,66 @@ export default function Admin() {
       <div className="max-w-7xl mx-auto px-4 py-6 grid gap-5">
         {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold">Panel zarządu</h1>
-          <span className="text-sm text-beige-700">Zalogowany: {fullName || login} ({login})</span>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="card overflow-hidden bg-gradient-to-br from-slate-900/90 via-blue-900/80 to-slate-950/80 p-6 text-white shadow-xl">
+            <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Panel dowództwa</span>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight">Panel zarządu</h1>
+            <p className="mt-3 max-w-2xl text-sm text-white/75">
+              Zarządzaj personelem, finansami, zgłoszeniami oraz jednostką GU w jednym miejscu. Wybierz sekcję po lewej, aby
+              rozpocząć pracę.
+            </p>
+          </div>
+          <div className="card flex flex-col gap-3 bg-white/95 p-6 shadow-lg">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Twoje konto</span>
+            <div className="text-lg font-semibold text-slate-900">{fullName || login || "Nieznany użytkownik"}</div>
+            <div className="grid gap-2 text-sm text-slate-600">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs uppercase tracking-wide text-slate-500">Login</span>
+                <span className="font-semibold text-slate-800">{login || "—"}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs uppercase tracking-wide text-slate-500">Odznaka</span>
+                <span className="font-semibold text-slate-800">{badgeNumber || "—"}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs uppercase tracking-wide text-slate-500">Rola</span>
+                <span className="font-semibold text-slate-800">{roleLabel}</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
-          <aside className="card bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900 text-white p-5 shadow-xl">
-            <h2 className="text-lg font-semibold mb-4">Sekcje</h2>
-            <div className="grid gap-2 text-sm">
-              <button type="button" className={sectionButtonClass("overview")} onClick={() => setSection("overview")}>
-                <span className="text-base font-semibold">Podsumowanie</span>
-                <span className="block text-xs text-white/70">Statystyki i finanse</span>
-              </button>
-              <button type="button" className={sectionButtonClass("hr")} onClick={() => setSection("hr")}>
-                <span className="text-base font-semibold">Dział Kadr</span>
-                <span className="block text-xs text-white/70">Kontrola kont i rang</span>
-              </button>
-              <button type="button" className={sectionButtonClass("announcements")} onClick={() => setSection("announcements")}>
-                <span className="text-base font-semibold">Ogłoszenia</span>
-                <span className="block text-xs text-white/70">Komunikaty dla funkcjonariuszy</span>
-              </button>
-              <button type="button" className={sectionButtonClass("tickets")} onClick={() => setSection("tickets")}>
-                <span className="text-base font-semibold">Tickety</span>
-                <span className="block text-xs text-white/70">Zgłoszenia od funkcjonariuszy</span>
-              </button>
-              <button type="button" className={sectionButtonClass("logs")} onClick={() => setSection("logs")}>
-                <span className="text-base font-semibold">Logi</span>
-                <span className="block text-xs text-white/70">Aktywność kont</span>
-              </button>
+        <div className="grid gap-6 lg:grid-cols-[minmax(260px,320px)_1fr]">
+          <aside className="space-y-4">
+            <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6 text-white shadow-xl">
+              <h2 className="text-lg font-semibold">Sekcje panelu</h2>
+              <p className="mt-2 text-sm text-white/70">
+                Dostęp do kluczowych narzędzi zarządu. Przełącz się między sekcjami, aby wyświetlić odpowiednie dane.
+              </p>
             </div>
+            <nav className="grid gap-3">
+              {ADMIN_NAV_ITEMS.map((item) => {
+                const active = section === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setSection(item.id)}
+                    className={`group relative flex items-start gap-3 rounded-3xl border p-4 text-left transition ${
+                      active
+                        ? `border-white/40 bg-gradient-to-br ${item.gradient} text-white shadow-[0_24px_48px_-24px_rgba(15,23,42,0.85)]`
+                        : "border-white/10 bg-slate-900/60 text-white/75 hover:border-white/20 hover:bg-slate-900/70"
+                    }`}
+                  >
+                    <span className="text-2xl leading-none drop-shadow">{item.icon}</span>
+                    <div className="space-y-1">
+                      <span className="text-base font-semibold tracking-tight">{item.title}</span>
+                      <span className="text-xs text-white/70">{item.description}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </nav>
           </aside>
 
           <div className="grid gap-6">
@@ -1811,32 +2138,65 @@ export default function Admin() {
                     Lista ticketów przesłanych do zarządu. Zawiera dane autora, przypisania jednostek oraz opis zgłoszenia.
                   </p>
                   <p className="mt-2 text-xs text-white/60">
-                    Tickety są sortowane od najnowszych. Po obsłużeniu zgłoszenia możesz je zarchiwizować w bazie, aby
-                    utrzymać porządek na liście.
+                    Tickety są sortowane od najnowszych. Po obsłużeniu zgłoszenia możesz je zarchiwizować, aby utrzymać porządek
+                    w panelu.
                   </p>
                 </div>
 
-                {ticketsError && (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="inline-flex rounded-full bg-white/10 p-1 text-xs shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setTicketView("active")}
+                      className={`rounded-full px-4 py-1.5 font-semibold transition ${
+                        !isArchiveView
+                          ? "bg-white text-slate-900 shadow"
+                          : "text-white/80 hover:text-white"
+                      }`}
+                    >
+                      Aktywne tickety
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTicketView("archive")}
+                      className={`rounded-full px-4 py-1.5 font-semibold transition ${
+                        isArchiveView
+                          ? "bg-white text-slate-900 shadow"
+                          : "text-white/80 hover:text-white"
+                      }`}
+                    >
+                      Archiwum Ticketów
+                    </button>
+                  </div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-white/60">
+                    {isArchiveView ? `W archiwum: ${archivedTickets.length}` : `Aktywnych: ${tickets.length}`}
+                  </div>
+                </div>
+
+                {currentTicketsError && (
                   <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-                    {ticketsError}
+                    {currentTicketsError}
                   </div>
                 )}
 
-                {ticketsLoading ? (
+                {currentTicketsLoading ? (
                   <div className="card bg-white/10 p-5 text-sm text-white/70">Wczytywanie ticketów...</div>
-                ) : tickets.length === 0 ? (
+                ) : currentTickets.length === 0 ? (
                   <div className="card bg-white/10 p-5 text-sm text-white/70">
-                    Brak aktywnych ticketów. Wszystkie zgłoszenia zostały obsłużone.
+                    {isArchiveView
+                      ? "Brak ticketów w archiwum."
+                      : "Brak aktywnych ticketów. Wszystkie zgłoszenia zostały obsłużone."}
                   </div>
                 ) : (
                   <div className="grid gap-4">
-                    {tickets.map((ticket) => {
+                    {currentTickets.map((ticket) => {
                       const unitOptions = ticket.authorUnits
                         .map((unit) => getInternalUnitOption(unit))
                         .filter((option): option is NonNullable<ReturnType<typeof getInternalUnitOption>> => !!option);
                       const rankOptions = ticket.authorRanks
                         .map((rank) => getAdditionalRankOption(rank))
                         .filter((option): option is NonNullable<ReturnType<typeof getAdditionalRankOption>> => !!option);
+                      const archivedByLabel = ticket.archivedByName || ticket.archivedByLogin || null;
 
                       return (
                         <div
@@ -1889,6 +2249,221 @@ export default function Admin() {
                               ))}
                             </div>
                           )}
+
+                          {isArchiveView && (
+                            <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-xs text-emerald-100">
+                              <div>
+                                Zarchiwizowano: {ticket.archivedAt ? ticket.archivedAt.toLocaleString("pl-PL") : "nieznana data"}
+                              </div>
+                              <div>
+                                Przez: {archivedByLabel || "Nieznany użytkownik"}
+                                {ticket.archivedByBadgeNumber ? ` • #${ticket.archivedByBadgeNumber}` : ""}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+                            {!isArchiveView && (
+                              <button
+                                type="button"
+                                className="btn bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-60"
+                                onClick={() => archiveTicket(ticket)}
+                                disabled={ticketActionId === ticket.id}
+                              >
+                                {ticketActionId === ticket.id ? "Przetwarzanie..." : "Archiwizuj ticket"}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="btn bg-red-700 text-white hover:bg-red-600 disabled:opacity-60"
+                              onClick={() => deleteTicket(ticket, isArchiveView ? "tickets-archive" : "tickets")}
+                              disabled={ticketActionId === ticket.id}
+                            >
+                              {ticketActionId === ticket.id
+                                ? "Przetwarzanie..."
+                                : isArchiveView
+                                  ? "Usuń z archiwum"
+                                  : "Usuń ticket"}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {section === "gu" && (
+              <div className="grid gap-5">
+                <div className="card bg-gradient-to-br from-emerald-900/80 via-emerald-800/75 to-slate-950/85 p-6 text-white shadow-xl">
+                  <h2 className="text-xl font-semibold">Sekcja GU — Grupy przestępcze</h2>
+                  <p className="text-sm text-white/70">
+                    Zarządzaj rejestrem organizacji przestępczych bezpośrednio w panelu. Możesz dodawać nowe grupy oraz
+                    przeglądać aktualną bazę danych przygotowaną przez GU.
+                  </p>
+                  <p className="mt-2 text-xs text-white/60">
+                    Zmiany są zapisywane w teczkach organizacji i widoczne również na stronie publicznej rejestru.
+                  </p>
+                </div>
+
+                <form className="card grid gap-4 bg-white/95 p-6 shadow-lg" onSubmit={handleCreateCriminalGroup}>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900">Dodaj nową grupę przestępczą</h3>
+                      <p className="text-sm text-slate-600">
+                        Uzupełnij wszystkie pola, aby utworzyć nową kartę w rejestrze organizacji.
+                      </p>
+                    </div>
+                    <button
+                      type="submit"
+                      className="btn bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-60"
+                      disabled={creatingGroup}
+                    >
+                      {creatingGroup ? "Dodawanie..." : "Dodaj grupę"}
+                    </button>
+                  </div>
+
+                  {criminalGroupActionError && (
+                    <div className="rounded-2xl border border-red-400/40 bg-red-100/70 px-4 py-3 text-sm text-red-800">
+                      {criminalGroupActionError}
+                    </div>
+                  )}
+                  {criminalGroupNotice && (
+                    <div className="rounded-2xl border border-emerald-400/40 bg-emerald-100/70 px-4 py-3 text-sm text-emerald-900">
+                      {criminalGroupNotice}
+                    </div>
+                  )}
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="grid gap-1 text-sm text-slate-600">
+                      <span className="font-semibold text-slate-700">Nazwa grupy</span>
+                      <input
+                        className="input bg-white text-slate-900"
+                        value={newGroupForm.name}
+                        onChange={(e) => updateNewGroupForm("name", e.target.value)}
+                        placeholder="np. Ballas"
+                        required
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm text-slate-600">
+                      <span className="font-semibold text-slate-700">Kolorystyka</span>
+                      <input
+                        className="input bg-white text-slate-900"
+                        value={newGroupForm.colorName}
+                        onChange={(e) => updateNewGroupForm("colorName", e.target.value)}
+                        placeholder="np. Fioletowa"
+                        required
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm text-slate-600">
+                      <span className="font-semibold text-slate-700">Kolor HEX</span>
+                      <input
+                        className="input bg-white text-slate-900"
+                        value={newGroupForm.colorHex}
+                        onChange={(e) => updateNewGroupForm("colorHex", e.target.value)}
+                        placeholder="#7c3aed"
+                        required
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm text-slate-600">
+                      <span className="font-semibold text-slate-700">Typ organizacji</span>
+                      <input
+                        className="input bg-white text-slate-900"
+                        value={newGroupForm.organizationType}
+                        onChange={(e) => updateNewGroupForm("organizationType", e.target.value)}
+                        placeholder="np. Gang uliczny"
+                        required
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm text-slate-600 md:col-span-2">
+                      <span className="font-semibold text-slate-700">Główna baza</span>
+                      <input
+                        className="input bg-white text-slate-900"
+                        value={newGroupForm.base}
+                        onChange={(e) => updateNewGroupForm("base", e.target.value)}
+                        placeholder="np. Grove Street"
+                        required
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm text-slate-600 md:col-span-2">
+                      <span className="font-semibold text-slate-700">Zakres działalności</span>
+                      <textarea
+                        className="input min-h-[120px] bg-white text-slate-900"
+                        value={newGroupForm.operations}
+                        onChange={(e) => updateNewGroupForm("operations", e.target.value)}
+                        placeholder="Wypisz główne obszary działalności"
+                        required
+                      />
+                    </label>
+                  </div>
+                </form>
+
+                {criminalGroupsError && (
+                  <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                    {criminalGroupsError}
+                  </div>
+                )}
+
+                {criminalGroupsLoading ? (
+                  <div className="card bg-white/10 p-5 text-sm text-white/70">Wczytywanie bazy grup...</div>
+                ) : criminalGroups.length === 0 ? (
+                  <div className="card bg-white/10 p-5 text-sm text-white/70">
+                    Brak zarejestrowanych grup przestępczych. Dodaj pierwszą organizację, aby rozpocząć rejestr.
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {criminalGroups.map((group) => {
+                      const color = group.group?.colorHex || "#7c3aed";
+                      const gradient = `linear-gradient(135deg, ${withAlpha(color, 0.4)}, rgba(10, 16, 34, 0.94))`;
+                      return (
+                        <div
+                          key={group.id}
+                          className="card relative overflow-hidden p-5"
+                          style={{
+                            borderColor: withAlpha(color, 0.55),
+                            background: gradient,
+                            boxShadow: `0 26px 60px -32px ${withAlpha(color, 0.7)}`,
+                          }}
+                        >
+                          <span
+                            className="pointer-events-none absolute inset-0 opacity-60"
+                            style={{ background: `radial-gradient(circle at 20% 20%, ${withAlpha(color, 0.35)}, transparent 55%)` }}
+                            aria-hidden
+                          />
+                          <div className="relative grid gap-3 text-white">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <h3 className="text-xl font-semibold tracking-tight">{group.group?.name || group.title}</h3>
+                                <p className="text-xs uppercase tracking-[0.3em] text-white/70">
+                                  Kolorystyka: {group.group?.colorName || "—"}
+                                </p>
+                              </div>
+                              <span className="text-3xl" aria-hidden>
+                                🐍
+                              </span>
+                            </div>
+                            <div className="grid gap-2 text-sm text-white/80">
+                              <div>
+                                <span className="text-xs uppercase tracking-wide text-white/60">Typ organizacji</span>
+                                <div className="font-semibold text-white">{group.group?.organizationType || "—"}</div>
+                              </div>
+                              <div>
+                                <span className="text-xs uppercase tracking-wide text-white/60">Baza</span>
+                                <div className="font-semibold text-white">{group.group?.base || "—"}</div>
+                              </div>
+                              <div>
+                                <span className="text-xs uppercase tracking-wide text-white/60">Działalność</span>
+                                <div className="text-sm text-white/80">{group.group?.operations || "—"}</div>
+                              </div>
+                            </div>
+                            <a
+                              href={`/criminal-groups/${group.id}`}
+                              className="btn btn--ghost border-white/30 bg-white/10 text-xs font-semibold uppercase tracking-wide text-white hover:bg-white/20"
+                            >
+                              Podgląd teczki
+                            </a>
+                          </div>
                         </div>
                       );
                     })}
