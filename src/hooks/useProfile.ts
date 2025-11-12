@@ -12,6 +12,7 @@ export function useProfile() {
   const [badgeNumber, setBadgeNumber] = useState<string | null>(null);
   const [units, setUnits] = useState<InternalUnit[]>([]);
   const [additionalRanks, setAdditionalRanks] = useState<AdditionalRank[]>([]);
+  const [photoURL, setPhotoURL] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -56,13 +57,18 @@ export function useProfile() {
       }
       setUnits(normalizeInternalUnits(d.units));
       setAdditionalRanks(normalizeAdditionalRanks(d.additionalRanks ?? d.additionalRank));
+      if (typeof d.photoURL === "string" && d.photoURL.trim()) {
+        setPhotoURL(d.photoURL.trim());
+      } else {
+        setPhotoURL(null);
+      }
       setReady(true);
     });
 
     return () => unsub();
   }, []);
 
-  return { role, login, fullName, badgeNumber, units, additionalRanks, ready };
+  return { role, login, fullName, badgeNumber, units, additionalRanks, photoURL, ready };
 }
 
 // Uprawnienia

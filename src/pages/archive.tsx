@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import AuthGate from "@/components/AuthGate";
-import Nav from "@/components/Nav";
+import PanelLayout from "@/components/PanelLayout";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
@@ -1018,10 +1018,11 @@ export default function ArchivePage() {
           <Head>
             <title>LSPD 77RP — Archiwum</title>
           </Head>
-          <Nav />
-          <div className="max-w-4xl mx-auto px-4 py-10">
-            <div className="card p-6 text-center" data-section="archive">Brak dostępu do archiwum.</div>
-          </div>
+          <PanelLayout>
+            <div className="card p-6 text-center text-sm text-white/70" data-section="archive">
+              Brak dostępu do archiwum.
+            </div>
+          </PanelLayout>
         </>
       </AuthGate>
     );
@@ -1033,8 +1034,7 @@ export default function ArchivePage() {
         <Head>
           <title>LSPD 77RP — Archiwum</title>
         </Head>
-        <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
+        <PanelLayout rightAside={<AnnouncementSpotlight />}>
           <div className="grid gap-4">
             <div className="card p-6 space-y-5" data-section="archive">
               <div className="flex flex-wrap items-center gap-3">
@@ -1218,8 +1218,7 @@ export default function ArchivePage() {
               {filteredItems.length === 0 && <p>Brak wpisów spełniających kryteria.</p>}
             </div>
           </div>
-          <AnnouncementSpotlight />
-        </div>
+        </PanelLayout>
       </>
     </AuthGate>
   );
