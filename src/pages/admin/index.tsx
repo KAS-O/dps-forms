@@ -141,6 +141,23 @@ const humanizeIdentifier = (value: string) => {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 };
 
+const createInitials = (fullName?: string | null, login?: string | null) => {
+  const source = fullName?.trim() || login?.trim() || "";
+  if (!source) return "?";
+  const parts = source
+    .replace(/[^a-ząćęłńóśźż0-9\s]/gi, " ")
+    .split(" ")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) {
+    return source.slice(0, 2).toUpperCase();
+  }
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+};
+
 const SECTION_LABELS: Record<string, string> = {
   sesja: "Sesja",
   nawigacja: "Nawigacja",
@@ -336,6 +353,11 @@ export default function Admin() {
   const loginDomain = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
   const displayLogin = login || "—";
   const displayName = fullName || login || "Nieznany funkcjonariusz";
+  const displayInitials = createInitials(fullName, login);
+  const normalizedRoleValue = role ? normalizeRole(role) : null;
+  const currentRoleLabel = normalizedRoleValue
+    ? ROLE_LABELS[normalizedRoleValue] || normalizedRoleValue
+    : "—";
 
   const [range, setRange] = useState<Range>("all");
   const [err, setErr] = useState<string | null>(null);
@@ -1813,18 +1835,15 @@ export default function Admin() {
         <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
           <aside className="rounded-3xl border border-white/20 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-6 text-white shadow-xl">
             <div className="flex flex-col gap-6">
-              <div className="rounded-2xl border border-white/15 bg-white/5 p-4 shadow-inner">
-                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Twoje konto</span>
-                <div className="mt-2 text-lg font-semibold tracking-tight text-white">{displayName}</div>
-                <div className="text-sm text-white/70">
-                  Login: <span className="font-mono">{displayLogin}</span>
-                </div>
-                {badgeNumber && (
-                  <div className="text-xs text-white/60">Odznaka: <span className="font-semibold text-white/80">#{badgeNumber}</span></div>
-                )}
+              <div className="space-y-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Sekcje panelu</span>
+                <h2 className="text-2xl font-semibold text-white">Nawigacja</h2>
+                <p className="text-sm text-white/70">
+                  Wybierz obszar pracy zarządu i przełączaj się między modułami bez przewijania bocznego panelu.
+                </p>
               </div>
 
-              <nav className="grid gap-3">
+              <nav className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                 {ADMIN_SECTION_ORDER.map((value) => {
                   const meta = ADMIN_SECTION_META[value];
                   const active = section === value;
@@ -1834,41 +1853,87 @@ export default function Admin() {
                       key={value}
                       type="button"
                       onClick={() => setSection(value)}
-                      className={`group relative overflow-hidden rounded-2xl border px-5 py-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
-                        active ? "border-white/40 bg-white/15 shadow-[0_24px_60px_-28px_rgba(59,130,246,0.8)]" : "border-white/10 bg-white/5 hover:bg-white/10"
+                      aria-pressed={active}
+                      className={`group relative overflow-hidden rounded-2xl border px-4 py-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
+                        active ? "border-white/40 bg-white/15 shadow-[0_28px_72px_-32px_rgba(59,130,246,0.85)]" : "border-white/10 bg-white/5 hover:bg-white/10"
                       }`}
                       style={{ borderColor: active ? `${accent}aa` : undefined }}
                     >
                       <span
                         className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-40"
-                        style={{ background: `radial-gradient(circle at 15% 15%, ${accent}33, transparent 60%)` }}
+                        style={{ background: `radial-gradient(circle at 15% 15%, ${accent}33, transparent 65%)` }}
                       />
-                      <div className="relative flex items-start gap-3">
-                        <span className="text-2xl" aria-hidden>
-                          {meta.icon}
-                        </span>
-                        <div>
-                          <div className="text-base font-semibold tracking-tight text-white">{meta.label}</div>
-                          <div className="text-xs text-white/70">{meta.description}</div>
+                      <div className="relative flex flex-col gap-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-3 text-base font-semibold text-white">
+                            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-black/30 text-lg" aria-hidden>
+                              {meta.icon}
+                            </span>
+                            {meta.label}
+                          </div>
+                          {active && (
+                            <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/80">
+                              Aktywne
+                            </span>
+                          )}
                         </div>
+                        <p className="text-xs leading-relaxed text-white/70">{meta.description}</p>
                       </div>
                     </button>
                   );
                 })}
               </nav>
 
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-white/70">
-                <div className="font-semibold text-white/80">Domena logowania</div>
-                <div className="font-mono text-sm text-white/80">@{loginDomain}</div>
-                <p className="mt-2 leading-relaxed">
-                  Pamiętaj o ochronie danych. Panel nie posiada własnego resetu hasła — korzystaj z konsoli Firebase w razie
-                  potrzeby.
+              <div className="rounded-2xl border border-white/15 bg-black/20 p-4 text-sm text-white/70">
+                <div className="font-semibold text-white/85">Domena logowania</div>
+                <div className="font-mono text-base text-white/90">@{loginDomain}</div>
+                <p className="mt-2 text-xs leading-relaxed text-white/60">
+                  Dane dostępowe są chronione. W razie problemów z hasłem skorzystaj z konsoli Firebase.
                 </p>
               </div>
             </div>
           </aside>
 
           <div className="grid gap-6">
+            <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-sm">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-4">
+                  <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-xl font-semibold text-white shadow-lg">
+                    {displayInitials}
+                  </span>
+                  <div>
+                    <div className="text-xl font-semibold text-slate-900">{displayName}</div>
+                    <p className="text-sm text-slate-500">Ranga: {currentRoleLabel}</p>
+                  </div>
+                </div>
+                {badgeNumber && (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-1.5 text-sm font-semibold text-slate-700">
+                    <span className="text-xs uppercase tracking-[0.3em] text-slate-400">Odznaka</span>
+                    #{badgeNumber}
+                  </div>
+                )}
+              </div>
+              <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-2">
+                <div className="space-y-1">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Login</dt>
+                  <dd className="font-mono text-base text-slate-900">
+                    {displayLogin === "—" ? "—" : `${displayLogin}@${loginDomain}`}
+                  </dd>
+                </div>
+                <div className="space-y-1">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Uprawnienia</dt>
+                  <dd className="text-slate-700">
+                    {hasBoardAccess(role)
+                      ? "Pełny dostęp do panelu zarządu"
+                      : "Brak dostępu do panelu zarządu"}
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-4 text-xs leading-relaxed text-slate-500">
+                Informacje o koncie są przechowywane w systemie logowania. W razie potrzeby resetu hasła skorzystaj z konsoli Firebase.
+              </p>
+            </section>
+
             {section === "overview" && (
               <div className="grid gap-6">
                 <div className="card p-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -2520,7 +2585,11 @@ export default function Admin() {
                               onClick={() => removeTicket(ticket, viewingArchive ? "archived" : "active")}
                               disabled={archiving || deleting}
                             >
-                              {deleting ? "Usuwanie..." : "Usuń ticket"}
+                              {deleting
+                                ? "Usuwanie..."
+                                : viewingArchive
+                                ? "Usuń z archiwum"
+                                : "Usuń ticket"}
                             </button>
                           </div>
                         </div>
