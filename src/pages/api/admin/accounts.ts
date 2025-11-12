@@ -88,9 +88,13 @@ function buildAccountsFromProfiles(profiles: Map<string, any>): AccountResponse[
 async function listAccounts(): Promise<AccountResponse[]> {
   if (!adminDb) return [];
 
-  const profilesSnap = await adminDb.collection("profiles").get();
   const profiles = new Map<string, any>();
-  profilesSnap.forEach((doc) => profiles.set(doc.id, doc.data()));
+  try {
+    const profilesSnap = await adminDb.collection("profiles").get();
+    profilesSnap.forEach((doc) => profiles.set(doc.id, doc.data()));
+  } catch (error) {
+    console.error("Nie udało się pobrać profili użytkowników:", error);
+  }
 
   if (!adminAuth) {
     return buildAccountsFromProfiles(profiles);
@@ -118,13 +122,11 @@ async function listAccounts(): Promise<AccountResponse[]> {
       pageToken = res.pageToken;
     } while (pageToken);
   } catch (error: any) {
-    if (error?.code === "auth/insufficient-permission" || error?.code === "auth/admin-restricted-operation") {
-     console.warn(
-        "Brak uprawnień Firebase Admin do listowania użytkowników, używam danych z kolekcji 'profiles'."
-      );
-      return buildAccountsFromProfiles(profiles);
-    }
-    throw error;
+    console.warn(
+      "Nie udało się pobrać listy użytkowników z Firebase Auth, używam danych z kolekcji 'profiles'.",
+      error
+    );
+    return buildAccountsFromProfiles(profiles);
   }
 
   accounts.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login));
@@ -156,7 +158,23 @@ function mapFirebaseAuthError(error: any): { status: number; message: string } |
   }
 }
 
+function isAdminPermissionError(error: any): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const code =
+    (typeof error.code === "string" && error.code) ||
+    (typeof error.errorInfo?.code === "string" && error.errorInfo.code) ||
+    "";
+  return code === "auth/insufficient-permission" || code === "auth/admin-restricted-operation";
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method === "OPTIONS") {
+    res.setHeader("Allow", "GET,POST,PATCH,DELETE,OPTIONS");
+    return res.status(204).end();
+  }
+
   try {
     await verifyBoardAccess(req);
   } catch (e: any) {
@@ -210,6 +228,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const mapped = mapFirebaseAuthError(error);
         if (mapped) {
           return res.status(mapped.status).json({ error: mapped.message });
+        }
+        if (isAdminPermissionError(error)) {
+          return res.status(403).json({
+            error:
+              "Konto Firebase Admin nie ma uprawnień do tworzenia użytkowników. Sprawdź konfigurację poświadczeń w środowisku.",
+          });
         }
         throw error;
       }
@@ -297,6 +321,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           if (mapped) {
             return res.status(mapped.status).json({ error: mapped.message });
           }
+          if (isAdminPermissionError(error)) {
+            return res.status(403).json({
+              error:
+                "Konto Firebase Admin nie ma uprawnień do edycji użytkowników. Sprawdź konfigurację poświadczeń w środowisku.",
+            });
+          }
           throw error;
         }
       }
@@ -308,12 +338,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!uid) {
         return res.status(400).json({ error: "Brak UID" });
       }
-      await adminAuth.deleteUser(uid);
+      try {
+        await adminAuth.deleteUser(uid);
+      } catch (error: any) {
+        if (isAdminPermissionError(error)) {
+          return res.status(403).json({
+            error:
+              "Konto Firebase Admin nie ma uprawnień do usuwania użytkowników. Sprawdź konfigurację poświadczeń w środowisku.",
+          });
+        }
+        throw error;
+      }
       await adminDb.collection("profiles").doc(uid).delete();
       return res.status(200).json({ ok: true });
     }
 
-    res.setHeader("Allow", "GET,POST,PATCH,DELETE");
+    res.setHeader("Allow", "GET,POST,PATCH,DELETE,OPTIONS");
     return res.status(405).end();
   } catch (e: any) {
     console.error(e);
