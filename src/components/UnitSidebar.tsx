@@ -71,10 +71,11 @@ export default function UnitSidebar() {
     };
   }, []);
 
-  const accessibleSections = useMemo(
-    () => UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks, role)),
-    [additionalRanks, role]
-  );
+  const accessibleSections = useMemo(() => {
+    return UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks, role)).sort((a, b) =>
+      a.label.localeCompare(b.label, "pl", { sensitivity: "base" })
+    );
+  }, [additionalRanks, role]);
 
   const membershipUnits = useMemo(
     () =>
@@ -257,67 +258,71 @@ export default function UnitSidebar() {
     return null;
   }
 
-  const widthClass = "w-[clamp(260px,20vw,320px)]";
+  const widthClass = "w-[clamp(240px,18vw,300px)]";
 
   return (
     <aside
-      className={`hidden lg:flex fixed left-0 top-0 h-full ${widthClass} flex-col gap-6 overflow-y-auto px-5 pb-10 pt-28`}
+      className={`hidden lg:flex fixed left-0 top-0 h-full ${widthClass} flex-col gap-6 overflow-hidden px-5 pb-8 pt-24`}
       aria-label="Panel funkcjonariusza"
     >
       <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-5 shadow-[0_24px_48px_-24px_rgba(59,130,246,0.5)] backdrop-blur">
-        <div className="flex flex-col items-center text-center gap-4">
-          <div className="relative">
-            {photoURL ? (
-              <img
-                src={photoURL}
-                alt={fullName || login || "Profil"}
-                className="h-24 w-24 rounded-2xl object-cover shadow-lg"
-              />
-            ) : (
-              <div className="flex h-24 w-24 items-center justify-center rounded-2xl bg-white/10 text-2xl font-bold text-white/80 shadow-lg">
-                {formatInitials(fullName, login)}
+        <div className="flex flex-col gap-5">
+          <div className="flex items-start gap-4">
+            <div className="flex flex-col items-center gap-3">
+              {photoURL ? (
+                <img
+                  src={photoURL}
+                  alt={fullName || login || "Profil"}
+                  className="h-20 w-20 rounded-2xl object-cover shadow-lg"
+                />
+              ) : (
+                <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-white/10 text-xl font-bold text-white/80 shadow-lg">
+                  {formatInitials(fullName, login)}
+                </div>
+              )}
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/20">
+                <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                {uploadState === "saving" ? "Zapisywanie..." : "Zmień zdjęcie"}
+              </label>
+            </div>
+
+            <div className="flex flex-1 flex-col gap-3 text-left text-sm text-white/80">
+              <div className="space-y-1">
+                <p className="text-lg font-semibold text-white">{fullName || login || "Nieznany funkcjonariusz"}</p>
+                <p className="text-xs uppercase tracking-wide text-white/60">{groupLabel || "Brak grupy"}</p>
+                <p className="text-xs text-white/60">Login: {login || "—"}</p>
+                <p className="text-xs text-white/60">Stopień: {roleLabel}</p>
+                <p className="text-xs text-white/60">Numer odznaki: {badgeNumber ? `#${badgeNumber}` : "Brak"}</p>
+                {highestRanks.length > 0 && (
+                  <p className="text-xs text-white/60">Dodatkowe rangi: {highestRanks.join(", ")}</p>
+                )}
               </div>
-            )}
-            <label className="absolute -bottom-3 left-1/2 flex -translate-x-1/2 cursor-pointer items-center gap-2 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-900 shadow-lg transition hover:bg-white">
-              <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
-              {uploadState === "saving" ? "Zapisywanie..." : "Zmień zdjęcie"}
-            </label>
+
+              <div className="flex flex-wrap gap-2">
+                {membershipUnits.length > 0 ? (
+                  membershipUnits.map((unit) => (
+                    <span
+                      key={unit.value}
+                      className="rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide"
+                      style={{
+                        background: unit.background,
+                        color: unit.color,
+                        borderColor: unit.borderColor,
+                      }}
+                    >
+                      {unit.shortLabel || unit.abbreviation}
+                    </span>
+                  ))
+                ) : (
+                  <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-wide text-white/60">
+                    Brak przypisania do jednostki
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
-          <div className="space-y-1 text-sm text-white/80">
-            <p className="text-lg font-semibold text-white">{fullName || login || "Nieznany funkcjonariusz"}</p>
-            <p className="text-xs uppercase tracking-wide text-white/60">{groupLabel || "Brak grupy"}</p>
-            <p className="text-xs text-white/60">Login: {login || "—"}</p>
-            <p className="text-xs text-white/60">Stopień: {roleLabel}</p>
-            <p className="text-xs text-white/60">Numer odznaki: {badgeNumber ? `#${badgeNumber}` : "Brak"}</p>
-            {highestRanks.length > 0 && (
-              <p className="text-xs text-white/60">Dodatkowe rangi: {highestRanks.join(", ")}</p>
-            )}
-          </div>
-
-          <div className="flex flex-wrap justify-center gap-2">
-            {membershipUnits.length > 0 ? (
-              membershipUnits.map((unit) => (
-                <span
-                  key={unit.value}
-                  className="rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide"
-                  style={{
-                    background: unit.background,
-                    color: unit.color,
-                    borderColor: unit.borderColor,
-                  }}
-                >
-                  {unit.shortLabel || unit.abbreviation}
-                </span>
-              ))
-            ) : (
-              <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-wide text-white/60">
-                Brak przypisania do jednostki
-              </span>
-            )}
-          </div>
-
-          <div className="flex w-full flex-col gap-2">
+          <div className="flex w-full flex-col gap-2 text-left">
             <button
               type="button"
               onClick={handleCreateTicket}
@@ -330,7 +335,7 @@ export default function UnitSidebar() {
               <button
                 type="button"
                 onClick={handleRemovePhoto}
-                className="rounded-full border border-white/20 bg-white/10 px-4 py-1 text-xs font-semibold text-white/80 transition hover:bg-white/20"
+                className="rounded-full border border-white/15 bg-white/10 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-white/75 transition hover:bg-white/20"
                 disabled={uploadState === "removing"}
               >
                 {uploadState === "removing" ? "Usuwanie..." : "Usuń zdjęcie"}
