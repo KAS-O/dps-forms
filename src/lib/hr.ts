@@ -116,7 +116,7 @@ const INTERNAL_UNIT_OPTIONS: InternalUnitOption[] = [
   },
   {
     value: "swat-sert",
-    label: "Special Weapons And Tactics / SERT",
+    label: "Special Weapons and Tactics / Special Emergency Response Team",
     abbreviation: "SWAT / SERT",
     shortLabel: "SWAT / SERT",
     ...UNIT_STYLES["swat-sert"],
@@ -130,7 +130,7 @@ const INTERNAL_UNIT_OPTIONS: InternalUnitOption[] = [
   },
   {
     value: "dtu",
-    label: "Detective Training Unit",
+    label: "Detective Task Unit",
     abbreviation: "DTU",
     shortLabel: "DTU",
     ...UNIT_STYLES.dtu,
@@ -144,7 +144,7 @@ const INTERNAL_UNIT_OPTIONS: InternalUnitOption[] = [
   },
   {
     value: "ftd",
-    label: "Field Training Department",
+    label: "Field Training Division",
     abbreviation: "FTD",
     shortLabel: "FTD",
     ...UNIT_STYLES.ftd,
@@ -303,12 +303,26 @@ export function getInternalUnitOption(value: InternalUnit | string | null | unde
   return INTERNAL_UNIT_MAP.get(key) || null;
 }
 
-export function normalizeAdditionalRank(value: unknown): AdditionalRank | null {
-  if (value == null) return null;
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) return null;
-  return (ADDITIONAL_RANK_OPTIONS.find((option) => option.value === normalized) || null)?.value ?? null;
+export function normalizeAdditionalRanks(value: unknown): AdditionalRank[] {
+  const seen = new Set<AdditionalRank>();
+
+  const addValue = (input: unknown) => {
+    if (typeof input !== "string") return;
+    const normalized = input.trim().toLowerCase();
+    if (!normalized) return;
+    const option = ADDITIONAL_RANK_OPTIONS.find((rank) => rank.value === normalized);
+    if (option) {
+      seen.add(option.value);
+    }
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach(addValue);
+  } else {
+    addValue(value);
+  }
+
+  return Array.from(seen);
 }
 
 export function getAdditionalRankOption(

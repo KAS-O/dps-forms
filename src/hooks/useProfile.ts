@@ -8,11 +8,19 @@ export function useProfile() {
   const [role, setRole] = useState<Role | null>(null);
   const [login, setLogin] = useState<string | null>(null);
   const [fullName, setFullName] = useState<string | null>(null);
+  const [badgeNumber, setBadgeNumber] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const u = auth.currentUser;
-    if (!u) { setReady(true); return; }
+    if (!u) {
+      setRole(null);
+      setLogin(null);
+      setFullName(null);
+      setBadgeNumber(null);
+      setReady(true);
+      return;
+    }
 
     const email = u.email || "";
     const domain = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
@@ -37,13 +45,19 @@ export function useProfile() {
       const d = s.data() || {};
       setRole(normalizeRole(d.role));
       setFullName(d.fullName || userLogin);
+      if (typeof d.badgeNumber === "string") {
+        const trimmed = d.badgeNumber.trim();
+        setBadgeNumber(trimmed ? trimmed : null);
+      } else {
+        setBadgeNumber(null);
+      }
       setReady(true);
     });
 
     return () => unsub();
   }, []);
 
-  return { role, login, fullName, ready };
+  return { role, login, fullName, badgeNumber, ready };
 }
 
 // Uprawnienia

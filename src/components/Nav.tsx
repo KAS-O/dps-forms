@@ -9,10 +9,10 @@ import { useSessionActivity } from "@/components/ActivityLogger";
 import { ROLE_LABELS, hasBoardAccess } from "@/lib/roles";
 
 const NAV_LINKS: { href: string; label: string; color: string }[] = [
-  { href: "/dashboard", label: "Dokumenty", color: "#38bdf8" },
-  { href: "/chain-of-command", label: "Chain of Command", color: "#facc15" },
-  { href: "/dossiers", label: "Teczki", color: "#818cf8" },
-  { href: "/criminal-groups", label: "Grupy przestępcze", color: "#f472b6" },
+  { href: "/dashboard", label: "Dokumenty", color: "#60a5fa" },
+  { href: "/chain-of-command", label: "Chain of Command", color: "#f97316" },
+  { href: "/dossiers", label: "Teczki", color: "#8b5cf6" },
+  { href: "/criminal-groups", label: "Grupy przestępcze", color: "#ec4899" },
   { href: "/vehicle-archive", label: "Archiwum pojazdów", color: "#34d399" },
 ];
 
@@ -45,7 +45,7 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 }
 
 export default function Nav() {
-  const { fullName, role } = useProfile();
+  const { fullName, role, badgeNumber } = useProfile();
   const roleLabel = role ? ROLE_LABELS[role] || role : "";
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
@@ -69,58 +69,63 @@ export default function Nav() {
 
   return (
     <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-[220px]">
-          <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />
-          <span className="font-semibold tracking-wide text-beige-900/90">
-            Los Santos Police Department
-          </span>
-        </div>
-
-        <div className="flex flex-1 flex-wrap items-center justify-end gap-3 text-sm">
-          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
-            {NAV_LINKS.map((link) => {
-              const isActive = router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`nav-pill${isActive ? " nav-pill--active" : ""}`}
-                  style={createNavStyle(link.color, isActive)}
-                >
-                  <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
-                  {link.label}
-                </Link>
-              );
-            })}
-            {can.seeArchive(role) && (
-              <Link
-                href="/archive"
-                className={`nav-pill${archiveActive ? " nav-pill--active" : ""}`}
-                style={createNavStyle("#fbbf24", archiveActive)}
-              >
-                <span className="nav-pill__dot" style={{ background: "#fbbf24" }} aria-hidden />
-                Archiwum
-              </Link>
-            )}
-            {hasBoardAccess(role) && (
-              <Link
-                href="/admin"
-                className={`nav-pill${adminActive ? " nav-pill--active" : ""}`}
-                style={{ ...createNavStyle("#eab308", adminActive), color: "#fefce8" }}
-              >
-                <span className="nav-pill__dot" style={{ background: "#eab308" }} aria-hidden />
-                Panel zarządu
-              </Link>
-            )}
+      <div className="max-w-6xl mx-auto w-full px-4 py-4 flex flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3 min-w-[220px]">
+            <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />
+            <span className="font-semibold tracking-wide text-beige-900/90">
+              Los Santos Police Department
+            </span>
           </div>
-          <div className="flex items-center gap-2 whitespace-nowrap">
+          <div className="flex items-center gap-2 whitespace-nowrap text-sm">
             <span className="px-2 py-1 rounded bg-white/10 text-beige-900">
-              {fullName || "—"}{role ? ` • ${roleLabel}` : ""}
+              {fullName || "—"}
+              {badgeNumber ? ` • #${badgeNumber}` : ""}
+              {role ? ` • ${roleLabel}` : ""}
             </span>
             <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold">
               Wyloguj
             </button>
+          </div>
+        </div>
+        <div className="flex items-center">
+          <div className="flex-1 overflow-x-auto pb-1">
+            <div className="flex min-w-max items-center gap-2 text-sm">
+              {NAV_LINKS.map((link) => {
+                const isActive = router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`nav-pill shrink-0${isActive ? " nav-pill--active" : ""}`}
+                    style={createNavStyle(link.color, isActive)}
+                  >
+                    <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
+                    {link.label}
+                  </Link>
+                );
+              })}
+              {can.seeArchive(role) && (
+                <Link
+                  href="/archive"
+                  className={`nav-pill shrink-0${archiveActive ? " nav-pill--active" : ""}`}
+                  style={createNavStyle("#facc15", archiveActive)}
+                >
+                  <span className="nav-pill__dot" style={{ background: "#facc15" }} aria-hidden />
+                  Archiwum
+                </Link>
+              )}
+              {hasBoardAccess(role) && (
+                <Link
+                  href="/admin"
+                  className={`nav-pill shrink-0${adminActive ? " nav-pill--active" : ""}`}
+                  style={createNavStyle("#0ea5e9", adminActive)}
+                >
+                  <span className="nav-pill__dot" style={{ background: "#0ea5e9" }} aria-hidden />
+                  Panel zarządu
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       </div>
