@@ -10,10 +10,10 @@ import {
   INTERNAL_UNITS,
   getDepartmentOption,
   getInternalUnitOption,
-  getAdditionalRankOption,
+  getAdditionalRankOptions,
   normalizeDepartment,
   normalizeInternalUnits,
-  normalizeAdditionalRank,
+  normalizeAdditionalRanks,
   formatPersonLabel,
   type Department,
   type InternalUnit,
@@ -33,27 +33,39 @@ const ROLE_GROUPS: { id: string; title: string; accent: string; roles: Role[] }[
   },
   {
     id: "command",
-    title: "Komenda główna",
+    title: "High Command",
     accent: "#fb7185",
-    roles: ["chief-of-police", "assistant-chief", "deputy-chief"],
+    roles: [
+      "chief-of-police",
+      "assistant-chief",
+      "deputy-chief",
+      "executive-commander",
+      "staff-commander",
+    ],
   },
   {
     id: "executive",
-    title: "Dowództwo",
+    title: "Command",
     accent: "#38bdf8",
-    roles: ["executive-commander", "staff-commander", "captain-iii", "captain-ii", "captain-i"],
+    roles: ["captain-iii", "captain-ii", "captain-i", "lieutenant-ii", "lieutenant-i"],
   },
   {
     id: "supervisors",
-    title: "Nadzór operacyjny",
+    title: "Supervisors",
     accent: "#22c55e",
-    roles: ["lieutenant-ii", "lieutenant-i", "sergeant-iii", "sergeant-ii", "sergeant-i"],
+    roles: ["sergeant-iii", "sergeant-ii", "sergeant-i"],
   },
   {
     id: "officers",
-    title: "Służba liniowa",
+    title: "Officers",
     accent: "#818cf8",
-    roles: ["officer-iii-plus-i", "officer-iii", "officer-ii", "officer-i", "solo-cadet", "cadet"],
+    roles: ["officer-iii-plus-i", "officer-iii", "officer-ii", "officer-i"],
+  },
+  {
+    id: "trainee",
+    title: "Trainee",
+    accent: "#f59e0b",
+    roles: ["solo-cadet", "cadet"],
   },
   {
     id: "fib",
@@ -92,7 +104,7 @@ type ChainMember = {
   badgeNumber?: string;
   department: Department | null;
   units: InternalUnit[];
-  additionalRank: AdditionalRank | null;
+  additionalRanks: AdditionalRank[];
 };
 
 type RoleEntry = { role: Role; members: ChainMember[] };
@@ -104,7 +116,7 @@ function MemberBadge({ member, highlight }: { member: ChainMember; highlight: bo
   const unitOptions = member.units
     .map((unit) => getInternalUnitOption(unit))
     .filter((option): option is NonNullable<ReturnType<typeof getInternalUnitOption>> => !!option);
-  const additionalRankOption = getAdditionalRankOption(member.additionalRank);
+  const additionalRankOptions = getAdditionalRankOptions(member.additionalRanks);
   const label = formatPersonLabel(member.fullName, member.login);
 
   return (
@@ -146,18 +158,19 @@ function MemberBadge({ member, highlight }: { member: ChainMember; highlight: bo
             {unit.shortLabel || unit.abbreviation}
           </span>
         ))}
-        {additionalRankOption && (
+        {additionalRankOptions.map((rank) => (
           <span
+            key={rank.value}
             className={`${CHIP_CLASS} text-[9px]`}
             style={{
-              background: additionalRankOption.background,
-              color: additionalRankOption.color,
-              borderColor: additionalRankOption.borderColor,
+              background: rank.background,
+              color: rank.color,
+              borderColor: rank.borderColor,
             }}
           >
-            {additionalRankOption.label}
+            {rank.label}
           </span>
-        )}
+        ))}
       </div>
     </div>
   );
@@ -187,7 +200,7 @@ export default function ChainOfCommandPage() {
           const role = normalizeRole(data?.role);
           const department = normalizeDepartment(data?.department);
           const units = normalizeInternalUnits(data?.units);
-          const additionalRank = normalizeAdditionalRank(data?.additionalRank);
+          const additionalRanks = normalizeAdditionalRanks(data?.additionalRanks ?? data?.additionalRank);
           const badge =
             typeof data?.badgeNumber === "string" ? data.badgeNumber.trim() : undefined;
 
@@ -199,7 +212,7 @@ export default function ChainOfCommandPage() {
             badgeNumber: badge,
             department: department ?? null,
             units,
-            additionalRank: additionalRank ?? null,
+            additionalRanks,
           };
         });
 
@@ -306,13 +319,13 @@ export default function ChainOfCommandPage() {
           <div className="card p-6 space-y-6" data-section="chain-of-command">
             <div className="space-y-2">
               <span className="section-chip">
-                <span className="section-chip__dot" style={{ background: "#facc15" }} aria-hidden />
-                Chain of Command
+                <span className="section-chip__dot" style={{ background: "#34d399" }} aria-hidden />
+                Spis Funkcjonariuszy
               </span>
               <div>
-                <h1 className="text-3xl font-bold tracking-tight text-white">Struktura dowodzenia</h1>
+                <h1 className="text-3xl font-bold tracking-tight text-white">Spis Funkcjonariuszy</h1>
                 <p className="text-sm text-white/70">
-                  Aktualna drabina dowodzenia, przypisania departamentów oraz jednostek specjalistycznych.
+                  Aktualna lista funkcjonariuszy wraz z przypisanymi rolami, departamentami i jednostkami specjalistycznymi.
                 </p>
               </div>
             </div>
@@ -457,26 +470,25 @@ export default function ChainOfCommandPage() {
                         {unitMembers.length ? (
                           <ul className="mt-3 space-y-1 text-[13px] text-white/80">
                             {unitMembers.map((member) => {
-                              const rankOption = member.additionalRank
-                                ? getAdditionalRankOption(member.additionalRank)
-                                : null;
+                              const rankOptions = getAdditionalRankOptions(member.additionalRanks);
                               return (
                                 <li key={`${option.value}-${member.uid}`} className="flex flex-wrap items-center gap-2">
                                   <span className="font-medium">
                                     {formatPersonLabel(member.fullName, member.login)}
                                   </span>
-                                  {rankOption && (
+                                  {rankOptions.map((rank) => (
                                     <span
+                                      key={`${option.value}-${member.uid}-${rank.value}`}
                                       className={`${CHIP_CLASS} text-[9px]`}
                                       style={{
-                                        background: rankOption.background,
-                                        color: rankOption.color,
-                                        borderColor: rankOption.borderColor,
+                                        background: rank.background,
+                                        color: rank.color,
+                                        borderColor: rank.borderColor,
                                       }}
                                     >
-                                      {rankOption.label}
+                                      {rank.label}
                                     </span>
-                                  )}
+                                  ))}
                                 </li>
                               );
                             })}

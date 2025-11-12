@@ -10,10 +10,10 @@ import { ROLE_LABELS, hasBoardAccess } from "@/lib/roles";
 
 const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dashboard", label: "Dokumenty", color: "#38bdf8" },
-  { href: "/chain-of-command", label: "Chain of Command", color: "#facc15" },
+  { href: "/chain-of-command", label: "Chain of Command", color: "#34d399" },
   { href: "/dossiers", label: "Teczki", color: "#818cf8" },
   { href: "/criminal-groups", label: "Grupy przestępcze", color: "#f472b6" },
-  { href: "/vehicle-archive", label: "Archiwum pojazdów", color: "#34d399" },
+  { href: "/vehicle-archive", label: "Archiwum pojazdów", color: "#f97316" },
 ];
 
 function withAlpha(hex: string, alpha: number): string {
@@ -45,7 +45,7 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 }
 
 export default function Nav() {
-  const { fullName, role } = useProfile();
+  const { fullName, role, badgeNumber } = useProfile();
   const roleLabel = role ? ROLE_LABELS[role] || role : "";
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
@@ -69,7 +69,7 @@ export default function Nav() {
 
   return (
     <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+      <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-3 min-w-[220px]">
           <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />
           <span className="font-semibold tracking-wide text-beige-900/90">
@@ -77,46 +77,51 @@ export default function Nav() {
           </span>
         </div>
 
-        <div className="flex flex-1 flex-wrap items-center justify-end gap-3 text-sm">
-          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
-            {NAV_LINKS.map((link) => {
-              const isActive = router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
-              return (
+        <div className="flex w-full flex-col gap-3 text-sm lg:flex-row lg:items-center lg:justify-end">
+          <div className="order-1 -mx-1 overflow-x-auto lg:order-1 lg:mx-0">
+            <div className="flex w-full flex-nowrap items-center justify-end gap-2 px-1 sm:gap-3">
+              {NAV_LINKS.map((link) => {
+                const isActive = router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`nav-pill${isActive ? " nav-pill--active" : ""} flex-shrink-0`}
+                    style={createNavStyle(link.color, isActive)}
+                  >
+                    <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
+                    {link.label}
+                  </Link>
+                );
+              })}
+              {can.seeArchive(role) && (
                 <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`nav-pill${isActive ? " nav-pill--active" : ""}`}
-                  style={createNavStyle(link.color, isActive)}
+                  href="/archive"
+                  className={`nav-pill${archiveActive ? " nav-pill--active" : ""} flex-shrink-0`}
+                  style={createNavStyle("#facc15", archiveActive)}
                 >
-                  <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
-                  {link.label}
+                  <span className="nav-pill__dot" style={{ background: "#facc15" }} aria-hidden />
+                  Archiwum
                 </Link>
-              );
-            })}
-            {can.seeArchive(role) && (
-              <Link
-                href="/archive"
-                className={`nav-pill${archiveActive ? " nav-pill--active" : ""}`}
-                style={createNavStyle("#fbbf24", archiveActive)}
-              >
-                <span className="nav-pill__dot" style={{ background: "#fbbf24" }} aria-hidden />
-                Archiwum
-              </Link>
-            )}
-            {hasBoardAccess(role) && (
-              <Link
-                href="/admin"
-                className={`nav-pill${adminActive ? " nav-pill--active" : ""}`}
-                style={{ ...createNavStyle("#eab308", adminActive), color: "#fefce8" }}
-              >
-                <span className="nav-pill__dot" style={{ background: "#eab308" }} aria-hidden />
-                Panel zarządu
-              </Link>
-            )}
+              )}
+              {hasBoardAccess(role) && (
+                <Link
+                  href="/admin"
+                  className={`nav-pill${adminActive ? " nav-pill--active" : ""} flex-shrink-0`}
+                  style={{ ...createNavStyle("#a855f7", adminActive), color: "#fdf4ff" }}
+                >
+                  <span className="nav-pill__dot" style={{ background: "#a855f7" }} aria-hidden />
+                  Panel zarządu
+                </Link>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2 whitespace-nowrap">
+
+          <div className="order-2 flex items-center gap-2 self-end whitespace-nowrap lg:order-2">
             <span className="px-2 py-1 rounded bg-white/10 text-beige-900">
-              {fullName || "—"}{role ? ` • ${roleLabel}` : ""}
+              {fullName || "—"}
+              {badgeNumber ? ` • #${badgeNumber}` : ""}
+              {role ? ` • ${roleLabel}` : ""}
             </span>
             <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold">
               Wyloguj
