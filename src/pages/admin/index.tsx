@@ -3,7 +3,7 @@ import Nav from "@/components/Nav";
 import AuthGate from "@/components/AuthGate";
 import { useProfile, Role } from "@/hooks/useProfile";
 import { useLogWriter } from "@/hooks/useLogWriter";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   addDoc,
   collection,
@@ -22,6 +22,7 @@ import {
   orderBy,
   limit,
   startAfter,
+  deleteDoc,
   onSnapshot,
   QueryConstraint,
   QueryDocumentSnapshot,
@@ -48,7 +49,7 @@ import {
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
-type AdminSection = "overview" | "hr" | "announcements" | "logs" | "tickets";
+type AdminSection = "overview" | "hr" | "gu" | "announcements" | "logs" | "tickets";
 
 type Account = {
   uid: string;
@@ -76,6 +77,34 @@ type TicketRecord = {
   authorRoleGroup?: string | null;
   authorUnits: InternalUnit[];
   authorRanks: AdditionalRank[];
+  archivedAt?: Date | null;
+  archivedBy?: string | null;
+  archivedByUid?: string | null;
+};
+
+type TicketActionStatus = "archiving" | "deleting";
+
+type CriminalGroupRecord = {
+  id: string;
+  title?: string;
+  group?: {
+    name?: string;
+    colorName?: string;
+    colorHex?: string;
+    organizationType?: string;
+    base?: string;
+    operations?: string;
+  } | null;
+};
+
+type NewCriminalGroupInput = {
+  name: string;
+  title: string;
+  colorName: string;
+  colorHex: string;
+  organizationType: string;
+  base: string;
+  operations: string;
 };
 
 const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
@@ -201,6 +230,77 @@ const ACTION_OPTIONS = [
     .sort((a, b) => a.label.localeCompare(b.label, "pl", { sensitivity: "base" })),
 ];
 
+const ADMIN_SECTION_ORDER: AdminSection[] = [
+  "overview",
+  "hr",
+  "gu",
+  "announcements",
+  "tickets",
+  "logs",
+];
+
+const ADMIN_SECTION_META: Record<
+  AdminSection,
+  { label: string; description: string; icon: string; accent: string }
+> = {
+  overview: {
+    label: "Podsumowanie",
+    description: "Statystyki i finanse",
+    icon: "📊",
+    accent: "#38bdf8",
+  },
+  hr: {
+    label: "Dział Kadr",
+    description: "Kontrola kont i rang",
+    icon: "🛡️",
+    accent: "#6366f1",
+  },
+  gu: {
+    label: "Gang Unit",
+    description: "Grupy przestępcze",
+    icon: "🕶️",
+    accent: "#f472b6",
+  },
+  announcements: {
+    label: "Ogłoszenia",
+    description: "Komunikaty dla funkcjonariuszy",
+    icon: "📣",
+    accent: "#f59e0b",
+  },
+  tickets: {
+    label: "Tickety",
+    description: "Zgłoszenia od funkcjonariuszy",
+    icon: "🎟️",
+    accent: "#34d399",
+  },
+  logs: {
+    label: "Logi",
+    description: "Aktywność kont",
+    icon: "🗂️",
+    accent: "#38bdf8",
+  },
+};
+
+const parseFirestoreDate = (value: any): Date | null => {
+  if (!value) return null;
+  if (value?.toDate && typeof value.toDate === "function") {
+    try {
+      return value.toDate();
+    } catch (error) {
+      return null;
+    }
+  }
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : new Date(parsed);
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(value);
+  }
+  return null;
+};
+
 const INITIAL_LOG_FILTERS = { actorUid: "", section: "", action: "", from: "", to: "" };
 
 async function readErrorResponse(res: Response, fallback: string) {
@@ -229,11 +329,13 @@ async function readErrorResponse(res: Response, fallback: string) {
 
 
 export default function Admin() {
-  const { role, login, fullName, ready } = useProfile();
+  const { role, login, fullName, badgeNumber, ready } = useProfile();
   const { writeLog } = useLogWriter();
   const { confirm, prompt, alert } = useDialog();
   const { announcement } = useAnnouncement();
   const loginDomain = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
+  const displayLogin = login || "—";
+  const displayName = fullName || login || "Nieznany funkcjonariusz";
 
   const [range, setRange] = useState<Range>("all");
   const [err, setErr] = useState<string | null>(null);
@@ -283,6 +385,33 @@ export default function Admin() {
   const [tickets, setTickets] = useState<TicketRecord[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(true);
   const [ticketsError, setTicketsError] = useState<string | null>(null);
+  const [ticketArchive, setTicketArchive] = useState<TicketRecord[]>([]);
+  const [ticketArchiveLoading, setTicketArchiveLoading] = useState(true);
+  const [ticketArchiveError, setTicketArchiveError] = useState<string | null>(null);
+  const [ticketView, setTicketView] = useState<"active" | "archived">("active");
+  const [ticketActionStatus, setTicketActionStatus] = useState<Record<string, TicketActionStatus>>({});
+  const [criminalGroups, setCriminalGroups] = useState<CriminalGroupRecord[]>([]);
+  const [criminalGroupsLoading, setCriminalGroupsLoading] = useState(true);
+  const [criminalGroupsError, setCriminalGroupsError] = useState<string | null>(null);
+  const [groupForm, setGroupForm] = useState<NewCriminalGroupInput>({
+    name: "",
+    title: "",
+    colorName: "",
+    colorHex: "#7c3aed",
+    organizationType: "",
+    base: "",
+    operations: "",
+  });
+  const [groupSaving, setGroupSaving] = useState(false);
+  const [groupFormError, setGroupFormError] = useState<string | null>(null);
+
+  const sortedCriminalGroups = useMemo(() => {
+    return [...criminalGroups].sort((a, b) => {
+      const nameA = a.group?.name || a.title || "";
+      const nameB = b.group?.name || b.title || "";
+      return nameA.localeCompare(nameB, "pl", { sensitivity: "base" });
+    });
+  }, [criminalGroups]);
   const rangeLabel = useMemo(() => {
     switch (range) {
       case "30":
@@ -293,6 +422,10 @@ export default function Admin() {
         return "Od początku";
     }
   }, [range]);
+  const viewingArchive = ticketView === "archived";
+  const displayedTickets = viewingArchive ? ticketArchive : tickets;
+  const displayedTicketLoading = viewingArchive ? ticketArchiveLoading : ticketsLoading;
+  const displayedTicketError = viewingArchive ? ticketArchiveError : ticketsError;
 
   const buildLogsQuery = useCallback(
     (cursor: QueryDocumentSnapshot | null) => {
@@ -344,21 +477,7 @@ export default function Admin() {
       (snapshot) => {
         const records: TicketRecord[] = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
-          const rawCreatedAt = data?.createdAt;
-          let createdAt: Date | null = null;
-          if (rawCreatedAt?.toDate && typeof rawCreatedAt.toDate === "function") {
-            try {
-              createdAt = rawCreatedAt.toDate();
-            } catch (error) {
-              createdAt = null;
-            }
-          } else if (rawCreatedAt instanceof Date) {
-            createdAt = rawCreatedAt;
-          } else if (typeof rawCreatedAt === "string") {
-            const parsed = Date.parse(rawCreatedAt);
-            createdAt = Number.isNaN(parsed) ? null : new Date(parsed);
-          }
-
+          const createdAt = parseFirestoreDate(data?.createdAt);
           const authorUnits = normalizeInternalUnits(data?.authorUnits);
           const authorRanks = normalizeAdditionalRanks(data?.authorRanks ?? data?.authorRank);
           const authorLogin = typeof data?.authorLogin === "string" ? data.authorLogin.trim() : "";
@@ -399,6 +518,241 @@ export default function Admin() {
 
     return () => unsubscribe();
   }, [role]);
+
+  useEffect(() => {
+    if (!hasBoardAccess(role)) {
+      setTicketArchive([]);
+      setTicketArchiveLoading(false);
+      setTicketArchiveError(null);
+      return;
+    }
+
+    setTicketArchiveLoading(true);
+    const archiveQuery = query(collection(db, "ticketsArchive"), orderBy("archivedAt", "desc"));
+    const unsubscribe = onSnapshot(
+      archiveQuery,
+      (snapshot) => {
+        const records: TicketRecord[] = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          const createdAt = parseFirestoreDate(data?.createdAt);
+          const archivedAt = parseFirestoreDate(data?.archivedAt);
+          const authorUnits = normalizeInternalUnits(data?.authorUnits);
+          const authorRanks = normalizeAdditionalRanks(data?.authorRanks ?? data?.authorRank);
+          const authorLogin = typeof data?.authorLogin === "string" ? data.authorLogin.trim() : "";
+          const authorFullName = typeof data?.authorFullName === "string" ? data.authorFullName.trim() : "";
+          const authorName =
+            authorFullName ||
+            authorLogin ||
+            (typeof data?.authorUid === "string" ? data.authorUid : "Nieznany funkcjonariusz");
+          const badgeNumber = typeof data?.authorBadgeNumber === "string" ? data.authorBadgeNumber.trim() : null;
+          const roleLabel = typeof data?.authorRoleLabel === "string" ? data.authorRoleLabel.trim() : null;
+          const roleGroup = typeof data?.authorRoleGroup === "string" ? data.authorRoleGroup.trim() : null;
+          const message = typeof data?.message === "string" ? data.message.trim() : "";
+          const archivedBy = typeof data?.archivedBy === "string" ? data.archivedBy.trim() : null;
+          const archivedByUid = typeof data?.archivedByUid === "string" ? data.archivedByUid : null;
+
+          return {
+            id: docSnap.id,
+            message,
+            createdAt,
+            authorUid: typeof data?.authorUid === "string" ? data.authorUid : null,
+            authorName,
+            authorLogin,
+            authorBadgeNumber: badgeNumber,
+            authorRoleLabel: roleLabel,
+            authorRoleGroup: roleGroup,
+            authorUnits,
+            authorRanks,
+            archivedAt,
+            archivedBy,
+            archivedByUid,
+          };
+        });
+        setTicketArchive(records);
+        setTicketArchiveError(null);
+        setTicketArchiveLoading(false);
+      },
+      (error) => {
+        console.error("Nie udało się pobrać archiwum ticketów", error);
+        setTicketArchiveError("Nie udało się wczytać archiwum ticketów. Spróbuj ponownie później.");
+        setTicketArchiveLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [role]);
+
+  useEffect(() => {
+    if (!hasBoardAccess(role)) {
+      setCriminalGroups([]);
+      setCriminalGroupsLoading(false);
+      setCriminalGroupsError(null);
+      return;
+    }
+
+    setCriminalGroupsLoading(true);
+    const groupsQuery = query(collection(db, "dossiers"), where("category", "==", "criminal-group"));
+    const unsubscribe = onSnapshot(
+      groupsQuery,
+      (snapshot) => {
+        setCriminalGroups(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) })));
+        setCriminalGroupsError(null);
+        setCriminalGroupsLoading(false);
+      },
+      (error) => {
+        console.error("Nie udało się pobrać grup przestępczych", error);
+        setCriminalGroupsError("Nie udało się wczytać grup przestępczych. Spróbuj ponownie później.");
+        setCriminalGroupsLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [role]);
+
+  const updateTicketActionStatus = useCallback((id: string, status: TicketActionStatus | null) => {
+    setTicketActionStatus((prev) => {
+      const next = { ...prev };
+      if (!status) {
+        delete next[id];
+      } else {
+        next[id] = status;
+      }
+      return next;
+    });
+  }, []);
+
+  const archiveTicket = useCallback(
+    async (ticket: TicketRecord) => {
+      const ok = await confirm({
+        title: "Przenieś ticket do archiwum",
+        message:
+          "Czy na pewno chcesz przenieść zgłoszenie do archiwum? Zniknie ono z listy aktywnych ticketów.",
+        confirmLabel: "Archiwizuj",
+      });
+      if (!ok) return;
+
+      try {
+        updateTicketActionStatus(ticket.id, "archiving");
+        setErr(null);
+        const user = auth.currentUser;
+        const ticketRef = doc(db, "tickets", ticket.id);
+        const snap = await getDoc(ticketRef);
+        if (!snap.exists()) {
+          throw new Error("Wybrany ticket nie istnieje lub został już przeniesiony.");
+        }
+        const data = snap.data();
+        const archivedByName = fullName || login || user?.email || "";
+
+        await setDoc(doc(db, "ticketsArchive", ticket.id), {
+          ...data,
+          archivedAt: serverTimestamp(),
+          archivedBy: archivedByName,
+          archivedByUid: user?.uid || "",
+        });
+
+        await deleteDoc(ticketRef);
+      } catch (e: any) {
+        console.error(e);
+        setErr(e?.message || "Nie udało się zarchiwizować ticketu.");
+      } finally {
+        updateTicketActionStatus(ticket.id, null);
+      }
+    },
+    [confirm, fullName, login, updateTicketActionStatus]
+  );
+
+  const removeTicket = useCallback(
+    async (ticket: TicketRecord, scope: "active" | "archived") => {
+      const ok = await confirm({
+        title: scope === "archived" ? "Usuń ticket z archiwum" : "Usuń ticket",
+        message:
+          scope === "archived"
+            ? "Czy na pewno chcesz trwale usunąć zarchiwizowane zgłoszenie?"
+            : "Czy na pewno chcesz usunąć zgłoszenie? Operacja jest nieodwracalna.",
+        confirmLabel: "Usuń",
+        tone: "danger",
+      });
+      if (!ok) return;
+
+      try {
+        updateTicketActionStatus(ticket.id, "deleting");
+        setErr(null);
+        const collectionName = scope === "archived" ? "ticketsArchive" : "tickets";
+        await deleteDoc(doc(db, collectionName, ticket.id));
+      } catch (e: any) {
+        console.error(e);
+        setErr(e?.message || "Nie udało się usunąć ticketu.");
+      } finally {
+        updateTicketActionStatus(ticket.id, null);
+      }
+    },
+    [confirm, updateTicketActionStatus]
+  );
+
+  const handleGroupSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (groupSaving) return;
+
+      const name = groupForm.name.trim();
+      const title = groupForm.title.trim();
+      const colorName = groupForm.colorName.trim();
+      const rawColorHex = groupForm.colorHex.trim();
+      const colorHex = rawColorHex.startsWith("#") ? rawColorHex : `#${rawColorHex}`;
+      const organizationType = groupForm.organizationType.trim();
+      const base = groupForm.base.trim();
+      const operations = groupForm.operations.trim();
+
+      if (!name) {
+        setGroupFormError("Podaj nazwę grupy.");
+        return;
+      }
+
+      if (!/^#[0-9a-fA-F]{6}$/.test(colorHex)) {
+        setGroupFormError("Kolor (HEX) musi mieć format #RRGGBB.");
+        return;
+      }
+
+      setGroupFormError(null);
+      setGroupSaving(true);
+
+      try {
+        const user = auth.currentUser;
+        const groupRef = doc(collection(db, "dossiers"));
+        await setDoc(groupRef, {
+          title: title || `Organizacja ${name}`,
+          category: "criminal-group",
+          group: {
+            name,
+            colorName,
+            colorHex,
+            organizationType,
+            base,
+            operations,
+          },
+          createdAt: serverTimestamp(),
+          createdBy: user?.email || "",
+          createdByUid: user?.uid || "",
+        });
+
+        setGroupForm({
+          name: "",
+          title: "",
+          colorName: "",
+          colorHex,
+          organizationType: "",
+          base: "",
+          operations: "",
+        });
+      } catch (e: any) {
+        console.error(e);
+        setGroupFormError(e?.message || "Nie udało się utworzyć grupy.");
+      } finally {
+        setGroupSaving(false);
+      }
+    },
+    [groupForm, groupSaving]
+  );
 
   useEffect(() => {
     if (!hasBoardAccess(role)) {
@@ -940,13 +1294,6 @@ export default function Admin() {
     }
   };
 
-  const sectionButtonClass = (value: AdminSection) =>
-    `rounded-2xl px-4 py-3 text-left transition border ${
-      section === value
-        ? "bg-white/20 border-white/50 shadow-[0_0_18px_rgba(59,130,246,0.45)]"
-        : "bg-white/5 border-white/10 hover:bg-white/15"
-    }`;
-
   const getLogTimestampMs = (log: any): number | null => {
     const raw = log?.ts || log?.createdAt;
     if (raw?.toDate && typeof raw.toDate === "function") {
@@ -1448,35 +1795,76 @@ export default function Admin() {
       <div className="max-w-7xl mx-auto px-4 py-6 grid gap-5">
         {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold">Panel zarządu</h1>
-          <span className="text-sm text-beige-700">Zalogowany: {fullName || login} ({login})</span>
+        <div className="rounded-3xl border border-white/60 bg-white/70 px-6 py-6 shadow-sm backdrop-blur">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div className="space-y-2">
+              <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                Command Center
+              </span>
+              <h1 className="text-3xl font-semibold text-slate-900">Panel zarządu</h1>
+              <p className="max-w-2xl text-sm text-slate-600">
+                Kompleksowe narzędzia do pracy zarządu — zarządzaj finansami, personelem, zgłoszeniami oraz działaniami
+                wyspecjalizowanych jednostek w jednym miejscu.
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
-          <aside className="card bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900 text-white p-5 shadow-xl">
-            <h2 className="text-lg font-semibold mb-4">Sekcje</h2>
-            <div className="grid gap-2 text-sm">
-              <button type="button" className={sectionButtonClass("overview")} onClick={() => setSection("overview")}>
-                <span className="text-base font-semibold">Podsumowanie</span>
-                <span className="block text-xs text-white/70">Statystyki i finanse</span>
-              </button>
-              <button type="button" className={sectionButtonClass("hr")} onClick={() => setSection("hr")}>
-                <span className="text-base font-semibold">Dział Kadr</span>
-                <span className="block text-xs text-white/70">Kontrola kont i rang</span>
-              </button>
-              <button type="button" className={sectionButtonClass("announcements")} onClick={() => setSection("announcements")}>
-                <span className="text-base font-semibold">Ogłoszenia</span>
-                <span className="block text-xs text-white/70">Komunikaty dla funkcjonariuszy</span>
-              </button>
-              <button type="button" className={sectionButtonClass("tickets")} onClick={() => setSection("tickets")}>
-                <span className="text-base font-semibold">Tickety</span>
-                <span className="block text-xs text-white/70">Zgłoszenia od funkcjonariuszy</span>
-              </button>
-              <button type="button" className={sectionButtonClass("logs")} onClick={() => setSection("logs")}>
-                <span className="text-base font-semibold">Logi</span>
-                <span className="block text-xs text-white/70">Aktywność kont</span>
-              </button>
+        <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+          <aside className="rounded-3xl border border-white/20 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-6 text-white shadow-xl">
+            <div className="flex flex-col gap-6">
+              <div className="rounded-2xl border border-white/15 bg-white/5 p-4 shadow-inner">
+                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Twoje konto</span>
+                <div className="mt-2 text-lg font-semibold tracking-tight text-white">{displayName}</div>
+                <div className="text-sm text-white/70">
+                  Login: <span className="font-mono">{displayLogin}</span>
+                </div>
+                {badgeNumber && (
+                  <div className="text-xs text-white/60">Odznaka: <span className="font-semibold text-white/80">#{badgeNumber}</span></div>
+                )}
+              </div>
+
+              <nav className="grid gap-3">
+                {ADMIN_SECTION_ORDER.map((value) => {
+                  const meta = ADMIN_SECTION_META[value];
+                  const active = section === value;
+                  const accent = meta.accent;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setSection(value)}
+                      className={`group relative overflow-hidden rounded-2xl border px-5 py-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
+                        active ? "border-white/40 bg-white/15 shadow-[0_24px_60px_-28px_rgba(59,130,246,0.8)]" : "border-white/10 bg-white/5 hover:bg-white/10"
+                      }`}
+                      style={{ borderColor: active ? `${accent}aa` : undefined }}
+                    >
+                      <span
+                        className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-40"
+                        style={{ background: `radial-gradient(circle at 15% 15%, ${accent}33, transparent 60%)` }}
+                      />
+                      <div className="relative flex items-start gap-3">
+                        <span className="text-2xl" aria-hidden>
+                          {meta.icon}
+                        </span>
+                        <div>
+                          <div className="text-base font-semibold tracking-tight text-white">{meta.label}</div>
+                          <div className="text-xs text-white/70">{meta.description}</div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </nav>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-white/70">
+                <div className="font-semibold text-white/80">Domena logowania</div>
+                <div className="font-mono text-sm text-white/80">@{loginDomain}</div>
+                <p className="mt-2 leading-relaxed">
+                  Pamiętaj o ochronie danych. Panel nie posiada własnego resetu hasła — korzystaj z konsoli Firebase w razie
+                  potrzeby.
+                </p>
+              </div>
             </div>
           </aside>
 
@@ -1737,6 +2125,179 @@ export default function Admin() {
               </div>
             )}
 
+            {section === "gu" && (
+              <div className="grid gap-6">
+                <div className="card bg-gradient-to-br from-fuchsia-900/85 via-indigo-900/80 to-slate-900/85 p-6 text-white shadow-xl">
+                  <h2 className="text-xl font-semibold">Gang Unit — rejestr organizacji</h2>
+                  <p className="text-sm text-white/70">
+                    Zarządzaj profilem grup przestępczych obserwowanych przez GU. Dodaj nowe wpisy, aktualizuj informacje operacyjne i kieruj funkcjonariuszy do odpowiednich kart.
+                  </p>
+                </div>
+
+                <form className="card bg-white/95 p-6 shadow" onSubmit={handleGroupSubmit}>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="grid gap-1 text-sm">
+                      <span className="font-semibold text-slate-700">Nazwa grupy *</span>
+                      <input
+                        className="input bg-white"
+                        value={groupForm.name}
+                        onChange={(e) => setGroupForm((prev) => ({ ...prev, name: e.target.value }))}
+                        placeholder="np. Vagos"
+                        required
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm">
+                      <span className="font-semibold text-slate-700">Tytuł (opcjonalnie)</span>
+                      <input
+                        className="input bg-white"
+                        value={groupForm.title}
+                        onChange={(e) => setGroupForm((prev) => ({ ...prev, title: e.target.value }))}
+                        placeholder="np. Organizacja Vagos"
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm">
+                      <span className="font-semibold text-slate-700">Kolor — nazwa</span>
+                      <input
+                        className="input bg-white"
+                        value={groupForm.colorName}
+                        onChange={(e) => setGroupForm((prev) => ({ ...prev, colorName: e.target.value }))}
+                        placeholder="np. Żółta"
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm">
+                      <span className="font-semibold text-slate-700">Kolor — HEX *</span>
+                      <div className="flex items-center gap-3">
+                        <input
+                          className="input bg-white"
+                          value={groupForm.colorHex}
+                          onChange={(e) => setGroupForm((prev) => ({ ...prev, colorHex: e.target.value }))}
+                          placeholder="#7c3aed"
+                          pattern="#?[0-9a-fA-F]{6}"
+                          required
+                        />
+                        <span
+                          className="h-10 w-10 rounded-full border border-slate-300"
+                          style={{ background: /^#?[0-9a-fA-F]{6}$/i.test(groupForm.colorHex.trim()) ? (groupForm.colorHex.startsWith("#") ? groupForm.colorHex : `#${groupForm.colorHex}`) : "#7c3aed" }}
+                        />
+                      </div>
+                    </label>
+                    <label className="grid gap-1 text-sm">
+                      <span className="font-semibold text-slate-700">Rodzaj organizacji</span>
+                      <input
+                        className="input bg-white"
+                        value={groupForm.organizationType}
+                        onChange={(e) => setGroupForm((prev) => ({ ...prev, organizationType: e.target.value }))}
+                        placeholder="np. Gang uliczny"
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm">
+                      <span className="font-semibold text-slate-700">Baza operacyjna</span>
+                      <input
+                        className="input bg-white"
+                        value={groupForm.base}
+                        onChange={(e) => setGroupForm((prev) => ({ ...prev, base: e.target.value }))}
+                        placeholder="np. Grove Street"
+                      />
+                    </label>
+                  </div>
+                  <label className="mt-4 grid gap-1 text-sm">
+                    <span className="font-semibold text-slate-700">Zakres działalności</span>
+                    <textarea
+                      className="input min-h-[120px] bg-white"
+                      value={groupForm.operations}
+                      onChange={(e) => setGroupForm((prev) => ({ ...prev, operations: e.target.value }))}
+                      placeholder="Opis działań, np. handel narkotykami, bronią, napady"
+                    />
+                  </label>
+                  {groupFormError && (
+                    <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+                      {groupFormError}
+                    </div>
+                  )}
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <span className="text-xs text-slate-500">Pola oznaczone * są wymagane.</span>
+                    <button
+                      type="submit"
+                      className="btn bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-60"
+                      disabled={groupSaving}
+                    >
+                      {groupSaving ? "Zapisywanie..." : "Dodaj grupę"}
+                    </button>
+                  </div>
+                </form>
+
+                {criminalGroupsError && (
+                  <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                    {criminalGroupsError}
+                  </div>
+                )}
+
+                {criminalGroupsLoading ? (
+                  <div className="card bg-white/10 p-5 text-sm text-white/70">Wczytywanie profili grup...</div>
+                ) : sortedCriminalGroups.length === 0 ? (
+                  <div className="card bg-white/10 p-5 text-sm text-white/70">
+                    Brak zapisanych grup przestępczych. Dodaj pierwszą organizację, aby rozpocząć ewidencję.
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {sortedCriminalGroups.map((group) => {
+                      const rawColor = group.group?.colorHex || "#7c3aed";
+                      const normalizedColor = /^#?[0-9a-fA-F]{6}$/i.test(rawColor)
+                        ? rawColor.startsWith("#")
+                          ? rawColor
+                          : `#${rawColor}`
+                        : "#7c3aed";
+                      const gradient = `linear-gradient(135deg, ${normalizedColor}33, rgba(15, 23, 42, 0.92))`;
+                      const organizationName = group.group?.name || group.title || group.id;
+                      return (
+                        <div
+                          key={group.id}
+                          className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-5 text-white shadow-lg"
+                          style={{ background: gradient }}
+                        >
+                          <span
+                            className="pointer-events-none absolute inset-0 opacity-40"
+                            style={{ background: `radial-gradient(circle at 20% 20%, ${normalizedColor}33, transparent 65%)` }}
+                          />
+                          <div className="relative flex flex-col gap-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <h3 className="text-xl font-semibold tracking-tight">{organizationName}</h3>
+                                <p className="text-xs uppercase tracking-[0.3em] text-white/70">
+                                  Kolorystyka: {group.group?.colorName || "—"}
+                                </p>
+                              </div>
+                              <span className="rounded-full border border-white/30 bg-black/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide">
+                                {group.group?.organizationType || "Nieokreślono"}
+                              </span>
+                            </div>
+                            <div className="grid gap-2 text-sm text-white/85">
+                              <div className="flex items-center gap-2">
+                                <span aria-hidden>📍</span>
+                                <span>Baza: {group.group?.base || "—"}</span>
+                              </div>
+                              {group.group?.operations && (
+                                <div className="flex items-start gap-2">
+                                  <span aria-hidden>⚔️</span>
+                                  <span className="leading-relaxed">Zakres działalności: {group.group.operations}</span>
+                                </div>
+                              )}
+                            </div>
+                            <a
+                              href={`/criminal-groups/${group.id}`}
+                              className="mt-2 inline-flex w-max items-center gap-2 rounded-full border border-white/40 bg-white/15 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-white transition hover:bg-white/25"
+                            >
+                              Otwórz kartę
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {section === "announcements" && (
               <div className="grid gap-5">
                 <div className="card bg-gradient-to-br from-purple-900/85 via-indigo-900/80 to-blue-900/80 text-white p-6 shadow-xl">
@@ -1806,37 +2367,73 @@ export default function Admin() {
             {section === "tickets" && (
               <div className="grid gap-5">
                 <div className="card bg-gradient-to-br from-emerald-900/80 via-slate-900/80 to-slate-950/85 p-6 text-white shadow-xl">
-                  <h2 className="text-xl font-semibold">Zgłoszenia od funkcjonariuszy</h2>
-                  <p className="text-sm text-white/70">
-                    Lista ticketów przesłanych do zarządu. Zawiera dane autora, przypisania jednostek oraz opis zgłoszenia.
-                  </p>
-                  <p className="mt-2 text-xs text-white/60">
-                    Tickety są sortowane od najnowszych. Po obsłużeniu zgłoszenia możesz je zarchiwizować w bazie, aby
-                    utrzymać porządek na liście.
-                  </p>
+                  <div className="space-y-4">
+                    <div>
+                      <h2 className="text-xl font-semibold">Zgłoszenia od funkcjonariuszy</h2>
+                      <p className="text-sm text-white/70">
+                        Przeglądaj zgłoszenia kierowane do zarządu, reaguj na problemy i przenoś obsłużone tickety do archiwum.
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-3 rounded-2xl border border-white/15 bg-white/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="inline-flex rounded-full bg-white/10 p-1 text-xs sm:text-sm">
+                        <button
+                          type="button"
+                          onClick={() => setTicketView("active")}
+                          className={`rounded-full px-4 py-1.5 font-semibold transition ${
+                            viewingArchive
+                              ? "text-white/70 hover:text-white"
+                              : "bg-white text-slate-900 shadow"
+                          }`}
+                        >
+                          Aktywne tickety
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTicketView("archived")}
+                          className={`rounded-full px-4 py-1.5 font-semibold transition ${
+                            viewingArchive
+                              ? "bg-white text-slate-900 shadow"
+                              : "text-white/70 hover:text-white"
+                          }`}
+                        >
+                          Archiwum Ticketów
+                        </button>
+                      </div>
+                      <div className="text-xs text-white/60 sm:text-right">
+                        {viewingArchive
+                          ? "W archiwum znajdują się zgłoszenia przeniesione po obsłudze."
+                          : "Po rozwiązaniu problemu zarchiwizuj lub usuń ticket, aby utrzymać porządek."}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {ticketsError && (
+                {displayedTicketError && (
                   <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-                    {ticketsError}
+                    {displayedTicketError}
                   </div>
                 )}
 
-                {ticketsLoading ? (
+                {displayedTicketLoading ? (
                   <div className="card bg-white/10 p-5 text-sm text-white/70">Wczytywanie ticketów...</div>
-                ) : tickets.length === 0 ? (
+                ) : displayedTickets.length === 0 ? (
                   <div className="card bg-white/10 p-5 text-sm text-white/70">
-                    Brak aktywnych ticketów. Wszystkie zgłoszenia zostały obsłużone.
+                    {viewingArchive
+                      ? "Archiwum ticketów jest puste. Zarchiwizowane zgłoszenia pojawią się tutaj."
+                      : "Brak aktywnych ticketów. Wszystkie zgłoszenia zostały obsłużone."}
                   </div>
                 ) : (
                   <div className="grid gap-4">
-                    {tickets.map((ticket) => {
+                    {displayedTickets.map((ticket) => {
                       const unitOptions = ticket.authorUnits
                         .map((unit) => getInternalUnitOption(unit))
                         .filter((option): option is NonNullable<ReturnType<typeof getInternalUnitOption>> => !!option);
                       const rankOptions = ticket.authorRanks
                         .map((rank) => getAdditionalRankOption(rank))
                         .filter((option): option is NonNullable<ReturnType<typeof getAdditionalRankOption>> => !!option);
+                      const actionState = ticketActionStatus[ticket.id];
+                      const archiving = actionState === "archiving";
+                      const deleting = actionState === "deleting";
 
                       return (
                         <div
@@ -1855,8 +2452,24 @@ export default function Admin() {
                                 {ticket.authorRoleGroup ? ` • ${ticket.authorRoleGroup}` : ""}
                               </div>
                             </div>
-                            <div className="text-xs font-mono uppercase tracking-wide text-white/50">
-                              {ticket.createdAt ? ticket.createdAt.toLocaleString("pl-PL") : "Brak daty"}
+                            <div className="flex flex-col items-start gap-1 text-xs text-white/60 md:items-end">
+                              <span className="font-mono uppercase tracking-wide text-white/50">
+                                {ticket.createdAt
+                                  ? `Zgłoszono: ${ticket.createdAt.toLocaleString("pl-PL")}`
+                                  : "Brak daty zgłoszenia"}
+                              </span>
+                              {viewingArchive && (
+                                <>
+                                  <span className="font-mono uppercase tracking-wide text-white/50">
+                                    {ticket.archivedAt
+                                      ? `Zarchiwizowano: ${ticket.archivedAt.toLocaleString("pl-PL")}`
+                                      : "Zarchiwizowano: —"}
+                                  </span>
+                                  {ticket.archivedBy && (
+                                    <span>Przeniósł: {ticket.archivedBy}</span>
+                                  )}
+                                </>
+                              )}
                             </div>
                           </div>
 
@@ -1889,6 +2502,27 @@ export default function Admin() {
                               ))}
                             </div>
                           )}
+
+                          <div className="mt-6 flex flex-wrap items-center gap-2">
+                            {!viewingArchive && (
+                              <button
+                                type="button"
+                                className="btn bg-emerald-600/80 text-white hover:bg-emerald-500 disabled:opacity-60"
+                                onClick={() => archiveTicket(ticket)}
+                                disabled={archiving || deleting}
+                              >
+                                {archiving ? "Archiwizowanie..." : "Przenieś do archiwum"}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="btn bg-red-600/80 text-white hover:bg-red-500 disabled:opacity-60"
+                              onClick={() => removeTicket(ticket, viewingArchive ? "archived" : "active")}
+                              disabled={archiving || deleting}
+                            >
+                              {deleting ? "Usuwanie..." : "Usuń ticket"}
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
