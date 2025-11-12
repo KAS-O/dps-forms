@@ -6,8 +6,8 @@ import {
   type AdditionalRank,
   normalizeDepartment,
   normalizeInternalUnits,
-  normalizeAdditionalRank,
-  getAdditionalRankOption,
+  normalizeAdditionalRanks,
+  getAdditionalRankOptions,
   getInternalUnitOption,
 } from "@/lib/hr";
 
@@ -39,6 +39,7 @@ type AccountResponse = {
   department?: Department | null;
   units?: InternalUnit[];
   additionalRank?: AdditionalRank | null;
+  additionalRanks?: AdditionalRank[];
 };
 
 type IdentityToolkitUser = {
@@ -230,7 +231,7 @@ async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]
       const fullName = typeof payload.fullName === "string" ? payload.fullName : undefined;
       const department = normalizeDepartment(payload.department);
       const units = normalizeInternalUnits(payload.units);
-      const additionalRank = normalizeAdditionalRank(payload.additionalRank);
+      const additionalRanks = normalizeAdditionalRanks(payload.additionalRanks ?? payload.additionalRank);
       accounts.push({
         uid: uid || login,
         login,
@@ -241,7 +242,8 @@ async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]
         ...(createdAt ? { createdAt } : {}),
         department: department ?? null,
         units,
-        additionalRank: additionalRank ?? null,
+        ...(additionalRanks.length ? { additionalRanks } : {}),
+        additionalRank: additionalRanks[0] ?? null,
       });
     });
     pageToken = data?.nextPageToken;
@@ -350,7 +352,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
-      const { login, fullName, role, password, badgeNumber, department, units, additionalRank } = req.body || {};
+      const {
+        login,
+        fullName,
+        role,
+        password,
+        badgeNumber,
+        department,
+        units,
+        additionalRank,
+        additionalRanks,
+      } = req.body || {};
       if (!login || !password) {
         return res.status(400).json({ error: "Login i hasło są wymagane" });
       }
@@ -371,16 +383,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       const normalizedUnits = normalizeInternalUnits(units);
-      const normalizedAdditionalRank = normalizeAdditionalRank(additionalRank);
-      if (normalizedAdditionalRank) {
-        const rankOption = getAdditionalRankOption(normalizedAdditionalRank);
-        if (rankOption && !normalizedUnits.includes(rankOption.unit)) {
-          const unitOption = getInternalUnitOption(rankOption.unit);
-          const unitLabel = unitOption?.abbreviation || rankOption.unit.toUpperCase();
-          return res
-            .status(400)
-            .json({ error: `Aby przypisać stopień ${rankOption.label}, dodaj jednostkę ${unitLabel}.` });
-        }
+      const normalizedAdditionalRanks = normalizeAdditionalRanks(additionalRanks ?? additionalRank);
+      const invalidRank = getAdditionalRankOptions(normalizedAdditionalRanks).find(
+        (rankOption) => rankOption && !normalizedUnits.includes(rankOption.unit)
+      );
+      if (invalidRank) {
+        const unitOption = getInternalUnitOption(invalidRank.unit);
+        const unitLabel = unitOption?.abbreviation || invalidRank.unit.toUpperCase();
+        return res
+          .status(400)
+          .json({ error: `Aby przypisać stopień ${invalidRank.label}, dodaj jednostkę ${unitLabel}.` });
       }
 
       const email = `${normalizedLogin}@${process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local"}`;
@@ -406,7 +418,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           badgeNumber: normalizedBadge,
           department: normalizedDepartment,
           units: normalizedUnits,
-          additionalRank: normalizedAdditionalRank ?? null,
+          additionalRanks: normalizedAdditionalRanks,
+          additionalRank: normalizedAdditionalRanks[0] ?? null,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         },
@@ -417,7 +430,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PATCH") {
-      const { uid, fullName, role, badgeNumber, department, units, additionalRank } = req.body || {};
+      const {
+        uid,
+        fullName,
+        role,
+        badgeNumber,
+        department,
+        units,
+        additionalRank,
+        additionalRanks,
+      } = req.body || {};
       if (!uid) {
         return res.status(400).json({ error: "Brak UID" });
       }
@@ -458,21 +480,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         updates.units = normalizedUnits;
       }
 
-      if (additionalRank !== undefined) {
-        const normalizedAdditionalRank = normalizeAdditionalRank(additionalRank);
-        if (normalizedAdditionalRank) {
-          const rankOption = getAdditionalRankOption(normalizedAdditionalRank);
-          if (rankOption && !normalizedUnits.includes(rankOption.unit)) {
-            const unitOption = getInternalUnitOption(rankOption.unit);
-            const unitLabel = unitOption?.abbreviation || rankOption.unit.toUpperCase();
-            return res
-              .status(400)
-              .json({ error: `Aby przypisać stopień ${rankOption.label}, dodaj jednostkę ${unitLabel}.` });
-          }
-          updates.additionalRank = normalizedAdditionalRank;
-        } else {
-          updates.additionalRank = null;
+      if (additionalRank !== undefined || additionalRanks !== undefined) {
+        const normalizedAdditionalRanks = normalizeAdditionalRanks(
+          additionalRanks !== undefined ? additionalRanks : additionalRank
+        );
+        const invalidRank = getAdditionalRankOptions(normalizedAdditionalRanks).find(
+          (rankOption) => rankOption && !normalizedUnits.includes(rankOption.unit)
+        );
+        if (invalidRank) {
+          const unitOption = getInternalUnitOption(invalidRank.unit);
+          const unitLabel = unitOption?.abbreviation || invalidRank.unit.toUpperCase();
+          return res
+            .status(400)
+            .json({ error: `Aby przypisać stopień ${invalidRank.label}, dodaj jednostkę ${unitLabel}.` });
         }
+        updates.additionalRanks = normalizedAdditionalRanks;
+        updates.additionalRank = normalizedAdditionalRanks[0] ?? null;
       }
       if (!Object.keys(updates).length) {
         return res.status(400).json({ error: "Brak zmian do zapisania." });
