@@ -3,6 +3,7 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
+import CriminalGroupsSection from "@/components/CriminalGroupsSection";
 import { useProfile } from "@/hooks/useProfile";
 import { auth } from "@/lib/firebase";
 import {
@@ -440,9 +441,13 @@ export default function UnitPanelPage() {
                 </>
               )}
             </div>
+            {section?.unit === "gu" && (
+              <CriminalGroupsSection variant="embedded" allowCreate={Boolean(permission)} />
+            )}
           </div>
         </main>
       </>
     </AuthGate>
   );
 }
+

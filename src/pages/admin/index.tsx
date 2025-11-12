@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   addDoc,
   collection,
+  deleteDoc,
   query,
   where,
   getCountFromServer,
@@ -76,6 +77,11 @@ type TicketRecord = {
   authorRoleGroup?: string | null;
   authorUnits: InternalUnit[];
   authorRanks: AdditionalRank[];
+  archived: boolean;
+  archivedAt: Date | null;
+  archivedByUid?: string | null;
+  archivedByLogin?: string | null;
+  archivedByName?: string | null;
 };
 
 const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
@@ -99,6 +105,49 @@ const LOG_PAGE_SIZE = 150;
 
 const CHIP_CLASS =
   "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide shadow-sm";
+
+const ADMIN_SECTION_ITEMS: { value: AdminSection; title: string; description: string; icon: string; accent: string; iconClass: string }[] = [
+  {
+    value: "overview",
+    title: "Podsumowanie",
+    description: "Statystyki i finanse",
+    icon: "📊",
+    accent: "from-sky-400/30 via-sky-500/20 to-slate-900/30",
+    iconClass: "bg-sky-500/20 text-sky-50",
+  },
+  {
+    value: "hr",
+    title: "Dział Kadr",
+    description: "Kontrola kont i rang",
+    icon: "🧑‍✈️",
+    accent: "from-indigo-500/30 via-indigo-500/15 to-slate-900/25",
+    iconClass: "bg-indigo-500/25 text-indigo-100",
+  },
+  {
+    value: "announcements",
+    title: "Ogłoszenia",
+    description: "Komunikaty dla funkcjonariuszy",
+    icon: "📣",
+    accent: "from-purple-500/30 via-purple-500/15 to-slate-900/25",
+    iconClass: "bg-purple-500/25 text-purple-100",
+  },
+  {
+    value: "tickets",
+    title: "Tickety",
+    description: "Zgłoszenia i archiwum",
+    icon: "🎫",
+    accent: "from-emerald-500/30 via-emerald-500/15 to-slate-900/25",
+    iconClass: "bg-emerald-500/25 text-emerald-100",
+  },
+  {
+    value: "logs",
+    title: "Logi",
+    description: "Monitor aktywności",
+    icon: "🗂️",
+    accent: "from-amber-500/30 via-amber-500/15 to-slate-900/25",
+    iconClass: "bg-amber-500/25 text-amber-100",
+  },
+];
 
 const humanizeIdentifier = (value: string) => {
   if (!value) return "";
@@ -174,6 +223,8 @@ const ACTION_LABELS: Record<string, string> = {
   "dossier.view": "Podgląd teczki",
   "dossier.link_open": "Przejście do teczki",
   "dossier.evidence_open": "Podgląd załącznika w teczce",
+  "ticket.archive": "Archiwizacja ticketa",
+  "ticket.delete": "Usunięcie ticketa",
   "dossier.group.link_add": "Dodanie członka do organizacji",
   "dossier.group.link_remove": "Usunięcie członka z organizacji",
   "dossier.record.note": "Dodanie notatki w teczce",
@@ -229,7 +280,7 @@ async function readErrorResponse(res: Response, fallback: string) {
 
 
 export default function Admin() {
-  const { role, login, fullName, ready } = useProfile();
+  const { role, login, fullName, badgeNumber, units: profileUnits, additionalRanks: profileRanks, ready } = useProfile();
   const { writeLog } = useLogWriter();
   const { confirm, prompt, alert } = useDialog();
   const { announcement } = useAnnouncement();
@@ -283,6 +334,8 @@ export default function Admin() {
   const [tickets, setTickets] = useState<TicketRecord[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(true);
   const [ticketsError, setTicketsError] = useState<string | null>(null);
+  const [ticketView, setTicketView] = useState<"active" | "archived">("active");
+  const [ticketProcessing, setTicketProcessing] = useState<Record<string, "archive" | "delete">>({});
   const rangeLabel = useMemo(() => {
     switch (range) {
       case "30":
@@ -359,6 +412,21 @@ export default function Admin() {
             createdAt = Number.isNaN(parsed) ? null : new Date(parsed);
           }
 
+          const rawArchivedAt = data?.archivedAt;
+          let archivedAt: Date | null = null;
+          if (rawArchivedAt?.toDate && typeof rawArchivedAt.toDate === "function") {
+            try {
+              archivedAt = rawArchivedAt.toDate();
+            } catch (error) {
+              archivedAt = null;
+            }
+          } else if (rawArchivedAt instanceof Date) {
+            archivedAt = rawArchivedAt;
+          } else if (typeof rawArchivedAt === "string") {
+            const parsed = Date.parse(rawArchivedAt);
+            archivedAt = Number.isNaN(parsed) ? null : new Date(parsed);
+          }
+
           const authorUnits = normalizeInternalUnits(data?.authorUnits);
           const authorRanks = normalizeAdditionalRanks(data?.authorRanks ?? data?.authorRank);
           const authorLogin = typeof data?.authorLogin === "string" ? data.authorLogin.trim() : "";
@@ -384,6 +452,12 @@ export default function Admin() {
             authorRoleGroup: roleGroup,
             authorUnits,
             authorRanks,
+            archived: Boolean(data?.archived),
+            archivedAt,
+            archivedByUid: typeof data?.archivedByUid === "string" ? data.archivedByUid : null,
+            archivedByLogin:
+              typeof data?.archivedByLogin === "string" ? data.archivedByLogin.trim() : null,
+            archivedByName: typeof data?.archivedByName === "string" ? data.archivedByName.trim() : null,
           };
         });
         setTickets(records);
@@ -854,6 +928,25 @@ export default function Admin() {
     return base;
   }, [accounts, accountSearch, accountRoleFilter]);
 
+  const activeTickets = useMemo(() => tickets.filter((ticket) => !ticket.archived), [tickets]);
+  const archivedTickets = useMemo(() => tickets.filter((ticket) => ticket.archived), [tickets]);
+  const displayedTickets = ticketView === "archived" ? archivedTickets : activeTickets;
+  const profileUnitOptions = useMemo(
+    () =>
+      (profileUnits || [])
+        .map((value) => getInternalUnitOption(value))
+        .filter((option): option is NonNullable<ReturnType<typeof getInternalUnitOption>> => !!option),
+    [profileUnits]
+  );
+  const profileRankOptions = useMemo(
+    () =>
+      (profileRanks || [])
+        .map((value) => getAdditionalRankOption(value))
+        .filter((option): option is NonNullable<ReturnType<typeof getAdditionalRankOption>> => !!option),
+    [profileRanks]
+  );
+  const profileRoleLabel = role ? ROLE_LABELS[role] || role : "—";
+
   const publishAnnouncement = async () => {
     const message = announcementMessage.trim();
     if (!message) {
@@ -940,12 +1033,95 @@ export default function Admin() {
     }
   };
 
-  const sectionButtonClass = (value: AdminSection) =>
-    `rounded-2xl px-4 py-3 text-left transition border ${
-      section === value
-        ? "bg-white/20 border-white/50 shadow-[0_0_18px_rgba(59,130,246,0.45)]"
-        : "bg-white/5 border-white/10 hover:bg-white/15"
-    }`;
+  const setTicketProcessingState = (id: string, action?: "archive" | "delete") => {
+    setTicketProcessing((prev) => {
+      const next = { ...prev };
+      if (action) {
+        next[id] = action;
+      } else {
+        delete next[id];
+      }
+      return next;
+    });
+  };
+
+  const archiveTicket = async (ticket: TicketRecord) => {
+    const ok = await confirm({
+      title: "Archiwizuj ticket",
+      message: "Czy na pewno chcesz przenieść to zgłoszenie do archiwum?",
+      confirmLabel: "Archiwizuj",
+      tone: "info",
+    });
+    if (!ok) return;
+    const user = auth.currentUser;
+    if (!user) {
+      setErr("Brak zalogowanego użytkownika.");
+      return;
+    }
+
+    try {
+      setErr(null);
+      setTicketProcessingState(ticket.id, "archive");
+      await updateDoc(doc(db, "tickets", ticket.id), {
+        archived: true,
+        archivedAt: serverTimestamp(),
+        archivedByUid: user.uid,
+        archivedByLogin: login || null,
+        archivedByName: fullName || login || null,
+      });
+      await writeLog({
+        type: "ticket_archive",
+        section: "panel-zarzadu",
+        action: "ticket.archive",
+        message: `Zarchiwizowano ticket od ${ticket.authorName}.`,
+        details: {
+          ticketId: ticket.id,
+          autor: ticket.authorLogin || ticket.authorName,
+        },
+      });
+    } catch (error: any) {
+      console.error("Nie udało się zarchiwizować ticketa", error);
+      setErr(error?.message || "Nie udało się zarchiwizować ticketa.");
+    } finally {
+      setTicketProcessingState(ticket.id);
+    }
+  };
+
+  const deleteTicket = async (ticket: TicketRecord) => {
+    const ok = await confirm({
+      title: "Usuń ticket",
+      message: "Czy na pewno chcesz trwale usunąć to zgłoszenie? Operacji nie można cofnąć.",
+      confirmLabel: "Usuń",
+      tone: "danger",
+    });
+    if (!ok) return;
+    const user = auth.currentUser;
+    if (!user) {
+      setErr("Brak zalogowanego użytkownika.");
+      return;
+    }
+
+    try {
+      setErr(null);
+      setTicketProcessingState(ticket.id, "delete");
+      await deleteDoc(doc(db, "tickets", ticket.id));
+      await writeLog({
+        type: "ticket_delete",
+        section: "panel-zarzadu",
+        action: "ticket.delete",
+        message: `Usunięto ticket od ${ticket.authorName}.`,
+        details: {
+          ticketId: ticket.id,
+          autor: ticket.authorLogin || ticket.authorName,
+        },
+      });
+    } catch (error: any) {
+      console.error("Nie udało się usunąć ticketa", error);
+      setErr(error?.message || "Nie udało się usunąć ticketa.");
+    } finally {
+      setTicketProcessingState(ticket.id);
+    }
+  };
 
   const getLogTimestampMs = (log: any): number | null => {
     const raw = log?.ts || log?.createdAt;
@@ -1448,36 +1624,45 @@ export default function Admin() {
       <div className="max-w-7xl mx-auto px-4 py-6 grid gap-5">
         {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold">Panel zarządu</h1>
-          <span className="text-sm text-beige-700">Zalogowany: {fullName || login} ({login})</span>
+        <div className="rounded-3xl border border-slate-200/60 bg-white/80 p-6 shadow-sm">
+          <h1 className="text-3xl font-bold text-slate-900">Panel zarządu</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Kompleksowe narzędzia dowódcze: statystyki jednostki, zarządzanie kadrami, ogłoszenia, tickety oraz monitor
+            aktywności.
+          </p>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
-          <aside className="card bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900 text-white p-5 shadow-xl">
-            <h2 className="text-lg font-semibold mb-4">Sekcje</h2>
-            <div className="grid gap-2 text-sm">
-              <button type="button" className={sectionButtonClass("overview")} onClick={() => setSection("overview")}>
-                <span className="text-base font-semibold">Podsumowanie</span>
-                <span className="block text-xs text-white/70">Statystyki i finanse</span>
-              </button>
-              <button type="button" className={sectionButtonClass("hr")} onClick={() => setSection("hr")}>
-                <span className="text-base font-semibold">Dział Kadr</span>
-                <span className="block text-xs text-white/70">Kontrola kont i rang</span>
-              </button>
-              <button type="button" className={sectionButtonClass("announcements")} onClick={() => setSection("announcements")}>
-                <span className="text-base font-semibold">Ogłoszenia</span>
-                <span className="block text-xs text-white/70">Komunikaty dla funkcjonariuszy</span>
-              </button>
-              <button type="button" className={sectionButtonClass("tickets")} onClick={() => setSection("tickets")}>
-                <span className="text-base font-semibold">Tickety</span>
-                <span className="block text-xs text-white/70">Zgłoszenia od funkcjonariuszy</span>
-              </button>
-              <button type="button" className={sectionButtonClass("logs")} onClick={() => setSection("logs")}>
-                <span className="text-base font-semibold">Logi</span>
-                <span className="block text-xs text-white/70">Aktywność kont</span>
-              </button>
+        <div className="grid gap-6 xl:grid-cols-[280px_1fr_280px]">
+          <aside className="grid gap-4 xl:sticky xl:top-28 xl:self-start">
+            <div className="card bg-gradient-to-br from-slate-900/85 via-blue-900/80 to-slate-950/85 p-6 text-white shadow-xl">
+              <h2 className="text-lg font-semibold">Nawigacja panelu</h2>
+              <p className="mt-1 text-sm text-white/70">Wybierz sekcję, aby przejść do odpowiednich narzędzi zarządczych.</p>
             </div>
+            <nav className="grid gap-3">
+              {ADMIN_SECTION_ITEMS.map((item) => {
+                const active = section === item.value;
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => setSection(item.value)}
+                    className={`group flex w-full items-start gap-3 rounded-3xl border px-4 py-4 text-left transition ${
+                      active
+                        ? `bg-gradient-to-br ${item.accent} border-white/40 shadow-[0_24px_48px_-24px_rgba(59,130,246,0.55)]`
+                        : "bg-white/5 border-white/10 hover:bg-white/15"
+                    }`}
+                  >
+                    <span className={`flex h-10 w-10 items-center justify-center rounded-2xl text-lg font-semibold ${item.iconClass}`}>
+                      {item.icon}
+                    </span>
+                    <div>
+                      <div className="text-sm font-semibold text-white">{item.title}</div>
+                      <div className="text-xs text-white/70">{item.description}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </nav>
           </aside>
 
           <div className="grid gap-6">
@@ -1805,15 +1990,44 @@ export default function Admin() {
 
             {section === "tickets" && (
               <div className="grid gap-5">
-                <div className="card bg-gradient-to-br from-emerald-900/80 via-slate-900/80 to-slate-950/85 p-6 text-white shadow-xl">
-                  <h2 className="text-xl font-semibold">Zgłoszenia od funkcjonariuszy</h2>
-                  <p className="text-sm text-white/70">
-                    Lista ticketów przesłanych do zarządu. Zawiera dane autora, przypisania jednostek oraz opis zgłoszenia.
-                  </p>
-                  <p className="mt-2 text-xs text-white/60">
-                    Tickety są sortowane od najnowszych. Po obsłużeniu zgłoszenia możesz je zarchiwizować w bazie, aby
-                    utrzymać porządek na liście.
-                  </p>
+                <div className="card bg-gradient-to-br from-emerald-900/85 via-slate-900/80 to-slate-950/85 p-6 text-white shadow-xl">
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <h2 className="text-xl font-semibold">Zgłoszenia od funkcjonariuszy</h2>
+                      <p className="text-sm text-white/70">
+                        Zarządzaj zgłoszeniami przesłanymi do zarządu. Po obsłużeniu ticketa możesz przenieść go do archiwum lub
+                        usunąć.
+                      </p>
+                      <p className="mt-2 text-xs text-white/60">
+                        Tickety są sortowane od najnowszych. W archiwum znajdziesz wszystkie zamknięte zgłoszenia wraz z datą i
+                        osobą archiwizującą.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                          ticketView === "active"
+                            ? "bg-white text-emerald-900 shadow"
+                            : "bg-white/10 text-white hover:bg-white/20"
+                        }`}
+                        onClick={() => setTicketView("active")}
+                      >
+                        Aktywne tickety ({activeTickets.length})
+                      </button>
+                      <button
+                        type="button"
+                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                          ticketView === "archived"
+                            ? "bg-white text-emerald-900 shadow"
+                            : "bg-white/10 text-white hover:bg-white/20"
+                        }`}
+                        onClick={() => setTicketView("archived")}
+                      >
+                        Archiwum ticketów ({archivedTickets.length})
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {ticketsError && (
@@ -1824,25 +2038,28 @@ export default function Admin() {
 
                 {ticketsLoading ? (
                   <div className="card bg-white/10 p-5 text-sm text-white/70">Wczytywanie ticketów...</div>
-                ) : tickets.length === 0 ? (
+                ) : displayedTickets.length === 0 ? (
                   <div className="card bg-white/10 p-5 text-sm text-white/70">
-                    Brak aktywnych ticketów. Wszystkie zgłoszenia zostały obsłużone.
+                    {ticketView === "archived"
+                      ? "Brak ticketów w archiwum."
+                      : "Brak aktywnych ticketów. Wszystkie zgłoszenia zostały obsłużone."}
                   </div>
                 ) : (
                   <div className="grid gap-4">
-                    {tickets.map((ticket) => {
+                    {displayedTickets.map((ticket) => {
                       const unitOptions = ticket.authorUnits
                         .map((unit) => getInternalUnitOption(unit))
                         .filter((option): option is NonNullable<ReturnType<typeof getInternalUnitOption>> => !!option);
                       const rankOptions = ticket.authorRanks
                         .map((rank) => getAdditionalRankOption(rank))
                         .filter((option): option is NonNullable<ReturnType<typeof getAdditionalRankOption>> => !!option);
+                      const processing = ticketProcessing[ticket.id];
+                      const cardClass = ticket.archived
+                        ? "card bg-gradient-to-br from-slate-950/85 via-slate-900/80 to-slate-950/85 p-6 text-white shadow-lg border border-emerald-500/30"
+                        : "card bg-gradient-to-br from-slate-900/85 via-slate-900/75 to-slate-950/80 p-6 text-white shadow-lg";
 
                       return (
-                        <div
-                          key={ticket.id}
-                          className="card bg-gradient-to-br from-slate-900/85 via-slate-900/75 to-slate-950/80 p-6 text-white shadow-lg"
-                        >
+                        <div key={ticket.id} className={cardClass}>
                           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                             <div className="space-y-1">
                               <div className="text-lg font-semibold text-white">{ticket.authorName}</div>
@@ -1855,8 +2072,15 @@ export default function Admin() {
                                 {ticket.authorRoleGroup ? ` • ${ticket.authorRoleGroup}` : ""}
                               </div>
                             </div>
-                            <div className="text-xs font-mono uppercase tracking-wide text-white/50">
-                              {ticket.createdAt ? ticket.createdAt.toLocaleString("pl-PL") : "Brak daty"}
+                            <div className="text-xs text-right font-mono uppercase tracking-wide text-white/50">
+                              <div>{ticket.createdAt ? ticket.createdAt.toLocaleString("pl-PL") : "Brak daty"}</div>
+                              {ticket.archived && (
+                                <div className="mt-1 text-[11px] text-emerald-200/80">
+                                  Zarchiwizowano: {ticket.archivedAt ? ticket.archivedAt.toLocaleString("pl-PL") : "—"}
+                                  <br />
+                                  Przez: {ticket.archivedByName || ticket.archivedByLogin || "Nieznany użytkownik"}
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -1889,6 +2113,27 @@ export default function Admin() {
                               ))}
                             </div>
                           )}
+
+                          <div className="mt-5 flex flex-wrap gap-2">
+                            {!ticket.archived && (
+                              <button
+                                type="button"
+                                className="btn bg-white/15 text-white hover:bg-white/25"
+                                onClick={() => archiveTicket(ticket)}
+                                disabled={Boolean(processing)}
+                              >
+                                {processing === "archive" ? "Archiwizowanie..." : "Archiwizuj"}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="btn bg-red-600/80 text-white hover:bg-red-600"
+                              onClick={() => deleteTicket(ticket)}
+                              disabled={Boolean(processing)}
+                            >
+                              {processing === "delete" ? "Usuwanie..." : "Usuń"}
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -2113,6 +2358,67 @@ export default function Admin() {
               </div>
             )}
           </div>
+
+          <aside className="grid gap-4 xl:self-start">
+            <div className="card bg-gradient-to-br from-slate-900/85 via-slate-900/75 to-slate-950/80 p-6 text-white shadow-xl">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold">Informacje o koncie</h2>
+                <p className="text-xs text-white/60">Aktualny użytkownik panelu zarządu.</p>
+              </div>
+              <div className="mt-4 space-y-2 text-sm text-white/80">
+                <p className="text-base font-semibold text-white">{fullName || login || "Nieznany użytkownik"}</p>
+                <p>
+                  Login: <span className="font-mono text-white/90">{login || "—"}</span>
+                </p>
+                <p>Stopień: {profileRoleLabel}</p>
+                <p>Numer odznaki: {badgeNumber ? `#${badgeNumber}` : "Brak"}</p>
+              </div>
+              {(profileUnitOptions.length > 0 || profileRankOptions.length > 0) && (
+                <div className="mt-4 space-y-2">
+                  {profileUnitOptions.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {profileUnitOptions.map((option) => (
+                        <span
+                          key={`profile-unit-${option.value}`}
+                          className={CHIP_CLASS}
+                          style={{
+                            background: option.background,
+                            color: option.color,
+                            borderColor: option.borderColor,
+                          }}
+                        >
+                          {option.shortLabel || option.abbreviation}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {profileRankOptions.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {profileRankOptions.map((option) => (
+                        <span
+                          key={`profile-rank-${option.value}`}
+                          className={`${CHIP_CLASS} text-[11px]`}
+                          style={{
+                            background: option.background,
+                            color: option.color,
+                            borderColor: option.borderColor,
+                          }}
+                        >
+                          {option.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="card p-5 bg-white/85 shadow-sm">
+              <h3 className="text-sm font-semibold text-slate-900">Szybkie wskazówki</h3>
+              <p className="mt-2 text-xs text-slate-600">
+                Archiwizuj tickety po zakończeniu sprawy i aktualizuj ogłoszenia, aby utrzymać klarowną komunikację z jednostką.
+              </p>
+            </div>
+          </aside>
         </div>
       </div>
 
