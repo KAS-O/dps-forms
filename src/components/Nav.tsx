@@ -8,12 +8,12 @@ import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { ROLE_LABELS, hasBoardAccess } from "@/lib/roles";
 
-const NAV_LINKS: { href: string; label: string; color: string }[] = [
+const BASE_NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dashboard", label: "Dokumenty", color: "#38bdf8" },
-  { href: "/chain-of-command", label: "Chain of Command", color: "#facc15" },
-  { href: "/dossiers", label: "Teczki", color: "#818cf8" },
-  { href: "/criminal-groups", label: "Grupy przestępcze", color: "#f472b6" },
-  { href: "/vehicle-archive", label: "Archiwum pojazdów", color: "#34d399" },
+  { href: "/chain-of-command", label: "Chain of Command", color: "#fb7185" },
+  { href: "/dossiers", label: "Teczki", color: "#a855f7" },
+  { href: "/criminal-groups", label: "Grupy przestępcze", color: "#f59e0b" },
+  { href: "/vehicle-archive", label: "Archiwum pojazdów", color: "#22d3ee" },
 ];
 
 function withAlpha(hex: string, alpha: number): string {
@@ -45,13 +45,11 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 }
 
 export default function Nav() {
-  const { fullName, role } = useProfile();
+  const { fullName, role, badgeNumber } = useProfile();
   const roleLabel = role ? ROLE_LABELS[role] || role : "";
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
   const router = useRouter();
-  const archiveActive = router.pathname.startsWith("/archive");
-  const adminActive = router.pathname.startsWith("/admin");
 
   const logout = async () => {
     const ok = await confirm({
@@ -66,10 +64,27 @@ export default function Nav() {
     await signOut(auth);
   };
 
+  const navItems = [
+    ...BASE_NAV_LINKS,
+    ...(can.seeArchive(role)
+      ? [{ href: "/archive", label: "Archiwum", color: "#34d399" }]
+      : []),
+    ...(hasBoardAccess(role)
+      ? [{ href: "/admin", label: "Panel zarządu", color: "#6366f1" }]
+      : []),
+  ];
+
+  const profileSegments = [fullName || "—"];
+  if (roleLabel) {
+    profileSegments.push(roleLabel);
+  }
+  if (badgeNumber) {
+    profileSegments.push(`#${badgeNumber}`);
+  }
 
   return (
     <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+      <div className="max-w-6xl mx-auto flex flex-col gap-4 px-4 py-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3 min-w-[220px]">
           <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />
           <span className="font-semibold tracking-wide text-beige-900/90">
@@ -77,46 +92,29 @@ export default function Nav() {
           </span>
         </div>
 
-        <div className="flex flex-1 flex-wrap items-center justify-end gap-3 text-sm">
-          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
-            {NAV_LINKS.map((link) => {
-              const isActive = router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`nav-pill${isActive ? " nav-pill--active" : ""}`}
-                  style={createNavStyle(link.color, isActive)}
-                >
-                  <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
-                  {link.label}
-                </Link>
-              );
-            })}
-            {can.seeArchive(role) && (
-              <Link
-                href="/archive"
-                className={`nav-pill${archiveActive ? " nav-pill--active" : ""}`}
-                style={createNavStyle("#fbbf24", archiveActive)}
-              >
-                <span className="nav-pill__dot" style={{ background: "#fbbf24" }} aria-hidden />
-                Archiwum
-              </Link>
-            )}
-            {hasBoardAccess(role) && (
-              <Link
-                href="/admin"
-                className={`nav-pill${adminActive ? " nav-pill--active" : ""}`}
-                style={{ ...createNavStyle("#eab308", adminActive), color: "#fefce8" }}
-              >
-                <span className="nav-pill__dot" style={{ background: "#eab308" }} aria-hidden />
-                Panel zarządu
-              </Link>
-            )}
+        <div className="flex flex-1 flex-col gap-4 text-sm md:flex-row md:items-center md:justify-end">
+          <div className="order-2 w-full md:order-1 md:max-w-3xl">
+            <div className="grid w-full gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {navItems.map((link) => {
+                const isActive =
+                  router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`nav-pill w-full justify-center${isActive ? " nav-pill--active" : ""}`}
+                    style={createNavStyle(link.color, isActive)}
+                  >
+                    <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
+                    {link.label}
+                  </Link>
+                );
+              })}
+            </div>
           </div>
-          <div className="flex items-center gap-2 whitespace-nowrap">
-            <span className="px-2 py-1 rounded bg-white/10 text-beige-900">
-              {fullName || "—"}{role ? ` • ${roleLabel}` : ""}
+          <div className="order-1 flex items-center justify-end gap-2 whitespace-nowrap md:order-2">
+            <span className="rounded-full bg-white/10 px-3 py-1 font-medium text-beige-900">
+              {profileSegments.join(" • ")}
             </span>
             <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold">
               Wyloguj
