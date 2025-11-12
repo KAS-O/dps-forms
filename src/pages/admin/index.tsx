@@ -30,6 +30,20 @@ import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useAnnouncement } from "@/hooks/useAnnouncement";
 import { ROLE_LABELS, ROLE_OPTIONS, hasBoardAccess, DEFAULT_ROLE, normalizeRole } from "@/lib/roles";
+import {
+  DEPARTMENTS,
+  UNITS,
+  ADDITIONAL_RANKS_BY_UNIT,
+  DEPARTMENT_MAP,
+  UNIT_MAP,
+  ADDITIONAL_RANK_MAP,
+  normalizeDepartment,
+  normalizeUnits,
+  normalizeAdditionalRank,
+  type DepartmentId,
+  type UnitId,
+  type AdditionalRankId,
+} from "@/lib/hr";
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
@@ -43,6 +57,9 @@ type Account = {
   email: string;
   createdAt?: string;
   badgeNumber?: string;
+  department?: DepartmentId | null;
+  units?: UnitId[];
+  additionalRank?: AdditionalRankId | null;
 };
 
 const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
@@ -157,6 +174,13 @@ const ACTION_LABELS: Record<string, string> = {
   "auth.login_success": "Udane logowanie",
   "auth.login_fail": "Nieudane logowanie",
 };
+
+const createChipStyle = (from: string, to: string, textColor: string) => ({
+  background: `linear-gradient(135deg, ${from}, ${to})`,
+  color: textColor,
+  borderColor: "rgba(255, 255, 255, 0.25)",
+  boxShadow: "0 12px 28px -16px rgba(15, 23, 42, 0.8)",
+});
 
 const ACTION_OPTIONS = [
   { value: "", label: "Wszystkie czynności" },
@@ -525,6 +549,11 @@ export default function Admin() {
             : typeof data?.badgeNumber === "number"
             ? String(data.badgeNumber)
             : "";
+        const departmentValue = normalizeDepartment(data?.department);
+        const unitsValue = normalizeUnits(data?.units);
+        const filteredUnits = unitsValue.filter((unit): unit is UnitId => Boolean(UNIT_MAP[unit as UnitId]));
+        const additionalRankValue = normalizeAdditionalRank(data?.additionalRank);
+        const additionalRank = additionalRankValue && additionalRankValue in ADDITIONAL_RANK_MAP ? additionalRankValue : null;
         return {
           uid,
           login,
@@ -533,6 +562,9 @@ export default function Admin() {
           email: login ? `${login}@${domain}` : "",
           ...(badgeNumberValue ? { badgeNumber: badgeNumberValue } : {}),
           ...(createdAt ? { createdAt } : {}),
+          department: departmentValue,
+          units: filteredUnits,
+          ...(additionalRank ? { additionalRank } : { additionalRank: null }),
         } as Account;
       });
       arr.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login, "pl", { sensitivity: "base" }));
@@ -548,7 +580,16 @@ export default function Admin() {
   const openCreateAccount = () => {
     setEditorState({
       mode: "create",
-      account: { login: "", fullName: "", role: DEFAULT_ROLE, email: "", badgeNumber: "" },
+      account: {
+        login: "",
+        fullName: "",
+        role: DEFAULT_ROLE,
+        email: "",
+        badgeNumber: "",
+        department: null,
+        units: [],
+        additionalRank: null,
+      },
       password: "",
     });
   };
@@ -556,7 +597,12 @@ export default function Admin() {
   const openEditAccount = (account: Account) => {
     setEditorState({
       mode: "edit",
-      account: { ...account },
+      account: {
+        ...account,
+        department: account.department || null,
+        units: Array.isArray(account.units) ? account.units.slice() : [],
+        additionalRank: account.additionalRank || null,
+      },
       password: "",
     });
   };
@@ -568,6 +614,9 @@ export default function Admin() {
     const roleValue: Role = editorState.account.role || DEFAULT_ROLE;
     const passwordValue = (editorState.password || "").trim();
     const badgeNumberValue = (editorState.account.badgeNumber || "").trim();
+    const departmentValue = normalizeDepartment(editorState.account.department || null);
+    const unitsValue = normalizeUnits(editorState.account.units || []);
+    const additionalRankValue = normalizeAdditionalRank(editorState.account.additionalRank || null);
 
     if (!loginValue) {
       setErr("Login jest wymagany.");
@@ -611,20 +660,24 @@ export default function Admin() {
       const user = auth.currentUser;
       if (!user) throw new Error("Brak zalogowanego użytkownika.");
       const token = await user.getIdToken();
+      const basePayload = {
+        fullName: fullNameValue,
+        role: roleValue,
+        badgeNumber: badgeNumberValue,
+        department: departmentValue,
+        units: unitsValue,
+        additionalRank: additionalRankValue,
+      };
       const payload: Record<string, any> =
         editorState.mode === "create"
           ? {
               login: loginValue,
-              fullName: fullNameValue,
-              role: roleValue,
               password: passwordValue,
-              badgeNumber: badgeNumberValue,
+              ...basePayload,
             }
           : {
               uid: editorState.account.uid,
-              fullName: fullNameValue,
-              role: roleValue,
-              badgeNumber: badgeNumberValue,
+              ...basePayload,
             };
       const res = await fetch("/api/admin/accounts", {
         method: editorState.mode === "create" ? "POST" : "PATCH",
@@ -658,10 +711,20 @@ export default function Admin() {
         if (!phrase) return true;
         const fullName = (acc.fullName || "").toLowerCase();
         const badge = (acc.badgeNumber || "").toLowerCase();
+        const departmentLabel = acc.department ? (DEPARTMENT_MAP[acc.department]?.label || acc.department).toLowerCase() : "";
+        const unitsLabel = (acc.units || [])
+          .map((unit) => (UNIT_MAP[unit]?.label || unit).toLowerCase())
+          .join(" ");
+        const additionalRankLabel = acc.additionalRank
+          ? (ADDITIONAL_RANK_MAP[acc.additionalRank]?.label || acc.additionalRank).toLowerCase()
+          : "";
         return (
           acc.login.toLowerCase().includes(phrase) ||
           fullName.includes(phrase) ||
-          (badge ? badge.includes(phrase) : false)
+          (badge ? badge.includes(phrase) : false) ||
+          (departmentLabel ? departmentLabel.includes(phrase) : false) ||
+          (unitsLabel ? unitsLabel.includes(phrase) : false) ||
+          (additionalRankLabel ? additionalRankLabel.includes(phrase) : false)
         );
       })
       .slice();
@@ -765,6 +828,10 @@ export default function Admin() {
         ? "bg-white/20 border-white/50 shadow-[0_0_18px_rgba(59,130,246,0.45)]"
         : "bg-white/5 border-white/10 hover:bg-white/15"
     }`;
+
+  const selectedDepartment = editorState?.account.department || null;
+  const selectedUnits = Array.isArray(editorState?.account.units) ? editorState.account.units : [];
+  const selectedAdditionalRank = editorState?.account.additionalRank || null;
 
   const getLogTimestampMs = (log: any): number | null => {
     const raw = log?.ts || log?.createdAt;
@@ -1480,6 +1547,61 @@ export default function Admin() {
                           <p className="text-xs uppercase tracking-wide text-beige-600 mt-1">
                             Ranga: {ROLE_LABELS[acc.role] || acc.role}
                           </p>
+                          {acc.department && (
+                            <div className="mt-2 text-[11px] uppercase tracking-wide text-beige-600">
+                              <span className="font-semibold">Departament:</span>
+                              <span
+                                className="ml-2 inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold shadow-sm"
+                                style={createChipStyle(
+                                  DEPARTMENT_MAP[acc.department]?.colorFrom || "#1f2937",
+                                  DEPARTMENT_MAP[acc.department]?.colorTo || "#111827",
+                                  DEPARTMENT_MAP[acc.department]?.textColor || "#f8fafc"
+                                )}
+                              >
+                                {DEPARTMENT_MAP[acc.department]?.label || acc.department.toUpperCase()}
+                              </span>
+                            </div>
+                          )}
+                          {!!(acc.units && acc.units.length) && (
+                            <div className="mt-2 text-[11px] uppercase tracking-wide text-beige-600">
+                              <span className="font-semibold">Jednostki:</span>
+                              <div className="mt-1 flex flex-wrap gap-2">
+                                {acc.units.map((unit) => {
+                                  const info = UNIT_MAP[unit];
+                                  return (
+                                    <span
+                                      key={unit}
+                                      className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold shadow-sm"
+                                      style={createChipStyle(info?.colorFrom || "#1f2937", info?.colorTo || "#111827", info?.textColor || "#f8fafc")}
+                                    >
+                                      {info?.label || unit.toUpperCase()}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          {acc.additionalRank && (
+                            <div className="mt-2 text-[11px] uppercase tracking-wide text-beige-600">
+                              <span className="font-semibold">Dodatkowy stopień:</span>
+                              {(() => {
+                                const info = ADDITIONAL_RANK_MAP[acc.additionalRank!];
+                                const unitInfo = info ? UNIT_MAP[info.unit] : null;
+                                return (
+                                  <span
+                                    className="ml-2 inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold shadow-sm"
+                                    style={createChipStyle(
+                                      unitInfo?.colorFrom || "#1f2937",
+                                      unitInfo?.colorTo || "#111827",
+                                      unitInfo?.textColor || "#f8fafc"
+                                    )}
+                                  >
+                                    {info?.label || acc.additionalRank}
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          )}
                         </div>
                         <div className="flex flex-col items-stretch gap-2 md:items-end">
                           <button className="btn" onClick={() => openEditAccount(acc)}>Edytuj</button>
@@ -1870,6 +1992,211 @@ export default function Admin() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">Departament</label>
+                <p className="mt-1 text-xs text-white/60">Przypisz funkcjonariusza do jednego z dostępnych departamentów.</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                  {DEPARTMENTS.map((dept) => {
+                    const active = selectedDepartment === dept.id;
+                    return (
+                      <button
+                        key={dept.id}
+                        type="button"
+                        className={`rounded-2xl border px-3 py-3 text-left transition-transform duration-150 ${
+                          active ? "ring-2 ring-white/80 shadow-lg scale-[1.02]" : "opacity-90 hover:opacity-100 hover:scale-[1.01]"
+                        }`}
+                        style={{
+                          ...createChipStyle(dept.colorFrom, dept.colorTo, dept.textColor),
+                          color: dept.textColor,
+                        }}
+                        onClick={() =>
+                          setEditorState((prev) =>
+                            prev ? { ...prev, account: { ...prev.account, department: dept.id } } : prev
+                          )
+                        }
+                      >
+                        <span className="block text-sm font-semibold" style={{ color: "inherit" }}>
+                          {dept.label}
+                        </span>
+                        <span className="mt-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "inherit", opacity: 0.75 }}>
+                          {dept.fullLabel}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs text-white/70">
+                  <button
+                    type="button"
+                    className="rounded-full border border-white/30 px-3 py-1 uppercase tracking-wide hover:bg-white/10"
+                    onClick={() =>
+                      setEditorState((prev) =>
+                        prev ? { ...prev, account: { ...prev.account, department: null } } : prev
+                      )
+                    }
+                  >
+                    Bez przypisanego departamentu
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">Jednostki wewnętrzne</label>
+                <p className="mt-1 text-xs text-white/60">Możesz wybrać dowolną liczbę jednostek specjalnych dla funkcjonariusza.</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {UNITS.map((unit) => {
+                    const active = selectedUnits.includes(unit.id);
+                    return (
+                      <button
+                        key={unit.id}
+                        type="button"
+                        className={`rounded-2xl border px-4 py-3 text-left transition-transform duration-150 ${
+                          active
+                            ? "ring-2 ring-white/80 shadow-lg scale-[1.02]"
+                            : "opacity-90 hover:opacity-100 hover:scale-[1.01]"
+                        }`}
+                        style={{
+                          ...createChipStyle(unit.colorFrom, unit.colorTo, unit.textColor),
+                          color: unit.textColor,
+                        }}
+                        onClick={() =>
+                          setEditorState((prev) => {
+                            if (!prev) return prev;
+                            const current = Array.isArray(prev.account.units) ? prev.account.units : [];
+                            const exists = current.includes(unit.id);
+                            const updated = exists
+                              ? current.filter((value) => value !== unit.id)
+                              : [...current, unit.id];
+                            return {
+                              ...prev,
+                              account: { ...prev.account, units: updated },
+                            };
+                          })
+                        }
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <span className="block text-sm font-semibold" style={{ color: "inherit" }}>
+                              {unit.label}
+                            </span>
+                            <span className="mt-1 block text-[11px] text-white/80" style={{ color: "inherit", opacity: 0.75 }}>
+                              {unit.description}
+                            </span>
+                          </div>
+                          <span
+                            className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${
+                              active ? "bg-white/20 text-white" : "bg-black/20 text-white/80"
+                            }`}
+                          >
+                            {active ? "Wybrano" : "Dodaj"}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedUnits.length > 0 && (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      className="rounded-full border border-white/30 px-3 py-1 text-xs uppercase tracking-wide text-white/80 hover:bg-white/10"
+                      onClick={() =>
+                        setEditorState((prev) =>
+                          prev ? { ...prev, account: { ...prev.account, units: [] } } : prev
+                        )
+                      }
+                    >
+                      Wyczyść wybór jednostek
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">Dodatkowy stopień</label>
+                <p className="mt-1 text-xs text-white/60">Opcjonalne stanowiska w ramach jednostek specjalnych.</p>
+                <div className="mt-3 grid gap-3">
+                  {UNITS.map((unit) => {
+                    const ranks = ADDITIONAL_RANKS_BY_UNIT[unit.id];
+                    if (!ranks?.length) return null;
+                    const unitSelected = selectedUnits.includes(unit.id);
+                    return (
+                      <div
+                        key={unit.id}
+                        className="rounded-2xl border px-4 py-3 shadow-inner"
+                        style={{
+                          ...createChipStyle(unit.colorFrom, unit.colorTo, unit.textColor),
+                          color: unit.textColor,
+                        }}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <h4 className="text-sm font-semibold uppercase tracking-wide" style={{ color: "inherit" }}>
+                              {unit.label}
+                            </h4>
+                            <p className="text-[11px] text-white/80" style={{ color: "inherit", opacity: 0.75 }}>
+                              {unit.description}
+                            </p>
+                          </div>
+                          {unitSelected ? (
+                            <span className="inline-flex items-center rounded-full border border-white/40 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide">
+                              Jednostka przypisana
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full border border-white/30 bg-black/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80">
+                              Bez przypisania
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {ranks.map((rank) => {
+                            const active = selectedAdditionalRank === rank.id;
+                            return (
+                              <button
+                                key={rank.id}
+                                type="button"
+                                className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                                  active ? "bg-white/20 text-white shadow-lg" : "bg-black/20 text-white/80 hover:bg-black/10"
+                                }`}
+                                onClick={() =>
+                                  setEditorState((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          account: {
+                                            ...prev.account,
+                                            additionalRank:
+                                              prev.account.additionalRank === rank.id ? null : rank.id,
+                                          },
+                                        }
+                                      : prev
+                                  )
+                                }
+                              >
+                                {rank.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded-full border border-white/30 px-3 py-1 text-xs uppercase tracking-wide text-white/80 hover:bg-white/10"
+                    onClick={() =>
+                      setEditorState((prev) =>
+                        prev ? { ...prev, account: { ...prev.account, additionalRank: null } } : prev
+                      )
+                    }
+                  >
+                    Brak dodatkowego stopnia
+                  </button>
+                </div>
               </div>
 
               {editorState.mode === "create" ? (
