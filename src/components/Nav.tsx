@@ -1,14 +1,15 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { useProfile, can } from "@/hooks/useProfile";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { ROLE_LABELS, hasBoardAccess } from "@/lib/roles";
+import { UNIT_PANEL_LIST, hasUnitAccess } from "@/lib/unitAccess";
 
-const NAV_LINKS: { href: string; label: string; color: string }[] = [
+const NAV_LINKS: { href: string; label: string; color: string; title?: string }[] = [
   { href: "/dashboard", label: "Dokumenty", color: "#60a5fa" },
   { href: "/chain-of-command", label: "Chain of Command", color: "#f97316" },
   { href: "/dossiers", label: "Teczki", color: "#8b5cf6" },
@@ -45,13 +46,27 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 }
 
 export default function Nav() {
-  const { fullName, role, badgeNumber } = useProfile();
+  const { fullName, role, badgeNumber, units, additionalRanks } = useProfile();
   const roleLabel = role ? ROLE_LABELS[role] || role : "";
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
   const router = useRouter();
-  const archiveActive = router.pathname.startsWith("/archive");
-  const adminActive = router.pathname.startsWith("/admin");
+  const currentPath = router.asPath.split("?")[0];
+  const archiveActive = currentPath.startsWith("/archive");
+  const adminActive = currentPath.startsWith("/admin");
+
+  const unitNavLinks = useMemo(() => {
+    return UNIT_PANEL_LIST.filter((panel) => hasUnitAccess(panel.unit, units, additionalRanks)).map(
+      (panel) => ({
+        href: `/units/${panel.slug}`,
+        label: panel.abbreviation,
+        color: panel.navColor,
+        title: panel.title,
+      })
+    );
+  }, [units, additionalRanks]);
+
+  const combinedNavLinks = useMemo(() => [...NAV_LINKS, ...unitNavLinks], [unitNavLinks]);
 
   const logout = async () => {
     const ok = await confirm({
@@ -91,14 +106,16 @@ export default function Nav() {
         <div className="flex items-center">
           <div className="flex-1 overflow-x-auto pb-1">
             <div className="flex min-w-max items-center gap-2 text-sm">
-              {NAV_LINKS.map((link) => {
-                const isActive = router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
+              {combinedNavLinks.map((link) => {
+                const isActive =
+                  currentPath === link.href || currentPath.startsWith(`${link.href}/`);
                 return (
                   <Link
                     key={link.href}
                     href={link.href}
                     className={`nav-pill shrink-0${isActive ? " nav-pill--active" : ""}`}
                     style={createNavStyle(link.color, isActive)}
+                    title={link.title}
                   >
                     <span className="nav-pill__dot" style={{ background: link.color }} aria-hidden />
                     {link.label}
