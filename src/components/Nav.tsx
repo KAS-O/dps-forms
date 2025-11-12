@@ -10,6 +10,7 @@ import { ROLE_LABELS, hasBoardAccess } from "@/lib/roles";
 
 const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dashboard", label: "Dokumenty", color: "#38bdf8" },
+  { href: "/chain-of-command", label: "Chain of Command", color: "#facc15" },
   { href: "/dossiers", label: "Teczki", color: "#818cf8" },
   { href: "/criminal-groups", label: "Grupy przestępcze", color: "#f472b6" },
   { href: "/vehicle-archive", label: "Archiwum pojazdów", color: "#34d399" },

@@ -30,6 +30,20 @@ import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useAnnouncement } from "@/hooks/useAnnouncement";
 import { ROLE_LABELS, ROLE_OPTIONS, hasBoardAccess, DEFAULT_ROLE, normalizeRole } from "@/lib/roles";
+import {
+  DEPARTMENTS,
+  INTERNAL_UNITS,
+  ADDITIONAL_RANK_GROUPS,
+  type Department,
+  type InternalUnit,
+  type AdditionalRank,
+  getDepartmentOption,
+  getInternalUnitOption,
+  getAdditionalRankOption,
+  normalizeDepartment,
+  normalizeInternalUnits,
+  normalizeAdditionalRank,
+} from "@/lib/hr";
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
@@ -43,6 +57,9 @@ type Account = {
   email: string;
   createdAt?: string;
   badgeNumber?: string;
+  department?: Department | null;
+  units: InternalUnit[];
+  additionalRank?: AdditionalRank | null;
 };
 
 const LOGIN_PATTERN = /^[a-z0-9._-]+$/;
@@ -63,6 +80,9 @@ const ANNOUNCEMENT_WINDOWS: { value: string; label: string; ms: number | null }[
 ];
 
 const LOG_PAGE_SIZE = 150;
+
+const CHIP_CLASS =
+  "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide shadow-sm";
 
 const humanizeIdentifier = (value: string) => {
   if (!value) return "";
@@ -519,22 +539,28 @@ export default function Admin() {
         } else if (typeof createdAtRaw === "string") {
           createdAt = createdAtRaw;
         }
-        const badgeNumberValue =
-          typeof data?.badgeNumber === "string"
-            ? data.badgeNumber.trim()
-            : typeof data?.badgeNumber === "number"
-            ? String(data.badgeNumber)
-            : "";
-        return {
-          uid,
-          login,
-          fullName: typeof data?.fullName === "string" ? data.fullName : "",
-          role: normalizeRole(data?.role),
-          email: login ? `${login}@${domain}` : "",
-          ...(badgeNumberValue ? { badgeNumber: badgeNumberValue } : {}),
-          ...(createdAt ? { createdAt } : {}),
-        } as Account;
-      });
+      const badgeNumberValue =
+        typeof data?.badgeNumber === "string"
+          ? data.badgeNumber.trim()
+          : typeof data?.badgeNumber === "number"
+          ? String(data.badgeNumber)
+          : "";
+      const departmentValue = normalizeDepartment(data?.department);
+      const unitsValue = normalizeInternalUnits(data?.units);
+      const additionalRankValue = normalizeAdditionalRank(data?.additionalRank);
+      return {
+        uid,
+        login,
+        fullName: typeof data?.fullName === "string" ? data.fullName : "",
+        role: normalizeRole(data?.role),
+        email: login ? `${login}@${domain}` : "",
+        ...(badgeNumberValue ? { badgeNumber: badgeNumberValue } : {}),
+        ...(createdAt ? { createdAt } : {}),
+        department: departmentValue,
+        units: unitsValue,
+        ...(additionalRankValue ? { additionalRank: additionalRankValue } : {}),
+      } as Account;
+    });
       arr.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login, "pl", { sensitivity: "base" }));
       setAccounts(arr);
     } catch (e: any) {
@@ -548,7 +574,16 @@ export default function Admin() {
   const openCreateAccount = () => {
     setEditorState({
       mode: "create",
-      account: { login: "", fullName: "", role: DEFAULT_ROLE, email: "", badgeNumber: "" },
+      account: {
+        login: "",
+        fullName: "",
+        role: DEFAULT_ROLE,
+        email: "",
+        badgeNumber: "",
+        department: DEPARTMENTS[0]?.value ?? null,
+        units: [],
+        additionalRank: null,
+      },
       password: "",
     });
   };
@@ -556,7 +591,12 @@ export default function Admin() {
   const openEditAccount = (account: Account) => {
     setEditorState({
       mode: "edit",
-      account: { ...account },
+      account: {
+        ...account,
+        units: Array.isArray(account.units) ? account.units : [],
+        department: account.department ?? null,
+        additionalRank: account.additionalRank ?? null,
+      },
       password: "",
     });
   };
@@ -568,6 +608,11 @@ export default function Admin() {
     const roleValue: Role = editorState.account.role || DEFAULT_ROLE;
     const passwordValue = (editorState.password || "").trim();
     const badgeNumberValue = (editorState.account.badgeNumber || "").trim();
+    const departmentValue = normalizeDepartment(editorState.account.department);
+    const unitsValue = Array.isArray(editorState.account.units)
+      ? editorState.account.units.filter((unit): unit is InternalUnit => !!getInternalUnitOption(unit))
+      : [];
+    const additionalRankValue = normalizeAdditionalRank(editorState.account.additionalRank);
 
     if (!loginValue) {
       setErr("Login jest wymagany.");
@@ -604,6 +649,22 @@ export default function Admin() {
       setErr("Hasło musi mieć co najmniej 6 znaków.");
       return;
     }
+    if (!departmentValue) {
+      setErr("Wybierz departament dla funkcjonariusza.");
+      return;
+    }
+    if (additionalRankValue) {
+      const rankOption = getAdditionalRankOption(additionalRankValue);
+      if (rankOption && !unitsValue.includes(rankOption.unit)) {
+        const unitOption = getInternalUnitOption(rankOption.unit);
+        setErr(
+          unitOption
+            ? `Aby przypisać stopień ${rankOption.label}, dodaj jednostkę ${unitOption.abbreviation}.`
+            : "Aby przypisać dodatkowy stopień, wybierz powiązaną jednostkę."
+        );
+        return;
+      }
+    }
 
     try {
       setAccountSaving(true);
@@ -619,12 +680,18 @@ export default function Admin() {
               role: roleValue,
               password: passwordValue,
               badgeNumber: badgeNumberValue,
+              department: departmentValue,
+              units: unitsValue,
+              additionalRank: additionalRankValue,
             }
           : {
               uid: editorState.account.uid,
               fullName: fullNameValue,
               role: roleValue,
               badgeNumber: badgeNumberValue,
+              department: departmentValue,
+              units: unitsValue,
+              additionalRank: additionalRankValue,
             };
       const res = await fetch("/api/admin/accounts", {
         method: editorState.mode === "create" ? "POST" : "PATCH",
@@ -658,10 +725,18 @@ export default function Admin() {
         if (!phrase) return true;
         const fullName = (acc.fullName || "").toLowerCase();
         const badge = (acc.badgeNumber || "").toLowerCase();
+        const departmentLabel = (getDepartmentOption(acc.department)?.abbreviation || "").toLowerCase();
+        const unitLabels = acc.units
+          .map((unit) => getInternalUnitOption(unit)?.abbreviation || "")
+          .map((label) => label.toLowerCase());
+        const additionalRankLabel = (getAdditionalRankOption(acc.additionalRank)?.label || "").toLowerCase();
         return (
           acc.login.toLowerCase().includes(phrase) ||
           fullName.includes(phrase) ||
-          (badge ? badge.includes(phrase) : false)
+          (badge ? badge.includes(phrase) : false) ||
+          (departmentLabel ? departmentLabel.includes(phrase) : false) ||
+          unitLabels.some((label) => label.includes(phrase)) ||
+          (additionalRankLabel ? additionalRankLabel.includes(phrase) : false)
         );
       })
       .slice();
@@ -1462,33 +1537,84 @@ export default function Admin() {
                   ) : filteredAccounts.length === 0 ? (
                     <div className="card p-5 text-center">Brak kont spełniających kryteria.</div>
                   ) : (
-                    filteredAccounts.map((acc) => (
-                      <div
-                        key={acc.uid}
-                        className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
-                      >
-                        <div>
-                          <h3 className="text-lg font-semibold">{acc.fullName || "Bez nazwy"}</h3>
-                          <p className="text-sm text-beige-700">
-                            Login: <span className="font-mono text-base">{acc.login}@{loginDomain}</span>
-                          </p>
-                          {acc.badgeNumber && (
+                    filteredAccounts.map((acc) => {
+                      const departmentOption = getDepartmentOption(acc.department);
+                      const unitOptions = acc.units
+                        .map((unit) => getInternalUnitOption(unit))
+                        .filter(
+                          (option): option is NonNullable<ReturnType<typeof getInternalUnitOption>> => !!option
+                        );
+                      const additionalRankOption = getAdditionalRankOption(acc.additionalRank);
+
+                      return (
+                        <div
+                          key={acc.uid}
+                          className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div>
+                            <h3 className="text-lg font-semibold">{acc.fullName || "Bez nazwy"}</h3>
                             <p className="text-sm text-beige-700">
-                              Numer odznaki: <span className="font-semibold">{acc.badgeNumber}</span>
+                              Login: <span className="font-mono text-base">{acc.login}@{loginDomain}</span>
                             </p>
-                          )}
-                          <p className="text-xs uppercase tracking-wide text-beige-600 mt-1">
-                            Ranga: {ROLE_LABELS[acc.role] || acc.role}
-                          </p>
+                            {acc.badgeNumber && (
+                              <p className="text-sm text-beige-700">
+                                Numer odznaki: <span className="font-semibold">{acc.badgeNumber}</span>
+                              </p>
+                            )}
+                            <p className="text-xs uppercase tracking-wide text-beige-600 mt-1">
+                              Ranga: {ROLE_LABELS[acc.role] || acc.role}
+                            </p>
+                            {(departmentOption || unitOptions.length > 0 || additionalRankOption) && (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {departmentOption && (
+                                  <span
+                                    className={CHIP_CLASS}
+                                    style={{
+                                      background: departmentOption.background,
+                                      color: departmentOption.color,
+                                      borderColor: departmentOption.borderColor,
+                                    }}
+                                  >
+                                    {departmentOption.abbreviation}
+                                  </span>
+                                )}
+                                {unitOptions.map((unit) => (
+                                  <span
+                                    key={unit.value}
+                                    className={CHIP_CLASS}
+                                    style={{
+                                      background: unit.background,
+                                      color: unit.color,
+                                      borderColor: unit.borderColor,
+                                    }}
+                                  >
+                                    {unit.shortLabel || unit.abbreviation}
+                                  </span>
+                                ))}
+                                {additionalRankOption && (
+                                  <span
+                                    className={`${CHIP_CLASS} text-[11px]`}
+                                    style={{
+                                      background: additionalRankOption.background,
+                                      color: additionalRankOption.color,
+                                      borderColor: additionalRankOption.borderColor,
+                                    }}
+                                  >
+                                    {additionalRankOption.label}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-stretch gap-2 md:items-end">
+                            <button className="btn" onClick={() => openEditAccount(acc)}>Edytuj</button>
+                            <span className="text-xs text-beige-600 text-left md:text-right">
+                              Usuwanie kont i reset haseł wykonaj w konsoli Firebase.
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex flex-col items-stretch gap-2 md:items-end">
-                          <button className="btn" onClick={() => openEditAccount(acc)}>Edytuj</button>
-                          <span className="text-xs text-beige-600 text-left md:text-right">
-                            Usuwanie kont i reset haseł wykonaj w konsoli Firebase.
-                          </span>
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -1870,6 +1996,138 @@ export default function Admin() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">Departament</label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {DEPARTMENTS.map((dept) => {
+                    const active = editorState.account.department === dept.value;
+                    return (
+                      <button
+                        key={dept.value}
+                        type="button"
+                        className={`${CHIP_CLASS} ${active ? "ring-2 ring-offset-2 ring-offset-indigo-900" : "opacity-80 hover:opacity-100"}`}
+                        style={{
+                          background: dept.background,
+                          color: dept.color,
+                          borderColor: dept.borderColor,
+                        }}
+                        onClick={() =>
+                          setEditorState((prev) =>
+                            prev ? { ...prev, account: { ...prev.account, department: dept.value } } : prev
+                          )
+                        }
+                      >
+                        {dept.abbreviation}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-xs text-white/60">Wybierz właściwy departament służbowy.</p>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">Jednostki wewnętrzne</label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {INTERNAL_UNITS.map((unit) => {
+                    const active = editorState.account.units?.includes(unit.value);
+                    return (
+                      <button
+                        key={unit.value}
+                        type="button"
+                        className={`${CHIP_CLASS} ${
+                          active ? "ring-2 ring-offset-2 ring-offset-indigo-900" : "opacity-80 hover:opacity-100"
+                        }`}
+                        style={{
+                          background: unit.background,
+                          color: unit.color,
+                          borderColor: unit.borderColor,
+                        }}
+                        onClick={() =>
+                          setEditorState((prev) => {
+                            if (!prev) return prev;
+                            const list = Array.isArray(prev.account.units) ? prev.account.units.slice() : [];
+                            const idx = list.indexOf(unit.value);
+                            if (idx >= 0) {
+                              list.splice(idx, 1);
+                            } else {
+                              list.push(unit.value);
+                            }
+                            return { ...prev, account: { ...prev.account, units: list } };
+                          })
+                        }
+                      >
+                        {unit.abbreviation}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-xs text-white/60">
+                  Możesz wybrać dowolną liczbę jednostek specjalistycznych.
+                </p>
+                {editorState.account.units?.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1 text-[11px] text-white/70">
+                    {editorState.account.units.map((unit) => {
+                      const option = getInternalUnitOption(unit);
+                      return option ? <span key={option.value}>• {option.label}</span> : null;
+                    })}
+                  </div>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-white/80">Dodatkowy stopień</label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className={`${CHIP_CLASS} bg-white/10 text-white/80 hover:bg-white/20`}
+                    onClick={() =>
+                      setEditorState((prev) => (prev ? { ...prev, account: { ...prev.account, additionalRank: null } } : prev))
+                    }
+                  >
+                    Brak dodatkowego stopnia
+                  </button>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {ADDITIONAL_RANK_GROUPS.map((group) => (
+                    <div key={group.unit}>
+                      <div className="text-xs font-semibold uppercase text-white/60">
+                        {group.unitLabel}
+                        <span className="ml-2 text-[11px] text-white/40 normal-case">{group.unitDescription}</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {group.ranks.map((rank) => {
+                          const active = editorState.account.additionalRank === rank.value;
+                          return (
+                            <button
+                              key={rank.value}
+                              type="button"
+                              className={`${CHIP_CLASS} ${
+                                active ? "ring-2 ring-offset-2 ring-offset-indigo-900" : "opacity-80 hover:opacity-100"
+                              } text-[11px]`}
+                              style={{
+                                background: rank.background,
+                                color: rank.color,
+                                borderColor: rank.borderColor,
+                              }}
+                              onClick={() =>
+                                setEditorState((prev) =>
+                                  prev ? { ...prev, account: { ...prev.account, additionalRank: rank.value } } : prev
+                                )
+                              }
+                            >
+                              {rank.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-white/60">
+                  Aby przypisać stopień, upewnij się, że funkcjonariusz jest w odpowiedniej jednostce.
+                </p>
               </div>
 
               {editorState.mode === "create" ? (
