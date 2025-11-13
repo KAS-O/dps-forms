@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { getAdditionalRankOption, getInternalUnitOption, type AdditionalRank } from "@/lib/hr";
 import { UNIT_SECTIONS, unitHasAccess } from "@/lib/internalUnits";
 import { useProfile } from "@/hooks/useProfile";
@@ -63,13 +63,6 @@ export default function UnitSidebar() {
   const { prompt, alert, confirm } = useDialog();
   const [uploadState, setUploadState] = useState<UploadState>("idle");
   const [ticketSaving, setTicketSaving] = useState(false);
-
-  useEffect(() => {
-    document.body.classList.add("has-unit-sidebar");
-    return () => {
-      document.body.classList.remove("has-unit-sidebar");
-    };
-  }, []);
 
   const accessibleSections = useMemo(() => {
     return UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks, role)).sort((a, b) =>
@@ -258,15 +251,66 @@ export default function UnitSidebar() {
     return null;
   }
 
-  const widthClass = "w-[clamp(240px,18vw,300px)]";
-
   return (
-    <aside
-      className={`hidden lg:flex fixed left-0 top-0 h-full ${widthClass} flex-col gap-6 overflow-hidden px-5 pb-8 pt-24`}
-      aria-label="Panel funkcjonariusza"
-    >
-      <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-5 shadow-[0_24px_48px_-24px_rgba(59,130,246,0.5)] backdrop-blur">
-        <div className="flex flex-col gap-5">
+    <>
+      <div
+        className="hidden xl:block fixed left-6 top-[calc(104px)] z-20 w-[clamp(240px,18vw,320px)] space-y-4"
+        aria-label="Dostępne jednostki"
+      >
+        <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-5 shadow-[0_24px_48px_-24px_rgba(59,130,246,0.5)] backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-white/80">Twoje jednostki</h2>
+              <p className="text-xs text-white/55">Szybki dostęp do paneli specjalistycznych.</p>
+            </div>
+            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-white/60">
+              {accessibleSections.length}
+            </span>
+          </div>
+          <div className="mt-4 flex flex-col gap-3">
+            {accessibleSections.length > 0 ? (
+              accessibleSections.map((section) => {
+                const isActive = currentPath === section.href || currentPath.startsWith(`${section.href}/`);
+                return (
+                  <Link
+                    key={section.href}
+                    href={section.href}
+                    className={`group relative overflow-hidden rounded-2xl border border-white/10 p-4 transition-all ${
+                      isActive ? "border-white/40 shadow-[0_16px_32px_-24px_rgba(59,130,246,0.7)]" : "hover:-translate-y-1"
+                    }`}
+                    style={{
+                      background: `linear-gradient(135deg, ${section.navColor}33, rgba(8,18,36,0.85))`,
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-semibold text-white"
+                        style={{ background: section.navColor }}
+                      >
+                        {section.shortLabel}
+                      </span>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-semibold text-white">{section.label}</span>
+                        <span className="text-[11px] text-white/70">Przejdź do panelu jednostki</span>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })
+            ) : (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+                Brak jednostek przypisanych do konta.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="hidden xl:block fixed right-6 top-[calc(112px)] z-20 w-[clamp(260px,20vw,360px)]"
+        aria-label="Informacje o koncie"
+      >
+        <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-6 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.45)] backdrop-blur">
           <div className="flex items-start gap-4">
             <div className="flex flex-col items-center gap-3">
               {photoURL ? (
@@ -322,7 +366,7 @@ export default function UnitSidebar() {
             </div>
           </div>
 
-          <div className="flex w-full flex-col gap-2 text-left">
+          <div className="mt-5 flex flex-col gap-2 text-left">
             <button
               type="button"
               onClick={handleCreateTicket}
@@ -344,54 +388,6 @@ export default function UnitSidebar() {
           </div>
         </div>
       </div>
-
-      <div className="rounded-3xl border border-white/10 bg-[var(--card)]/85 p-5 shadow-[0_20px_40px_-24px_rgba(34,197,94,0.4)] backdrop-blur">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-white/70">Sekcje jednostek</h2>
-          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-white/60">
-            {accessibleSections.length}
-          </span>
-        </div>
-        <p className="mt-2 text-xs text-white/50">
-          Dostępne sekcje specjalistyczne. Kliknij, aby przejść do panelu danej jednostki.
-        </p>
-        <div className="mt-4 flex flex-col gap-3">
-          {accessibleSections.length > 0 ? (
-            accessibleSections.map((section) => {
-              const isActive = currentPath === section.href || currentPath.startsWith(`${section.href}/`);
-              return (
-                <Link
-                  key={section.href}
-                  href={section.href}
-                  className={`group relative overflow-hidden rounded-2xl border border-white/10 p-4 transition-all ${
-                    isActive ? "border-white/40 shadow-[0_16px_32px_-24px_rgba(59,130,246,0.7)]" : "hover:-translate-y-1"
-                  }`}
-                  style={{
-                    background: `linear-gradient(135deg, ${section.navColor}33, rgba(8,18,36,0.85))`,
-                  }}
-                >
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-semibold text-white"
-                      style={{ background: section.navColor }}
-                    >
-                      {section.shortLabel}
-                    </span>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-semibold text-white">{section.label}</span>
-                      <span className="text-[11px] text-white/70">Szybki dostęp do zasobów jednostki</span>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })
-          ) : (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-              Brak dodatkowych sekcji jednostek do wyświetlenia.
-            </div>
-          )}
-        </div>
-      </div>
-    </aside>
+    </>
   );
 }

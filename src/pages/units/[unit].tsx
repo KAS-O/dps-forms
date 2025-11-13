@@ -11,6 +11,7 @@ import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import { useProfile } from "@/hooks/useProfile";
+import { useDialog } from "@/components/DialogProvider";
 import { auth, db } from "@/lib/firebase";
 import {
   getAdditionalRankOption,
@@ -27,7 +28,7 @@ import {
   formatManageableRankList,
   type UnitSectionConfig,
 } from "@/lib/internalUnits";
-import { collection, doc, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 
 const CHIP_CLASS =
   "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide shadow-sm";
@@ -81,6 +82,16 @@ type NewCriminalGroupInput = {
   organizationType: string;
   base: string;
   operations: string;
+};
+
+const DEFAULT_CRIMINAL_GROUP_TEMPLATE = {
+  name: "Ballas",
+  colorName: "Fioletowa",
+  colorHex: "#7c3aed",
+  organizationType: "Gang uliczny",
+  base: "Grove Street",
+  operations:
+    "Handel narkotykami, handel bronią, handel materiałami wybuchowymi, tworzenie materiałów wybuchowych, napady, wyłudzenia, porwania, strzelaniny, pranie pieniędzy",
 };
 
 async function readErrorResponse(res: Response, fallback: string): Promise<string> {
@@ -277,6 +288,7 @@ export default function UnitPanelPage() {
   const normalizedUnit = (unitSlug ? unitSlug.toLowerCase() : "") as InternalUnit;
   const section: UnitSectionConfig | null = unitSlug ? getUnitSection(normalizedUnit) : null;
   const { role, additionalRanks, ready } = useProfile();
+  const { confirm, alert } = useDialog();
   const permission = useMemo(
     () => (section ? resolveUnitPermission(section.unit, additionalRanks) : null),
     [section, additionalRanks]
@@ -302,9 +314,16 @@ export default function UnitPanelPage() {
   });
   const [groupFormError, setGroupFormError] = useState<string | null>(null);
   const [groupSaving, setGroupSaving] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [candidateSearch, setCandidateSearch] = useState("");
+  const [selectedCandidate, setSelectedCandidate] = useState<string>("");
+  const [candidateRanks, setCandidateRanks] = useState<AdditionalRank[]>([]);
+  const [addingMember, setAddingMember] = useState(false);
+  const [addMemberError, setAddMemberError] = useState<string | null>(null);
 
   const unit = section?.unit ?? null;
-  const isGu = unit === "gu";
+  const supportsCriminalGroups = unit === "gu" || unit === "dtu";
+  const unitRankSet = useMemo(() => new Set(section?.rankHierarchy ?? []), [section]);
 
   const managementPermission = useMemo(() => {
     if (permission) {
@@ -340,12 +359,12 @@ export default function UnitPanelPage() {
     ];
     if (canManage) {
       tabs.push({ id: "management", label: "Zarządzanie jednostką" });
-      if (isGu) {
+      if (supportsCriminalGroups) {
         tabs.push({ id: "groups", label: "Grupy przestępcze" });
       }
     }
     return tabs;
-  }, [section, canManage, isGu]);
+  }, [section, canManage, supportsCriminalGroups]);
 
   useEffect(() => {
     if (!availableTabs.some((tab) => tab.id === activeTab)) {
@@ -436,10 +455,26 @@ export default function UnitPanelPage() {
     [unit, managementPermission]
   );
 
-  const filteredMembers = useMemo(() => {
-    if (!search.trim()) return members;
-    const q = search.trim().toLowerCase();
+  const unitMembers = useMemo(() => {
+    if (!unit) return [] as UnitMember[];
     return members.filter((member) => {
+      if (!member.units.includes(unit)) {
+        return false;
+      }
+      if (unitRankSet.size > 0 && !member.additionalRanks.some((rank) => unitRankSet.has(rank))) {
+        return false;
+      }
+      if (isHighCommand(member.role)) {
+        return false;
+      }
+      return true;
+    });
+  }, [members, unit, unitRankSet]);
+
+  const filteredMembers = useMemo(() => {
+    if (!search.trim()) return unitMembers;
+    const q = search.trim().toLowerCase();
+    return unitMembers.filter((member) => {
       if (member.fullName.toLowerCase().includes(q)) return true;
       if (member.login.toLowerCase().includes(q)) return true;
       if (member.badgeNumber && member.badgeNumber.toLowerCase().includes(q)) return true;
@@ -455,9 +490,40 @@ export default function UnitPanelPage() {
       if (rankLabels.some((label) => label && label.includes(q))) return true;
       return false;
     });
-  }, [members, search]);
+  }, [unitMembers, search]);
 
-  const manageableRanks = managementPermission?.manageableRanks ?? [];
+  const manageableRanks = useMemo(
+    () => (managementPermission ? managementPermission.manageableRanks : []),
+    [managementPermission]
+  );
+  const manageableRankOptions = useMemo(
+    () =>
+      manageableRanks
+        .map((rank) => getAdditionalRankOption(rank))
+        .filter((option): option is NonNullable<ReturnType<typeof getAdditionalRankOption>> => !!option),
+    [manageableRanks]
+  );
+
+  const candidateMembers = useMemo(() => {
+    if (!unit) return [] as UnitMember[];
+    return members.filter((member) => {
+      if (member.units.includes(unit)) return false;
+      if (isHighCommand(member.role)) return false;
+      return true;
+    });
+  }, [members, unit]);
+
+  const filteredCandidates = useMemo(() => {
+    if (!candidateSearch.trim()) return candidateMembers;
+    const q = candidateSearch.trim().toLowerCase();
+    return candidateMembers.filter((member) => {
+      if (member.fullName.toLowerCase().includes(q)) return true;
+      if (member.login.toLowerCase().includes(q)) return true;
+      if (member.badgeNumber && member.badgeNumber.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [candidateMembers, candidateSearch]);
+
   const highestRankOption = managementPermission ? getAdditionalRankOption(managementPermission.highestRank) : null;
   const manageableList = managementPermission ? formatManageableRankList(managementPermission.manageableRanks) : "";
 
@@ -480,12 +546,43 @@ export default function UnitPanelPage() {
   }, [criminalGroups]);
 
   useEffect(() => {
-    if (!isGu || !canManage) {
+    if (!supportsCriminalGroups || !canManage) {
       setCriminalGroups([]);
       setCriminalGroupsLoading(false);
       setCriminalGroupsError(null);
       return;
     }
+
+    const ensureDefaultGroup = async () => {
+      try {
+        const dossierId = "group-ballas";
+        const dossierRef = doc(db, "dossiers", dossierId);
+        const snapshot = await getDoc(dossierRef);
+        const user = auth.currentUser;
+        if (!snapshot.exists()) {
+          await setDoc(dossierRef, {
+            title: "Organizacja Ballas",
+            category: "criminal-group",
+            group: DEFAULT_CRIMINAL_GROUP_TEMPLATE,
+            createdAt: serverTimestamp(),
+            createdBy: user?.email || "",
+            createdByUid: user?.uid || "",
+          });
+        } else {
+          const currentGroup = snapshot.data()?.group || {};
+          const merged = { ...DEFAULT_CRIMINAL_GROUP_TEMPLATE, ...currentGroup };
+          await setDoc(
+            dossierRef,
+            { title: "Organizacja Ballas", category: "criminal-group", group: merged },
+            { merge: true }
+          );
+        }
+      } catch (error) {
+        console.warn("Nie udało się zsynchronizować domyślnej grupy", error);
+      }
+    };
+
+    void ensureDefaultGroup();
 
     setCriminalGroupsLoading(true);
     const groupsQuery = query(collection(db, "dossiers"), where("category", "==", "criminal-group"));
@@ -504,12 +601,12 @@ export default function UnitPanelPage() {
     );
 
     return () => unsubscribe();
-  }, [isGu, canManage]);
+  }, [supportsCriminalGroups, canManage]);
 
   const handleGroupSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!isGu || !canManage || groupSaving) return;
+      if (!supportsCriminalGroups || !canManage || groupSaving) return;
 
       const name = groupForm.name.trim();
       const title = groupForm.title.trim();
@@ -568,7 +665,118 @@ export default function UnitPanelPage() {
         setGroupSaving(false);
       }
     },
-    [canManage, groupForm, groupSaving, isGu]
+    [canManage, groupForm, groupSaving, supportsCriminalGroups]
+  );
+
+  const canAddMembers = canManage && manageableRankOptions.length > 0;
+
+  const handleOpenAddMember = useCallback(() => {
+    if (!canAddMembers) return;
+    setCandidateSearch("");
+    setSelectedCandidate("");
+    setCandidateRanks(manageableRanks.length ? [manageableRanks[manageableRanks.length - 1]] : []);
+    setAddMemberError(null);
+    setAddMemberOpen(true);
+  }, [canAddMembers, manageableRanks]);
+
+  const handleCloseAddMember = useCallback(() => {
+    setAddMemberOpen(false);
+    setCandidateSearch("");
+    setSelectedCandidate("");
+    setCandidateRanks([]);
+    setAddMemberError(null);
+  }, []);
+
+  const toggleCandidateRank = useCallback(
+    (rank: AdditionalRank) => {
+      setCandidateRanks((prev) => {
+        if (prev.includes(rank)) {
+          return prev.filter((value) => value !== rank);
+        }
+        const next = [...prev, rank];
+        const set = new Set(next);
+        return manageableRanks.filter((value) => set.has(value));
+      });
+    },
+    [manageableRanks]
+  );
+
+  const handleAddMemberSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!unit || !managementPermission) return;
+      if (!selectedCandidate) {
+        setAddMemberError("Wybierz funkcjonariusza.");
+        return;
+      }
+      const ranksToAssign =
+        candidateRanks.length > 0 ? candidateRanks : manageableRanks.slice(-1);
+      if (!ranksToAssign.length) {
+        setAddMemberError("Wybierz przynajmniej jedną rangę jednostki.");
+        return;
+      }
+      setAddingMember(true);
+      setAddMemberError(null);
+      try {
+        await handleSubmit(selectedCandidate, { membership: true, ranks: ranksToAssign });
+        setAddMemberOpen(false);
+        setSelectedCandidate("");
+        setCandidateRanks([]);
+        setCandidateSearch("");
+      } catch (error: any) {
+        setAddMemberError(error?.message || "Nie udało się dodać funkcjonariusza.");
+      } finally {
+        setAddingMember(false);
+      }
+    },
+    [
+      unit,
+      managementPermission,
+      selectedCandidate,
+      candidateRanks,
+      manageableRanks,
+      handleSubmit,
+    ]
+  );
+
+  const candidateSubmitDisabled = !selectedCandidate || candidateRanks.length === 0 || addingMember;
+
+  const handleRemoveGroup = useCallback(
+    async (group: CriminalGroupRecord) => {
+      if (!supportsCriminalGroups || !canManage) return;
+      const organizationName = group.group?.name || group.title || group.id;
+      const firstConfirmation = await confirm({
+        title: "Usuń grupę",
+        message: `Czy na pewno chcesz rozpocząć usuwanie organizacji ${organizationName}?`,
+        confirmLabel: "Kontynuuj",
+        cancelLabel: "Anuluj",
+      });
+      if (!firstConfirmation) return;
+      const finalConfirmation = await confirm({
+        title: "Potwierdź usunięcie",
+        message: `To działanie trwale usunie wszystkie dane organizacji ${organizationName}. Kontynuować?`,
+        confirmLabel: "Usuń",
+        cancelLabel: "Anuluj",
+        tone: "danger",
+      });
+      if (!finalConfirmation) return;
+      try {
+        await deleteDoc(doc(db, "dossiers", group.id));
+        await alert({
+          tone: "info",
+          title: "Usunięto grupę",
+          message: `Organizacja ${organizationName} została usunięta.`,
+        });
+      } catch (error: any) {
+        console.error("Nie udało się usunąć grupy", error);
+        await alert({
+          tone: "danger",
+          title: "Błąd",
+          message: error?.message || "Nie udało się usunąć grupy.",
+        });
+      }
+    },
+    [supportsCriminalGroups, canManage, confirm, alert]
   );
 
   return (
@@ -646,7 +854,7 @@ export default function UnitPanelPage() {
                       <p className="text-xs text-white/60">Aktualna lista funkcjonariuszy przypisanych do jednostki.</p>
                     </div>
                     <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
-                      {members.length}
+                      {unitMembers.length}
                     </span>
                   </div>
                   {error && (
@@ -670,14 +878,14 @@ export default function UnitPanelPage() {
                       Brak uprawnień do podglądu składu jednostki.
                     </div>
                   )}
-                  {!loading && canManage && members.length === 0 && !error && (
+                  {!loading && canManage && unitMembers.length === 0 && !error && (
                     <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
                       Brak funkcjonariuszy spełniających kryteria.
                     </div>
                   )}
-                  {canManage && members.length > 0 && (
+                  {canManage && unitMembers.length > 0 && (
                     <ul className="max-h-64 space-y-2 overflow-y-auto pr-1 text-sm text-white/80">
-                      {members.map((member) => (
+                      {unitMembers.map((member) => (
                         <li key={member.uid} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
                           <div className="flex items-center justify-between gap-3">
                             <span className="font-semibold text-white">{member.fullName}</span>
@@ -726,6 +934,16 @@ export default function UnitPanelPage() {
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                       />
+                      {canAddMembers && (
+                        <button
+                          type="button"
+                          className="btn btn--ghost btn--small"
+                          onClick={handleOpenAddMember}
+                          disabled={loading}
+                        >
+                          Dodaj do jednostki
+                        </button>
+                      )}
                       <button className="btn btn--ghost btn--small" onClick={loadMembers} disabled={loading}>
                         Odśwież
                       </button>
@@ -757,7 +975,7 @@ export default function UnitPanelPage() {
               </div>
             )}
 
-            {activeTab === "groups" && isGu && canManage && (
+            {activeTab === "groups" && supportsCriminalGroups && canManage && (
               <div className="grid gap-6">
                 <div className="card bg-gradient-to-br from-fuchsia-900/85 via-indigo-900/80 to-slate-900/85 p-6 text-white shadow-xl">
                   <h2 className="text-xl font-semibold">Gang Unit — rejestr organizacji</h2>
@@ -905,9 +1123,18 @@ export default function UnitPanelPage() {
                                   Kolorystyka: {group.group?.colorName || "—"}
                                 </p>
                               </div>
-                              <span className="rounded-full border border-white/30 bg-black/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide">
-                                {group.group?.organizationType || "Nieokreślono"}
-                              </span>
+                              <div className="flex flex-col items-end gap-2">
+                                <span className="rounded-full border border-white/30 bg-black/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide">
+                                  {group.group?.organizationType || "Nieokreślono"}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-white/25 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/70 transition hover:bg-white/20"
+                                  onClick={() => void handleRemoveGroup(group)}
+                                >
+                                  Usuń
+                                </button>
+                              </div>
                             </div>
                             <div className="grid gap-2 text-sm text-white/85">
                               <div className="flex items-center gap-2">
@@ -937,6 +1164,122 @@ export default function UnitPanelPage() {
             )}
           </div>
         </main>
+        {addMemberOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+            <div className="w-full max-w-2xl space-y-5 rounded-3xl border border-white/10 bg-[var(--card)]/95 p-6 shadow-[0_28px_60px_-20px_rgba(59,130,246,0.6)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <h3 className="text-xl font-semibold text-white">Dodaj funkcjonariusza do jednostki</h3>
+                  <p className="text-sm text-white/70">
+                    Wybierz funkcjonariusza z listy i przypisz mu odpowiednie rangi jednostki.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-full border border-white/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white/70 transition hover:bg-white/10"
+                  onClick={handleCloseAddMember}
+                  disabled={addingMember}
+                >
+                  Zamknij
+                </button>
+              </div>
+
+              <form className="space-y-4" onSubmit={handleAddMemberSubmit}>
+                <div className="space-y-3">
+                  <label className="grid gap-2 text-sm text-white/80">
+                    <span className="font-semibold text-white">Wybierz funkcjonariusza</span>
+                    <input
+                      className="input"
+                      placeholder="Szukaj po imieniu, loginie lub numerze odznaki"
+                      value={candidateSearch}
+                      onChange={(e) => setCandidateSearch(e.target.value)}
+                    />
+                  </label>
+                  <div className="max-h-52 overflow-y-auto rounded-2xl border border-white/10 bg-white/5">
+                    {filteredCandidates.length === 0 ? (
+                      <div className="px-4 py-3 text-sm text-white/60">
+                        Brak funkcjonariuszy spełniających kryteria.
+                      </div>
+                    ) : (
+                      <div className="flex flex-col">
+                        {filteredCandidates.map((candidate) => (
+                          <label
+                            key={candidate.uid}
+                            className={`flex cursor-pointer items-center gap-3 border-b border-white/5 px-4 py-3 text-sm last:border-b-0 ${
+                              selectedCandidate === candidate.uid ? "bg-white/10" : "hover:bg-white/5"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              className="accent-blue-400"
+                              name="candidate"
+                              value={candidate.uid}
+                              checked={selectedCandidate === candidate.uid}
+                              onChange={() => setSelectedCandidate(candidate.uid)}
+                            />
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-white">{candidate.fullName}</span>
+                              <span className="text-xs text-white/60">
+                                {candidate.login}
+                                {candidate.badgeNumber ? ` • #${candidate.badgeNumber}` : ""}
+                              </span>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <span className="text-sm font-semibold text-white">Rangi jednostki</span>
+                  {manageableRankOptions.length === 0 ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+                      Brak rang do przypisania — skontaktuj się z przełożonym.
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-3 text-sm text-white/80">
+                      {manageableRankOptions.map((option) => (
+                        <label
+                          key={option.value}
+                          className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1"
+                        >
+                          <input
+                            type="checkbox"
+                            className="accent-blue-400"
+                            checked={candidateRanks.includes(option.value)}
+                            onChange={() => toggleCandidateRank(option.value)}
+                          />
+                          {option.label}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {addMemberError && (
+                  <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+                    {addMemberError}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--small"
+                    onClick={handleCloseAddMember}
+                    disabled={addingMember}
+                  >
+                    Anuluj
+                  </button>
+                  <button type="submit" className="btn btn--small" disabled={candidateSubmitDisabled}>
+                    {addingMember ? "Dodawanie..." : "Dodaj funkcjonariusza"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </>
     </AuthGate>
   );
