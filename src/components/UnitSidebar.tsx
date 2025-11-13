@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useMemo, useState } from "react";
 import { getAdditionalRankOption, getInternalUnitOption, type AdditionalRank } from "@/lib/hr";
-import { UNIT_SECTIONS, unitHasAccess } from "@/lib/internalUnits";
+import { UNIT_SECTIONS, getUnitSection, unitHasAccess } from "@/lib/internalUnits";
 import { useProfile } from "@/hooks/useProfile";
 import { ROLE_LABELS, getRoleGroupLabel } from "@/lib/roles";
 import { useDialog } from "@/components/DialogProvider";
@@ -63,6 +63,7 @@ export default function UnitSidebar() {
   const { prompt, alert, confirm } = useDialog();
   const [uploadState, setUploadState] = useState<UploadState>("idle");
   const [ticketSaving, setTicketSaving] = useState(false);
+  const [missingIcons, setMissingIcons] = useState<Record<string, boolean>>({});
 
   const accessibleSections = useMemo(() => {
     return UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks, role)).sort((a, b) =>
@@ -70,13 +71,16 @@ export default function UnitSidebar() {
     );
   }, [additionalRanks, role]);
 
-  const membershipUnits = useMemo(
-    () =>
-      units
-        .map((value) => getInternalUnitOption(value))
-        .filter((option): option is NonNullable<ReturnType<typeof getInternalUnitOption>> => !!option),
-    [units]
-  );
+  const membershipUnits = useMemo(() => {
+    return units
+      .map((value) => {
+        const option = getInternalUnitOption(value);
+        if (!option) return null;
+        const section = getUnitSection(value);
+        return { option, section };
+      })
+      .filter((entry): entry is { option: NonNullable<ReturnType<typeof getInternalUnitOption>>; section: ReturnType<typeof getUnitSection> } => !!entry);
+  }, [units]);
 
   const highestRanks = useMemo(() => {
     if (!additionalRanks.length) return [] as string[];
@@ -254,7 +258,7 @@ export default function UnitSidebar() {
   return (
     <>
       <div
-        className="hidden xl:block fixed left-6 top-[calc(104px)] z-20 w-[clamp(240px,18vw,320px)] space-y-4"
+        className="hidden xl:block fixed left-6 top-[140px] z-20 w-[clamp(240px,18vw,320px)] space-y-4"
         aria-label="Dostępne jednostki"
       >
         <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-5 shadow-[0_24px_48px_-24px_rgba(59,130,246,0.5)] backdrop-blur">
@@ -271,6 +275,7 @@ export default function UnitSidebar() {
             {accessibleSections.length > 0 ? (
               accessibleSections.map((section) => {
                 const isActive = currentPath === section.href || currentPath.startsWith(`${section.href}/`);
+                const showIcon = section.icon && !missingIcons[section.unit];
                 return (
                   <Link
                     key={section.href}
@@ -283,12 +288,27 @@ export default function UnitSidebar() {
                     }}
                   >
                     <div className="flex items-center gap-3">
-                      <span
-                        className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-semibold text-white"
-                        style={{ background: section.navColor }}
+                      <div
+                        className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black/30"
+                        style={{ boxShadow: isActive ? `0 12px 24px -18px ${section.navColor}` : undefined }}
                       >
-                        {section.shortLabel}
-                      </span>
+                        {showIcon ? (
+                          <img
+                            src={section.icon}
+                            alt={`Logo jednostki ${section.label}`}
+                            className="h-full w-full object-cover"
+                            onError={() =>
+                              setMissingIcons((prev) =>
+                                prev[section.unit] ? prev : { ...prev, [section.unit]: true }
+                              )
+                            }
+                          />
+                        ) : (
+                          <span className="text-sm font-semibold uppercase tracking-wide text-white">
+                            {section.shortLabel}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex flex-col">
                         <span className="text-sm font-semibold text-white">{section.label}</span>
                         <span className="text-[11px] text-white/70">Przejdź do panelu jednostki</span>
@@ -307,7 +327,7 @@ export default function UnitSidebar() {
       </div>
 
       <div
-        className="hidden xl:block fixed right-6 top-[calc(112px)] z-20 w-[clamp(260px,20vw,360px)]"
+        className="hidden xl:block fixed right-6 top-[152px] z-20 w-[clamp(260px,20vw,360px)]"
         aria-label="Informacje o koncie"
       >
         <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-6 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.45)] backdrop-blur">
@@ -344,19 +364,35 @@ export default function UnitSidebar() {
 
               <div className="flex flex-wrap gap-2">
                 {membershipUnits.length > 0 ? (
-                  membershipUnits.map((unit) => (
-                    <span
-                      key={unit.value}
-                      className="rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide"
-                      style={{
-                        background: unit.background,
-                        color: unit.color,
-                        borderColor: unit.borderColor,
-                      }}
-                    >
-                      {unit.shortLabel || unit.abbreviation}
-                    </span>
-                  ))
+                  membershipUnits.map(({ option, section }) => {
+                    const showIcon = !!(section && section.icon && !missingIcons[section.unit]);
+                    return (
+                      <span
+                        key={option.value}
+                        className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide"
+                        style={{
+                          background: option.background,
+                          color: option.color,
+                          borderColor: option.borderColor,
+                        }}
+                      >
+                        {showIcon && section ? (
+                          <img
+                            src={section.icon}
+                            alt={`Logo jednostki ${option.label}`}
+                            className="h-4 w-4 rounded-full object-cover"
+                            onError={() =>
+                              section &&
+                              setMissingIcons((prev) =>
+                                prev[section.unit] ? prev : { ...prev, [section.unit]: true }
+                              )
+                            }
+                          />
+                        ) : null}
+                        <span>{option.shortLabel || option.abbreviation}</span>
+                      </span>
+                    );
+                  })
                 ) : (
                   <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-wide text-white/60">
                     Brak przypisania do jednostki

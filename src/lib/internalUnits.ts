@@ -8,32 +8,39 @@ export type UnitSectionConfig = {
   shortLabel: string;
   navColor: string;
   rankHierarchy: AdditionalRank[];
+  icon: string;
 };
 
-const BASE_UNIT_CONFIG: Record<InternalUnit, { navColor: string; rankHierarchy: AdditionalRank[] }> = {
+const BASE_UNIT_CONFIG: Record<InternalUnit, { navColor: string; rankHierarchy: AdditionalRank[]; iconName: string }> = {
   iad: {
     navColor: "#ef4444",
     rankHierarchy: ["opiekun-iad", "iad-chief-inspector", "iad-deputy-chief-inspector"],
+    iconName: "iad.png",
   },
   "swat-sert": {
     navColor: "#64748b",
     rankHierarchy: ["opiekun-swat-sert", "swat-commander", "swat-deputy-commander"],
+    iconName: "swat-sert.png",
   },
   usms: {
     navColor: "#eab308",
     rankHierarchy: ["opiekun-usms", "us-marshal"],
+    iconName: "usms.png",
   },
   dtu: {
     navColor: "#22d3ee",
     rankHierarchy: ["opiekun-dtu", "dtu-commander", "dtu-deputy-commander"],
+    iconName: "dtu.png",
   },
   gu: {
     navColor: "#10b981",
     rankHierarchy: ["opiekun-gu", "gu-commander", "gu-deputy-commander"],
+    iconName: "gu.png",
   },
   ftd: {
     navColor: "#6366f1",
     rankHierarchy: ["opiekun-ftd", "ftd-commander", "ftd-deputy-commander"],
+    iconName: "ftd.png",
   },
 };
 
@@ -47,6 +54,7 @@ export const UNIT_SECTIONS: UnitSectionConfig[] = (Object.keys(BASE_UNIT_CONFIG)
     shortLabel: option?.shortLabel || option?.abbreviation || unit.toUpperCase(),
     navColor: config.navColor,
     rankHierarchy: config.rankHierarchy.slice(),
+    icon: `/unit-logos/${config.iconName}`,
   };
 });
 
