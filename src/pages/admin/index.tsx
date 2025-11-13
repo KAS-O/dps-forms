@@ -34,6 +34,7 @@ import { useAnnouncement } from "@/hooks/useAnnouncement";
 import {
   ROLE_LABELS,
   ROLE_OPTIONS,
+  ROLE_VALUES,
   hasBoardAccess,
   DEFAULT_ROLE,
   normalizeRole,
@@ -129,6 +130,13 @@ const shouldFallbackToClient = (status: number, message?: string | null) => {
 };
 
 const LOG_PAGE_SIZE = 150;
+
+const ROLE_RANK = new Map<Role, number>(ROLE_VALUES.map((value, index) => [value, index]));
+
+const getRoleRank = (value: Role | null | undefined): number => {
+  if (!value) return -1;
+  return ROLE_RANK.get(value) ?? -1;
+};
 
 const CHIP_CLASS =
   "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide shadow-sm";
@@ -323,6 +331,8 @@ export default function Admin() {
   const { role, login, fullName, adminPrivileges, ready } = useProfile();
   const hasAdminAccess = adminPrivileges || hasBoardAccess(role);
   const canToggleAdmin = canAssignAdminPrivileges(role);
+  const requesterRoleRank = getRoleRank(role);
+  const canManageAllRoles = role === "admin";
   const { writeLog } = useLogWriter();
   const { confirm, prompt, alert } = useDialog();
   const { announcement } = useAnnouncement();
@@ -366,8 +376,16 @@ export default function Admin() {
     mode: "create" | "edit";
     account: Partial<Account>;
     password?: string;
+    initialRole: Role;
   } | null>(null);
   const [accountSaving, setAccountSaving] = useState(false);
+  const roleChangeLocked = useMemo(
+    () =>
+      !editorState || canManageAllRoles
+        ? false
+        : editorState.mode === "edit" && getRoleRank(editorState.initialRole) > requesterRoleRank,
+    [editorState, canManageAllRoles, requesterRoleRank]
+  );
 
   // ogłoszenia
   const [announcementMessage, setAnnouncementMessage] = useState("");
@@ -910,6 +928,7 @@ export default function Admin() {
         adminPrivileges: false,
       },
       password: "",
+      initialRole: DEFAULT_ROLE,
     });
   };
 
@@ -929,6 +948,7 @@ export default function Admin() {
         adminPrivileges: !!account.adminPrivileges,
       },
       password: "",
+      initialRole: account.role,
     });
   };
 
@@ -944,6 +964,22 @@ export default function Admin() {
       ? editorState.account.units.filter((unit): unit is InternalUnit => !!getInternalUnitOption(unit))
       : [];
     const additionalRanksValue = normalizeAdditionalRanks(editorState.account.additionalRanks);
+    const originalRoleValue: Role = editorState.initialRole || DEFAULT_ROLE;
+
+    if (!canManageAllRoles) {
+      if (
+        editorState.mode === "edit" &&
+        getRoleRank(originalRoleValue) > requesterRoleRank &&
+        roleValue !== originalRoleValue
+      ) {
+        setErr("Nie możesz zmienić rangi funkcjonariusza z wyższą rangą.");
+        return;
+      }
+      if (getRoleRank(roleValue) > requesterRoleRank) {
+        setErr("Nie możesz nadać rangi wyższej niż Twoja.");
+        return;
+      }
+    }
 
     if (!loginValue) {
       setErr("Login jest wymagany.");
@@ -1050,6 +1086,105 @@ export default function Admin() {
       setAccountSaving(false);
     }
   };
+
+  const handleAdminToggle = useCallback(async () => {
+    if (!editorState || !canToggleAdmin) return;
+    const snapshot = editorState;
+    const { adminPrivileges, fullName: targetName, login: targetLogin, uid: targetUid } = snapshot.account;
+    const displayName = (targetName || targetLogin || targetUid || "funkcjonariusza").trim();
+    const identifier = (targetLogin || targetUid || "").trim();
+
+    if (adminPrivileges) {
+      const ok = await confirm({
+        title: "Odbieranie uprawnień administratora",
+        message: `Czy na pewno chcesz odebrać uprawnienia administratora kontu ${displayName}?`,
+        confirmLabel: "Odbierz uprawnienia",
+        cancelLabel: "Anuluj",
+        tone: "danger",
+      });
+      if (!ok) return;
+      setEditorState((prev) =>
+        prev
+          ? {
+              ...prev,
+              account: { ...prev.account, adminPrivileges: false },
+            }
+          : prev
+      );
+      return;
+    }
+
+    const stepOne = await confirm({
+      title: "Nadanie uprawnień administratora",
+      message: `Czy na pewno chcesz nadać uprawnienia administratora kontu ${displayName}?`,
+      confirmLabel: "Tak, nadaj",
+      cancelLabel: "Anuluj",
+      tone: "danger",
+    });
+    if (!stepOne) return;
+
+    const stepTwo = await confirm({
+      title: "Pełny dostęp",
+      message:
+        "Osoba z uprawnieniami administratora uzyskuje pełny dostęp do systemu, w tym do logów, archiwów i zarządzania kontami. Potwierdź, że bierzesz odpowiedzialność za tę decyzję.",
+      confirmLabel: "Potwierdzam",
+      cancelLabel: "Anuluj",
+      tone: "danger",
+    });
+    if (!stepTwo) return;
+
+    if (identifier) {
+      const typed = await prompt({
+        title: "Potwierdź login",
+        message: `Aby kontynuować, wpisz login konta: ${identifier}.`,
+        placeholder: identifier,
+        confirmLabel: "Potwierdź",
+        cancelLabel: "Anuluj",
+      });
+      if (!typed || typed.trim().toLowerCase() !== identifier.toLowerCase()) {
+        await alert({
+          title: "Błędne potwierdzenie",
+          message: "Wpisany login nie zgadza się. Uprawnienia administratora nie zostały nadane.",
+          tone: "danger",
+        });
+        return;
+      }
+    } else {
+      const typed = await prompt({
+        title: "Dodatkowe potwierdzenie",
+        message: "Wpisz TAK, aby potwierdzić nadanie uprawnień administratora.",
+        placeholder: "TAK",
+        confirmLabel: "Potwierdź",
+        cancelLabel: "Anuluj",
+      });
+      if (!typed || typed.trim().toLowerCase() !== "tak") {
+        await alert({
+          title: "Błędne potwierdzenie",
+          message: "Niepoprawna odpowiedź. Uprawnienia administratora nie zostały nadane.",
+          tone: "danger",
+        });
+        return;
+      }
+    }
+
+    const finalStep = await confirm({
+      title: "Ostateczne potwierdzenie",
+      message: `Czy na pewno chcesz nadać uprawnienia administratora kontu ${displayName}?`,
+      confirmLabel: "Nadaj uprawnienia",
+      cancelLabel: "Anuluj",
+      tone: "danger",
+    });
+    if (!finalStep) return;
+
+    setEditorState((prev) =>
+      prev
+        ? {
+            ...prev,
+            account: { ...prev.account, adminPrivileges: true },
+          }
+        : prev
+    );
+  }, [editorState, canToggleAdmin, confirm, prompt, alert]);
 
   const filteredAccounts = useMemo(() => {
     const phrase = accountSearch.trim().toLowerCase();
@@ -2646,20 +2781,30 @@ export default function Admin() {
                 <select
                   className="input bg-white text-black"
                   value={editorState.account.role || DEFAULT_ROLE}
+                  disabled={roleChangeLocked}
                   onChange={(e) =>
                     setEditorState((prev) =>
-                      prev
+                      prev && !roleChangeLocked
                         ? { ...prev, account: { ...prev.account, role: e.target.value as Role } }
                         : prev
                     )
                   }
                 >
                   {ROLE_OPTIONS.map(({ value, label }) => (
-                    <option key={value} value={value}>
+                    <option
+                      key={value}
+                      value={value}
+                      disabled={!canManageAllRoles && getRoleRank(value) > requesterRoleRank}
+                    >
                       {label}
                     </option>
                   ))}
                 </select>
+                {roleChangeLocked && (
+                  <p className="mt-1 text-xs text-red-200/80">
+                    Nie możesz zmienić rangi funkcjonariusza z wyższą rangą niż Twoja.
+                  </p>
+                )}
               </div>
 
               <div className="md:col-span-2 flex flex-col gap-2">
@@ -2670,21 +2815,7 @@ export default function Admin() {
                       ? "bg-yellow-400 text-slate-900 hover:bg-yellow-300"
                       : "bg-slate-200 text-slate-900 hover:bg-slate-100"
                   } disabled:opacity-60 disabled:cursor-not-allowed`}
-                  onClick={() =>
-                    canToggleAdmin
-                      ? setEditorState((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                account: {
-                                  ...prev.account,
-                                  adminPrivileges: !prev.account.adminPrivileges,
-                                },
-                              }
-                            : prev
-                        )
-                      : undefined
-                  }
+                  onClick={handleAdminToggle}
                   disabled={!canToggleAdmin}
                 >
                   {editorState.account.adminPrivileges
