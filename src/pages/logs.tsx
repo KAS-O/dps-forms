@@ -4,9 +4,9 @@ import Head from "next/head";
 import { useProfile, can } from "@/hooks/useProfile";
 
 export default function LogsPage() {
-  const { role } = useProfile();
- 
-  if (!can.seeLogs(role)) return (
+  const { role, adminPrivileges } = useProfile();
+
+  if (!can.seeLogs(role, adminPrivileges)) return (
     <AuthGate>
       <Nav /><div className="max-w-4xl mx-auto p-6">Brak uprawnień.</div>
     </AuthGate>

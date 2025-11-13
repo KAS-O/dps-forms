@@ -25,7 +25,7 @@ import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useLogWriter } from "@/hooks/useLogWriter";
 import { getActiveVehicleFlags, getVehicleHighlightStyle } from "@/lib/vehicleFlags";
-import { hasBoardAccess } from "@/lib/roles";
+import { hasBoardAccess, hasOfficerAccess } from "@/lib/roles";
 
 type RecordAttachment = {
   url: string;
@@ -204,7 +204,7 @@ function AttachmentPreview({
 export default function DossierPage() {
   const router = useRouter();
   const { id } = router.query as { id: string };
-  const { role } = useProfile();
+  const { role, adminPrivileges } = useProfile();
 
   const [title, setTitle] = useState<string>("");
   const [info, setInfo] = useState<DossierInfo>({});
@@ -295,13 +295,13 @@ export default function DossierPage() {
   const canEditRecord = useCallback(
     (r: DossierRecord) => {
       const me = auth.currentUser?.uid;
-      return hasBoardAccess(role) || (!!me && r.authorUid === me);
+      return adminPrivileges || hasOfficerAccess(role) || (!!me && r.authorUid === me);
     },
-    [role]
+    [adminPrivileges, role]
   );
 
   const isCriminalGroup = info.category === "criminal-group";
-  const canDeleteDossier = hasBoardAccess(role) && !isCriminalGroup;
+  const canDeleteDossier = (adminPrivileges || hasOfficerAccess(role)) && !isCriminalGroup;
   const groupColorHex = info.group?.colorHex || "#7c3aed";
   const groupDisplayName = useMemo(
     () => info.group?.name || title || "Grupa przestępcza",

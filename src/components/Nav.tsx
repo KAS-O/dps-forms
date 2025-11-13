@@ -6,7 +6,6 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
-import { hasBoardAccess } from "@/lib/roles";
 import { UNIT_SECTIONS, unitHasAccess } from "@/lib/internalUnits";
 import UnitSidebar from "@/components/UnitSidebar";
 
@@ -46,7 +45,7 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 }
 
 export default function Nav() {
-  const { role, additionalRanks } = useProfile();
+  const { role, additionalRanks, adminPrivileges } = useProfile();
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
   const router = useRouter();
@@ -118,7 +117,7 @@ export default function Nav() {
                     );
                   })}
                 </div>
-                {can.seeArchive(role) && (
+                {can.seeArchive(role, adminPrivileges) && (
                   <Link
                     href="/archive"
                     className={`nav-pill shrink-0${archiveActive ? " nav-pill--active" : ""}`}
@@ -128,7 +127,7 @@ export default function Nav() {
                     Archiwum
                   </Link>
                 )}
-                {hasBoardAccess(role) && (
+                {can.manageRoles(role, adminPrivileges) && (
                   <Link
                     href="/admin"
                     className={`nav-pill shrink-0${adminActive ? " nav-pill--active" : ""}`}

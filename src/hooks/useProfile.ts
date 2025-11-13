@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
-import { Role, normalizeRole, hasBoardAccess, DEFAULT_ROLE } from "@/lib/roles";
+import { Role, normalizeRole, hasBoardAccess, hasOfficerAccess, DEFAULT_ROLE } from "@/lib/roles";
 import { normalizeAdditionalRanks, normalizeInternalUnits, type AdditionalRank, type InternalUnit } from "@/lib/hr";
 export type { Role } from "@/lib/roles";
 
@@ -14,6 +14,7 @@ export function useProfile() {
   const [additionalRanks, setAdditionalRanks] = useState<AdditionalRank[]>([]);
   const [photoURL, setPhotoURL] = useState<string | null>(null);
   const [photoPath, setPhotoPath] = useState<string | null>(null);
+  const [adminPrivileges, setAdminPrivileges] = useState(false);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -58,6 +59,7 @@ export function useProfile() {
       }
       setUnits(normalizeInternalUnits(d.units));
       setAdditionalRanks(normalizeAdditionalRanks(d.additionalRanks ?? d.additionalRank));
+      setAdminPrivileges(!!(d.adminPrivileges ?? d.isAdmin));
       const rawPhotoURL = typeof d.photoURL === "string" ? d.photoURL.trim() : "";
       setPhotoURL(rawPhotoURL ? rawPhotoURL : null);
       const rawPhotoPath = typeof d.photoPath === "string" ? d.photoPath.trim() : "";
@@ -68,15 +70,28 @@ export function useProfile() {
     return () => unsub();
   }, []);
 
-  return { role, login, fullName, badgeNumber, units, additionalRanks, photoURL, photoPath, ready };
+  return {
+    role,
+    login,
+    fullName,
+    badgeNumber,
+    units,
+    additionalRanks,
+    photoURL,
+    photoPath,
+    adminPrivileges,
+    ready,
+  };
 }
 
 // Uprawnienia
 export const can = {
-  seeArchive: (role: Role | null) => !!role,
-  deleteArchive: (role: Role | null) => hasBoardAccess(role),
-  seeLogs: (role: Role | null) => hasBoardAccess(role),
-  manageRoles: (role: Role | null) => hasBoardAccess(role),
-  manageFinance: (role: Role | null) => hasBoardAccess(role),
-  editRecords: (role: Role | null) => hasBoardAccess(role), // edycja/usuwanie wpisów w teczkach
+  seeArchive: (role: Role | null, adminPrivileges = false) => !!role,
+  deleteArchive: (role: Role | null, adminPrivileges = false) =>
+    adminPrivileges || hasBoardAccess(role),
+  seeLogs: (role: Role | null, adminPrivileges = false) => adminPrivileges || hasBoardAccess(role),
+  manageRoles: (role: Role | null, adminPrivileges = false) => adminPrivileges || hasBoardAccess(role),
+  manageFinance: (role: Role | null, adminPrivileges = false) => adminPrivileges || hasBoardAccess(role),
+  editRecords: (role: Role | null, adminPrivileges = false) =>
+    adminPrivileges || hasBoardAccess(role) || hasOfficerAccess(role), // edycja/usuwanie wpisów w teczkach
 };

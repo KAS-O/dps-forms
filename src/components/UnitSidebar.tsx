@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useMemo, useState } from "react";
-import { getAdditionalRankOption, getInternalUnitOption, type AdditionalRank } from "@/lib/hr";
+import {
+  getAdditionalRankOption,
+  getInternalUnitOption,
+  type AdditionalRank,
+  type InternalUnit,
+} from "@/lib/hr";
 import { UNIT_SECTIONS, getUnitSection, unitHasAccess } from "@/lib/internalUnits";
 import { useProfile } from "@/hooks/useProfile";
 import { ROLE_LABELS, getRoleGroupLabel } from "@/lib/roles";
@@ -58,7 +63,18 @@ function resolveRankLabels(ranks: AdditionalRank[]): string[] {
 }
 
 export default function UnitSidebar() {
-  const { role, login, fullName, badgeNumber, units, additionalRanks, photoURL, photoPath, ready } = useProfile();
+  const {
+    role,
+    login,
+    fullName,
+    badgeNumber,
+    units,
+    additionalRanks,
+    photoURL,
+    photoPath,
+    adminPrivileges,
+    ready,
+  } = useProfile();
   const router = useRouter();
   const { prompt, alert, confirm } = useDialog();
   const [uploadState, setUploadState] = useState<UploadState>("idle");
@@ -72,7 +88,18 @@ export default function UnitSidebar() {
   }, [additionalRanks, role]);
 
   const membershipUnits = useMemo(() => {
-    return units
+    const unitSet = new Set<InternalUnit>();
+    units.forEach((value) => {
+      unitSet.add(value);
+    });
+    additionalRanks.forEach((rank) => {
+      const option = getAdditionalRankOption(rank);
+      if (option) {
+        unitSet.add(option.unit);
+      }
+    });
+
+    return Array.from(unitSet)
       .map((value) => {
         const option = getInternalUnitOption(value);
         if (!option) return null;
@@ -80,7 +107,7 @@ export default function UnitSidebar() {
         return { option, section };
       })
       .filter((entry): entry is { option: NonNullable<ReturnType<typeof getInternalUnitOption>>; section: ReturnType<typeof getUnitSection> } => !!entry);
-  }, [units]);
+  }, [units, additionalRanks]);
 
   const highestRanks = useMemo(() => {
     if (!additionalRanks.length) return [] as string[];
@@ -352,7 +379,18 @@ export default function UnitSidebar() {
 
             <div className="flex flex-1 flex-col gap-3 text-left text-sm text-white/80">
               <div className="space-y-1">
-                <p className="text-lg font-semibold text-white">{fullName || login || "Nieznany funkcjonariusz"}</p>
+                <p className="text-lg font-semibold text-white">
+                  {fullName || login || "Nieznany funkcjonariusz"}
+                  {adminPrivileges && (
+                    <span
+                      className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-yellow-300/60 bg-yellow-400/20 text-[11px] font-semibold text-yellow-300"
+                      title="Uprawnienia administratora"
+                      aria-label="Uprawnienia administratora"
+                    >
+                      ★
+                    </span>
+                  )}
+                </p>
                 <p className="text-xs uppercase tracking-wide text-white/60">{groupLabel || "Brak grupy"}</p>
                 <p className="text-xs text-white/60">Login: {login || "—"}</p>
                 <p className="text-xs text-white/60">Stopień: {roleLabel}</p>

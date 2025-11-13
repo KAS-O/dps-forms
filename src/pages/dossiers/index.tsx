@@ -20,7 +20,7 @@ import { useLogWriter } from "@/hooks/useLogWriter";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
-import { hasBoardAccess } from "@/lib/roles";
+import { hasOfficerAccess } from "@/lib/roles";
 
 export default function Dossiers() {
   const [list, setList] = useState<any[]>([]);
@@ -30,8 +30,8 @@ export default function Dossiers() {
   const [ok, setOk] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const { role } = useProfile();
-  const hasCommandAccess = hasBoardAccess(role);
+  const { role, adminPrivileges } = useProfile();
+  const canManageDossiers = adminPrivileges || hasOfficerAccess(role);
   const { confirm, alert } = useDialog();
   const { logActivity, session } = useSessionActivity();
   const { writeLog } = useLogWriter();
@@ -119,10 +119,10 @@ export default function Dossiers() {
   };
 
   const remove = async (dossierId: string) => {
-    if (!hasCommandAccess) {
+    if (!canManageDossiers) {
       await alert({
         title: "Brak uprawnień",
-        message: "Tylko dowództwo (Staff Commander i wyżej) może usuwać teczki.",
+        message: "Teczki mogą usuwać tylko funkcjonariusze (Solo Cadet i Cadet są wyłączeni).",
         tone: "info",
       });
       return;
@@ -236,7 +236,7 @@ export default function Dossiers() {
                           </div>
                           <div className="text-sm text-beige-100/75">CID: {d.cid}</div>
                         </div>
-                        {hasCommandAccess && (
+                        {canManageDossiers && (
                           <button
                             className="btn bg-red-700 text-white w-full md:w-auto"
                             onClick={(e) => {

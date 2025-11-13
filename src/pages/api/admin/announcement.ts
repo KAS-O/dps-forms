@@ -31,14 +31,15 @@ async function verifyManager(req: NextApiRequest) {
   const profileSnap = await adminDb.collection("profiles").doc(decoded.uid).get();
   const profileData = profileSnap.data() || {};
   const role = normalizeRole(profileData.role);
+  const adminPrivileges = profileData.adminPrivileges === true;
 
-  if (!hasBoardAccess(role)) {
+  if (!hasBoardAccess(role) && !adminPrivileges) {
     const err: Error & { code?: string } = new Error("FORBIDDEN");
     err.code = "FORBIDDEN";
     throw err;
   }
 
-  return { decoded, profileData, role };
+  return { decoded, profileData, role, adminPrivileges };
 }
 
 function computeExpiry(duration: string | null | undefined) {

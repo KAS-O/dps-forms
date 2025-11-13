@@ -365,7 +365,7 @@ function buildArchive(snapshot: QueryDocumentSnapshot<DocumentData>): Archive {
 }
 
 export default function ArchivePage() {
-  const { role, login, fullName } = useProfile();
+  const { role, login, fullName, adminPrivileges } = useProfile();
   const { alert, confirm } = useDialog();
   const { logActivity, session } = useSessionActivity();
   const [items, setItems] = useState<Archive[]>([]);
@@ -481,7 +481,7 @@ export default function ArchivePage() {
   };
 
   const remove = async (id: string) => {
-    if (!can.deleteArchive(role)) {
+    if (!can.deleteArchive(role, adminPrivileges)) {
       await alert({
         title: "Brak uprawnień",
         message: "Tylko dowództwo (Staff Commander i wyżej) może usuwać wpisy z archiwum.",
@@ -516,7 +516,7 @@ export default function ArchivePage() {
   };
 
   const clearAll = async () => {
-    if (!can.deleteArchive(role)) {
+    if (!can.deleteArchive(role, adminPrivileges)) {
       await alert({
         title: "Brak uprawnień",
         message: "Tylko dowództwo (Staff Commander i wyżej) może czyścić archiwum.",
@@ -1011,7 +1011,7 @@ export default function ArchivePage() {
 
   const selectedCount = selectedIds.length;
 
-  if (!can.seeArchive(role)) {
+  if (!can.seeArchive(role, adminPrivileges)) {
     return (
       <AuthGate>
         <>
@@ -1072,7 +1072,7 @@ export default function ArchivePage() {
                       {creatingReport ? "Generowanie..." : `Utwórz raport (${selectedCount})`}
                     </button>
                   )}
-                  {can.deleteArchive(role) && (
+                  {can.deleteArchive(role, adminPrivileges) && (
                     <button className="btn bg-red-700 text-white" onClick={clearAll} disabled={clearing} type="button">
                       {clearing ? "Czyszczenie..." : "Wyczyść archiwum"}
                     </button>
@@ -1206,7 +1206,7 @@ export default function ArchivePage() {
                     </div>
                     
                     <div className="flex items-center justify-end gap-2">
-                      {can.deleteArchive(role) && !selectionMode && (
+                      {can.deleteArchive(role, adminPrivileges) && !selectionMode && (
                         <button className="btn bg-red-700 text-white" onClick={() => remove(item.id)}>
                           Usuń
                         </button>
