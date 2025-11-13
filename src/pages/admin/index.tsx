@@ -34,10 +34,12 @@ import { useAnnouncement } from "@/hooks/useAnnouncement";
 import {
   ROLE_LABELS,
   ROLE_OPTIONS,
+  ROLE_VALUES,
   hasBoardAccess,
   DEFAULT_ROLE,
   normalizeRole,
   canAssignAdminPrivileges,
+  getRoleRank,
 } from "@/lib/roles";
 import {
   DEPARTMENTS,
@@ -366,6 +368,7 @@ export default function Admin() {
     mode: "create" | "edit";
     account: Partial<Account>;
     password?: string;
+    originalRole: Role | null;
   } | null>(null);
   const [accountSaving, setAccountSaving] = useState(false);
 
@@ -395,6 +398,15 @@ export default function Admin() {
   const displayedTickets = viewingArchive ? ticketArchive : tickets;
   const displayedTicketLoading = viewingArchive ? ticketArchiveLoading : ticketsLoading;
   const displayedTicketError = viewingArchive ? ticketArchiveError : ticketsError;
+
+  const manageableRoleSet = useMemo(() => {
+    const rank = getRoleRank(role);
+    if (rank < 0) {
+      return new Set<Role>([DEFAULT_ROLE]);
+    }
+    const allowed = ROLE_VALUES.filter((_, index) => index <= rank);
+    return new Set<Role>(allowed);
+  }, [role]);
 
   const buildLogsQuery = useCallback(
     (cursor: QueryDocumentSnapshot | null) => {
@@ -910,6 +922,7 @@ export default function Admin() {
         adminPrivileges: false,
       },
       password: "",
+      originalRole: DEFAULT_ROLE,
     });
   };
 
@@ -929,8 +942,61 @@ export default function Admin() {
         adminPrivileges: !!account.adminPrivileges,
       },
       password: "",
+      originalRole: account.role ?? DEFAULT_ROLE,
     });
   };
+
+  const requireAdminGrantConfirmation = useCallback(async () => {
+    const steps = [
+      "Uprawnienia administratora dają pełny dostęp do panelu zarządu. Czy na pewno chcesz kontynuować?",
+      "Osoba z uprawnieniami administratora może edytować konta wszystkich funkcjonariuszy.",
+      "Administrator może usuwać dane, resetować ustawienia i publikować ogłoszenia.",
+      "Potwierdź, że wiesz komu nadajesz te uprawnienia i bierzesz odpowiedzialność za konsekwencje.",
+    ];
+    for (let index = 0; index < steps.length; index += 1) {
+      const message = steps[index];
+      const confirmed = await confirm({
+        title: `Potwierdzenie ${index + 1} z ${steps.length}`,
+        message,
+        confirmLabel: index === steps.length - 1 ? "Nadaj uprawnienia" : "Kontynuuj",
+        cancelLabel: "Anuluj",
+        tone: "warning",
+      });
+      if (!confirmed) {
+        return false;
+      }
+    }
+    return true;
+  }, [confirm]);
+
+  const handleAdminToggle = useCallback(async () => {
+    if (!canToggleAdmin || !editorState) {
+      return;
+    }
+    if (editorState.account.adminPrivileges) {
+      setEditorState((prev) =>
+        prev
+          ? {
+              ...prev,
+              account: { ...prev.account, adminPrivileges: false },
+            }
+          : prev
+      );
+      return;
+    }
+    const confirmed = await requireAdminGrantConfirmation();
+    if (!confirmed) {
+      return;
+    }
+    setEditorState((prev) =>
+      prev
+        ? {
+            ...prev,
+            account: { ...prev.account, adminPrivileges: true },
+          }
+        : prev
+    );
+  }, [canToggleAdmin, editorState, requireAdminGrantConfirmation]);
 
   const saveAccount = async () => {
     if (!editorState) return;
@@ -993,6 +1059,34 @@ export default function Admin() {
             ? `Aby przypisać stopień ${rankOption.label}, dodaj jednostkę ${unitOption.abbreviation}.`
             : "Aby przypisać dodatkowy stopień, wybierz powiązaną jednostkę."
         );
+        return;
+      }
+    }
+
+    const actorRank = getRoleRank(role);
+    if (actorRank < 0) {
+      setErr("Brak uprawnień do zarządzania rangami.");
+      return;
+    }
+    const newRank = getRoleRank(roleValue);
+    const originalRole = editorState.originalRole || DEFAULT_ROLE;
+    const originalRank = getRoleRank(originalRole);
+    const currentUserUid = auth.currentUser?.uid || null;
+    const editingSelf =
+      editorState.mode === "edit" &&
+      !!currentUserUid &&
+      editorState.account.uid === currentUserUid;
+    if (newRank > actorRank) {
+      setErr("Nie możesz nadawać rangi wyższej niż Twoja.");
+      return;
+    }
+    if (editorState.mode === "edit") {
+      if (originalRank > actorRank && roleValue !== originalRole) {
+        setErr("Nie możesz zmieniać rangi funkcjonariusza o wyższym stopniu.");
+        return;
+      }
+      if (editingSelf && newRank > originalRank) {
+        setErr("Nie możesz awansować samego siebie na wyższą rangę.");
         return;
       }
     }
@@ -2653,13 +2747,25 @@ export default function Admin() {
                         : prev
                     )
                   }
+                  disabled={
+                    editorState.mode === "edit" &&
+                    getRoleRank(editorState.originalRole) > getRoleRank(role)
+                  }
                 >
-                  {ROLE_OPTIONS.map(({ value, label }) => (
+                  {ROLE_OPTIONS.filter(({ value }) =>
+                    manageableRoleSet.has(value) || value === editorState.originalRole
+                  ).map(({ value, label }) => (
                     <option key={value} value={value}>
                       {label}
                     </option>
                   ))}
                 </select>
+                {editorState.mode === "edit" &&
+                  getRoleRank(editorState.originalRole) > getRoleRank(role) && (
+                    <p className="mt-1 text-xs text-white/60">
+                      Nie możesz zmieniać rangi funkcjonariusza o wyższym stopniu.
+                    </p>
+                  )}
               </div>
 
               <div className="md:col-span-2 flex flex-col gap-2">
@@ -2670,21 +2776,9 @@ export default function Admin() {
                       ? "bg-yellow-400 text-slate-900 hover:bg-yellow-300"
                       : "bg-slate-200 text-slate-900 hover:bg-slate-100"
                   } disabled:opacity-60 disabled:cursor-not-allowed`}
-                  onClick={() =>
-                    canToggleAdmin
-                      ? setEditorState((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                account: {
-                                  ...prev.account,
-                                  adminPrivileges: !prev.account.adminPrivileges,
-                                },
-                              }
-                            : prev
-                        )
-                      : undefined
-                  }
+                  onClick={() => {
+                    void handleAdminToggle();
+                  }}
                   disabled={!canToggleAdmin}
                 >
                   {editorState.account.adminPrivileges
