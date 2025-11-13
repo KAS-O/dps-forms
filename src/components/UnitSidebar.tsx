@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useMemo, useState } from "react";
 import { getAdditionalRankOption, getInternalUnitOption, type AdditionalRank } from "@/lib/hr";
-import { UNIT_SECTIONS, unitHasAccess } from "@/lib/internalUnits";
+import { UNIT_SECTIONS, unitHasAccess, type UnitSectionConfig } from "@/lib/internalUnits";
 import { useProfile } from "@/hooks/useProfile";
 import { ROLE_LABELS, getRoleGroupLabel } from "@/lib/roles";
 import { useDialog } from "@/components/DialogProvider";
@@ -19,6 +19,8 @@ import type { FirebaseStorage } from "firebase/storage";
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
 type UploadState = "idle" | "saving" | "removing";
+
+const UNIT_ICON_BASE_PATH = "/unit-icons";
 
 function getStorageInstance(): FirebaseStorage | null {
   const instance = storage as unknown as FirebaseStorage | null;
@@ -55,6 +57,59 @@ function resolveRankLabels(ranks: AdditionalRank[]): string[] {
     }
   });
   return labels;
+}
+
+type UnitIconProps = {
+  unit: UnitSectionConfig["unit"];
+  label: string;
+  accent?: string | null;
+  size?: "md" | "sm";
+};
+
+function getUnitFallback(label: string) {
+  const normalized = label.replace(/[^a-z0-9ąćęłńóśźż]/gi, "").toUpperCase();
+  if (normalized.length >= 2) {
+    return normalized.slice(0, 2);
+  }
+  if (normalized.length === 1) {
+    return normalized;
+  }
+  return label.slice(0, 2).toUpperCase() || "?";
+}
+
+function UnitIcon({ unit, label, accent, size = "md" }: UnitIconProps) {
+  const [error, setError] = useState(false);
+  const dimension = size === "sm" ? "h-7 w-7" : "h-10 w-10";
+  const padding = size === "sm" ? "p-1.5" : "p-2";
+  const textSize = size === "sm" ? "text-[11px]" : "text-sm";
+
+  if (error) {
+    return (
+      <span
+        className={`flex shrink-0 items-center justify-center rounded-xl font-semibold uppercase text-white shadow-inner ${dimension} ${textSize}`}
+        style={{ background: accent || "rgba(15,23,42,0.7)" }}
+        aria-label={`Logo jednostki ${label}`}
+        role="img"
+      >
+        {getUnitFallback(label)}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/10 shadow-[0_12px_32px_-22px_rgba(15,23,42,0.85)] ${dimension} ${padding}`}
+      aria-hidden="false"
+    >
+      <img
+        src={`${UNIT_ICON_BASE_PATH}/${unit}.png`}
+        alt={`Logo jednostki ${label}`}
+        className="h-full w-full object-contain"
+        loading="lazy"
+        onError={() => setError(true)}
+      />
+    </span>
+  );
 }
 
 export default function UnitSidebar() {
@@ -254,7 +309,7 @@ export default function UnitSidebar() {
   return (
     <>
       <div
-        className="hidden xl:block fixed left-6 top-[calc(104px)] z-20 w-[clamp(240px,18vw,320px)] space-y-4"
+        className="hidden xl:block fixed left-6 top-[140px] z-20 w-[clamp(240px,18vw,320px)] space-y-4"
         aria-label="Dostępne jednostki"
       >
         <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-5 shadow-[0_24px_48px_-24px_rgba(59,130,246,0.5)] backdrop-blur">
@@ -283,12 +338,7 @@ export default function UnitSidebar() {
                     }}
                   >
                     <div className="flex items-center gap-3">
-                      <span
-                        className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-semibold text-white"
-                        style={{ background: section.navColor }}
-                      >
-                        {section.shortLabel}
-                      </span>
+                      <UnitIcon unit={section.unit} label={section.label} accent={section.navColor} />
                       <div className="flex flex-col">
                         <span className="text-sm font-semibold text-white">{section.label}</span>
                         <span className="text-[11px] text-white/70">Przejdź do panelu jednostki</span>
@@ -307,7 +357,7 @@ export default function UnitSidebar() {
       </div>
 
       <div
-        className="hidden xl:block fixed right-6 top-[calc(112px)] z-20 w-[clamp(260px,20vw,360px)]"
+        className="hidden xl:block fixed right-6 top-[140px] z-20 w-[clamp(260px,20vw,360px)]"
         aria-label="Informacje o koncie"
       >
         <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-6 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.45)] backdrop-blur">
@@ -330,37 +380,44 @@ export default function UnitSidebar() {
               </label>
             </div>
 
-            <div className="flex flex-1 flex-col gap-3 text-left text-sm text-white/80">
-              <div className="space-y-1">
-                <p className="text-lg font-semibold text-white">{fullName || login || "Nieznany funkcjonariusz"}</p>
-                <p className="text-xs uppercase tracking-wide text-white/60">{groupLabel || "Brak grupy"}</p>
-                <p className="text-xs text-white/60">Login: {login || "—"}</p>
-                <p className="text-xs text-white/60">Stopień: {roleLabel}</p>
-                <p className="text-xs text-white/60">Numer odznaki: {badgeNumber ? `#${badgeNumber}` : "Brak"}</p>
-                {highestRanks.length > 0 && (
-                  <p className="text-xs text-white/60">Dodatkowe rangi: {highestRanks.join(", ")}</p>
-                )}
-              </div>
+          <div className="flex flex-1 flex-col gap-3 text-left text-sm text-white/80">
+            <div className="space-y-1">
+              <p className="text-lg font-semibold text-white">{fullName || login || "Nieznany funkcjonariusz"}</p>
+              <p className="text-xs uppercase tracking-wide text-white/60">{groupLabel || "Brak grupy"}</p>
+              <p className="text-xs text-white/60">Login: {login || "—"}</p>
+              <p className="text-xs text-white/60">Stopień: {roleLabel}</p>
+              <p className="text-xs text-white/60">Numer odznaki: {badgeNumber ? `#${badgeNumber}` : "Brak"}</p>
+              {highestRanks.length > 0 && (
+                <p className="text-xs text-white/60">Dodatkowe rangi: {highestRanks.join(", ")}</p>
+              )}
+            </div>
 
-              <div className="flex flex-wrap gap-2">
-                {membershipUnits.length > 0 ? (
-                  membershipUnits.map((unit) => (
-                    <span
-                      key={unit.value}
-                      className="rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide"
-                      style={{
-                        background: unit.background,
-                        color: unit.color,
-                        borderColor: unit.borderColor,
-                      }}
-                    >
-                      {unit.shortLabel || unit.abbreviation}
-                    </span>
-                  ))
-                ) : (
-                  <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-wide text-white/60">
-                    Brak przypisania do jednostki
+            <div className="flex flex-wrap gap-2">
+              {membershipUnits.length > 0 ? (
+                membershipUnits.map((unit) => (
+                  <span
+                    key={unit.value}
+                    className="flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide"
+                    style={{
+                      background: unit.background,
+                      color: unit.color,
+                      borderColor: unit.borderColor,
+                    }}
+                    title={unit.label}
+                  >
+                    <UnitIcon
+                      unit={unit.value}
+                      label={unit.label}
+                      accent={unit.background}
+                      size="sm"
+                    />
+                    <span className="leading-none">{unit.shortLabel || unit.abbreviation}</span>
                   </span>
+                ))
+              ) : (
+                <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-wide text-white/60">
+                  Brak przypisania do jednostki
+                </span>
                 )}
               </div>
             </div>

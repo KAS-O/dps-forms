@@ -118,23 +118,6 @@ const humanizeIdentifier = (value: string) => {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 };
 
-const createInitials = (fullName?: string | null, login?: string | null) => {
-  const source = fullName?.trim() || login?.trim() || "";
-  if (!source) return "?";
-  const parts = source
-    .replace(/[^a-ząćęłńóśźż0-9\s]/gi, " ")
-    .split(" ")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (parts.length === 0) {
-    return source.slice(0, 2).toUpperCase();
-  }
-  if (parts.length === 1) {
-    return parts[0].slice(0, 2).toUpperCase();
-  }
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-};
-
 const SECTION_LABELS: Record<string, string> = {
   sesja: "Sesja",
   nawigacja: "Nawigacja",
@@ -315,13 +298,6 @@ export default function Admin() {
   const { confirm, prompt, alert } = useDialog();
   const { announcement } = useAnnouncement();
   const loginDomain = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
-  const displayLogin = login || "—";
-  const displayName = fullName || login || "Nieznany funkcjonariusz";
-  const displayInitials = createInitials(fullName, login);
-  const normalizedRoleValue = role ? normalizeRole(role) : null;
-  const currentRoleLabel = normalizedRoleValue
-    ? ROLE_LABELS[normalizedRoleValue] || normalizedRoleValue
-    : "—";
 
   const [range, setRange] = useState<Range>("all");
   const [err, setErr] = useState<string | null>(null);
@@ -688,6 +664,7 @@ export default function Admin() {
       }
     } else {
       setAnnouncementMessage("");
+      setAnnouncementDuration("30m");
     }
   }, [announcement, announcementSaving]);
 
@@ -1097,23 +1074,37 @@ export default function Admin() {
       if (!user) {
         throw new Error("Brak zalogowanego użytkownika.");
       }
-      const token = await user.getIdToken();
-      const res = await fetch("/api/admin/announcement", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      const windowOption = ANNOUNCEMENT_WINDOWS.find((w) => w.value === announcementDuration);
+      const expiresAt = windowOption?.ms
+        ? Timestamp.fromMillis(Date.now() + windowOption.ms)
+        : null;
+      const fallbackLogin = login || deriveLoginFromEmail(user.email || "") || user.uid;
+      const authorName = fullName || fallbackLogin;
+      await setDoc(
+        doc(db, "configs", "announcement"),
+        {
           message,
           duration: announcementDuration,
-        }),
+          expiresAt: expiresAt ?? null,
+          createdAt: serverTimestamp(),
+          createdBy: fallbackLogin,
+          createdByUid: user.uid,
+          createdByName: authorName,
+        },
+        { merge: true }
+      );
+
+      await writeLog({
+        type: "announcement_publish",
+        section: "panel-zarzadu",
+        action: "announcement.publish",
+        message: `Opublikowano ogłoszenie (${windowOption?.label || "niestandardowy zakres"}).`,
+        details: {
+          duration: announcementDuration,
+          expiresAt: expiresAt ? expiresAt.toDate().toISOString() : null,
+        },
       });
-      if (!res.ok) {
-        const messageText = await readErrorResponse(res, "Nie udało się opublikować ogłoszenia.");
-        throw new Error(messageText);
-      }
-    
+
       await alert({
         title: "Opublikowano",
         message: "Ogłoszenie zostało opublikowane.",
@@ -1146,17 +1137,13 @@ export default function Admin() {
       if (!user) {
         throw new Error("Brak zalogowanego użytkownika.");
       }
-      const token = await user.getIdToken();
-      const res = await fetch("/api/admin/announcement", {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      await deleteDoc(doc(db, "configs", "announcement"));
+      await writeLog({
+        type: "announcement_remove",
+        section: "panel-zarzadu",
+        action: "announcement.remove",
+        message: "Usunięto aktywne ogłoszenie panelu.",
       });
-      if (!res.ok) {
-        const message = await readErrorResponse(res, "Nie udało się usunąć ogłoszenia.");
-        throw new Error(message);
-      }
       setAnnouncementMessage("");
     } catch (e: any) {
       console.error(e);
@@ -1745,45 +1732,6 @@ export default function Admin() {
           </aside>
 
           <div className="grid gap-6">
-            <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-sm">
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div className="flex items-center gap-4">
-                  <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-xl font-semibold text-white shadow-lg">
-                    {displayInitials}
-                  </span>
-                  <div>
-                    <div className="text-xl font-semibold text-slate-900">{displayName}</div>
-                    <p className="text-sm text-slate-500">Ranga: {currentRoleLabel}</p>
-                  </div>
-                </div>
-                {badgeNumber && (
-                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-1.5 text-sm font-semibold text-slate-700">
-                    <span className="text-xs uppercase tracking-[0.3em] text-slate-400">Odznaka</span>
-                    #{badgeNumber}
-                  </div>
-                )}
-              </div>
-              <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-2">
-                <div className="space-y-1">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Login</dt>
-                  <dd className="font-mono text-base text-slate-900">
-                    {displayLogin === "—" ? "—" : `${displayLogin}@${loginDomain}`}
-                  </dd>
-                </div>
-                <div className="space-y-1">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Uprawnienia</dt>
-                  <dd className="text-slate-700">
-                    {hasBoardAccess(role)
-                      ? "Pełny dostęp do panelu zarządu"
-                      : "Brak dostępu do panelu zarządu"}
-                  </dd>
-                </div>
-              </dl>
-              <p className="mt-4 text-xs leading-relaxed text-slate-500">
-                Informacje o koncie są przechowywane w systemie logowania. W razie potrzeby resetu hasła skorzystaj z konsoli Firebase.
-              </p>
-            </section>
-
             {section === "overview" && (
               <div className="grid gap-6">
                 <div className="card p-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
