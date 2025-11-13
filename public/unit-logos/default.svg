@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="160" height="160" rx="32" fill="url(#grad)" />
+  <g fill="#ffffff" font-family="'Roboto', 'Helvetica Neue', Arial, sans-serif" font-weight="600" text-anchor="middle">
+    <text x="80" y="88" font-size="44">UNIT</text>
+    <text x="80" y="120" font-size="20" opacity="0.7">LOGO</text>
+  </g>
+</svg>
