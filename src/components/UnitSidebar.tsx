@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import type { FirebaseStorage } from "firebase/storage";
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import UnitLogo from "@/components/UnitLogo";
 
 type UploadState = "idle" | "saving" | "removing";
 
@@ -254,7 +255,7 @@ export default function UnitSidebar() {
   return (
     <>
       <div
-        className="hidden xl:block fixed left-6 top-[calc(104px)] z-20 w-[clamp(240px,18vw,320px)] space-y-4"
+        className="hidden xl:block fixed left-6 top-[140px] z-20 w-[clamp(240px,18vw,320px)] space-y-4"
         aria-label="Dostępne jednostki"
       >
         <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-5 shadow-[0_24px_48px_-24px_rgba(59,130,246,0.5)] backdrop-blur">
@@ -283,12 +284,7 @@ export default function UnitSidebar() {
                     }}
                   >
                     <div className="flex items-center gap-3">
-                      <span
-                        className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-semibold text-white"
-                        style={{ background: section.navColor }}
-                      >
-                        {section.shortLabel}
-                      </span>
+                      <UnitLogo unit={section.unit} label={section.label} size={40} className="shadow-lg ring-1 ring-white/10" />
                       <div className="flex flex-col">
                         <span className="text-sm font-semibold text-white">{section.label}</span>
                         <span className="text-[11px] text-white/70">Przejdź do panelu jednostki</span>
@@ -307,7 +303,7 @@ export default function UnitSidebar() {
       </div>
 
       <div
-        className="hidden xl:block fixed right-6 top-[calc(112px)] z-20 w-[clamp(260px,20vw,360px)]"
+        className="hidden xl:block fixed right-6 top-[150px] z-20 w-[clamp(260px,20vw,360px)]"
         aria-label="Informacje o koncie"
       >
         <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-6 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.45)] backdrop-blur">

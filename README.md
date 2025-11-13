@@ -15,6 +15,23 @@ Minimalny panel formularzy dla Department of Public Safety (RP FiveM)
 ## Deploy
 Najprościej: Vercel. Ustaw zmienne środowiskowe tak jak w `.env.local.example`.
 
+## Ikony jednostek
+W panelu bocznym i w kartach jednostek wyświetlane są logotypy wewnętrznych sekcji (IAD, SWAT/SERT, USMS itd.).
+
+1. Umieść pliki z ikonami w katalogu `public/unit-logos/`.
+2. Nazwij pliki dokładnie tak samo jak identyfikatory jednostek:
+   - `iad` — Internal Affairs Division
+   - `swat-sert`
+   - `usms`
+   - `dtu`
+   - `gu`
+   - `ftd`
+3. Aplikacja najpierw próbuje wczytać plik `<nazwa>.webp`, a jeśli go nie znajdzie, spróbuje `<nazwa>.png`.
+4. Rekomendowany format: kwadratowy obraz 256×256 px w formacie **WebP** lub **PNG** (tło przezroczyste lub jednolite).
+5. W repozytorium znajduje się `public/unit-logos/default.svg` – zostanie użyty automatycznie jako zapas, gdy brakuje konkretnego logotypu.
+
+Po dodaniu grafik uruchom ponownie środowisko developerskie (`npm run dev`), aby odświeżyć assety statyczne.
+
 ### Firestore i Storage rules
 W katalogu `firebase/` znajdują się aktualne reguły bezpieczeństwa (`firestore.rules`, `storage.rules`).
 

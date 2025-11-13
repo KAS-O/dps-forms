@@ -9,6 +9,7 @@ import { useSessionActivity } from "@/components/ActivityLogger";
 import { hasBoardAccess } from "@/lib/roles";
 import { UNIT_SECTIONS, unitHasAccess } from "@/lib/internalUnits";
 import UnitSidebar from "@/components/UnitSidebar";
+import UnitLogo from "@/components/UnitLogo";
 
 const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dashboard", label: "Dokumenty", color: "#60a5fa" },
@@ -112,7 +113,13 @@ export default function Nav() {
                         className={`nav-pill shrink-0${isActive ? " nav-pill--active" : ""}`}
                         style={createNavStyle(section.navColor, isActive)}
                       >
-                        <span className="nav-pill__dot" style={{ background: section.navColor }} aria-hidden />
+                        <UnitLogo
+                          unit={section.unit}
+                          label={section.label}
+                          size={28}
+                          className="shadow-sm ring-1 ring-white/10"
+                          roundedClassName="rounded-lg"
+                        />
                         {section.shortLabel}
                       </Link>
                     );

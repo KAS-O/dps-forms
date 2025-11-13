@@ -28,6 +28,7 @@ import {
   formatManageableRankList,
   type UnitSectionConfig,
 } from "@/lib/internalUnits";
+import UnitLogo from "@/components/UnitLogo";
 import { collection, deleteDoc, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 
 const CHIP_CLASS =
@@ -797,16 +798,27 @@ export default function UnitPanelPage() {
                 />
                 Panel jednostki
               </span>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="space-y-2">
-                  <h1 className="text-3xl font-bold tracking-tight">
-                    {section ? section.label : "Nieznana jednostka"}
-                  </h1>
-                  <p className="text-sm text-white/70">
-                    {section
-                      ? `Zarządzaj strukturą i monitoruj informacje dotyczące ${section.shortLabel || section.label}.`
-                      : "Nie znaleziono konfiguracji dla podanej jednostki."}
-                  </p>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-1 items-center gap-4">
+                  {section && (
+                    <UnitLogo
+                      unit={section.unit}
+                      label={section.label}
+                      size={64}
+                      className="shadow-xl ring-2 ring-white/10"
+                      roundedClassName="rounded-2xl"
+                    />
+                  )}
+                  <div className="space-y-2">
+                    <h1 className="text-3xl font-bold tracking-tight">
+                      {section ? section.label : "Nieznana jednostka"}
+                    </h1>
+                    <p className="text-sm text-white/70">
+                      {section
+                        ? `Zarządzaj strukturą i monitoruj informacje dotyczące ${section.shortLabel || section.label}.`
+                        : "Nie znaleziono konfiguracji dla podanej jednostki."}
+                    </p>
+                  </div>
                 </div>
               </div>
               <div className="flex flex-wrap gap-3" role="tablist" aria-label="Zakładki jednostki">
