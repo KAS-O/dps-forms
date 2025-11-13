@@ -12,6 +12,12 @@ Minimalny panel formularzy dla Department of Public Safety (RP FiveM)
 2) `npm i`
 3) `npm run dev` i wejdź na http://localhost:3000
 
+## Ikony jednostek specjalistycznych
+- Wszystkie logotypy jednostek możesz umieścić w katalogu `public/unit-icons/` (utwórz go, jeśli jeszcze nie istnieje).
+- Aplikacja szuka plików PNG o nazwach odpowiadających identyfikatorom jednostek: `iad.png`, `swat-sert.png`, `usms.png`, `dtu.png`, `gu.png`, `ftd.png`.
+- Zalecany format to kwadratowe PNG (np. 256×256 px) z przezroczystym tłem. Możesz użyć wyższej rozdzielczości, grafika zostanie automatycznie przeskalowana w panelu.
+- Po dodaniu lub podmianie pliku zrestartuj dev server/Vercela, aby nowa grafika została zaczytana przez przeglądarkę.
+
 ## Deploy
 Najprościej: Vercel. Ustaw zmienne środowiskowe tak jak w `.env.local.example`.
 
