@@ -79,7 +79,10 @@ export default function Nav() {
               </span>
             </div>
             <div className="flex items-center gap-2 whitespace-nowrap text-sm">
-              <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold">
+              <button
+                onClick={logout}
+                className="btn min-h-[2.75rem] px-6 text-sm font-semibold shadow-[0_18px_38px_-18px_rgba(59,130,246,0.45)]"
+              >
                 Wyloguj
               </button>
             </div>

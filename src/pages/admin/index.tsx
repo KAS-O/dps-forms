@@ -34,6 +34,7 @@ import { useAnnouncement } from "@/hooks/useAnnouncement";
 import {
   ROLE_LABELS,
   ROLE_OPTIONS,
+  ROLE_VALUES,
   hasBoardAccess,
   DEFAULT_ROLE,
   normalizeRole,
@@ -132,6 +133,13 @@ const LOG_PAGE_SIZE = 150;
 
 const CHIP_CLASS =
   "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide shadow-sm";
+
+const ROLE_PRIORITY = new Map<Role, number>(ROLE_VALUES.map((value, index) => [value, index]));
+
+function getRolePriority(value: Role | null | undefined): number {
+  if (!value) return -1;
+  return ROLE_PRIORITY.get(value) ?? -1;
+}
 
 const humanizeIdentifier = (value: string) => {
   if (!value) return "";
@@ -327,6 +335,7 @@ export default function Admin() {
   const { confirm, prompt, alert } = useDialog();
   const { announcement } = useAnnouncement();
   const loginDomain = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
+  const editorRolePriority = useMemo(() => getRolePriority(role), [role]);
 
   const [range, setRange] = useState<Range>("all");
   const [err, setErr] = useState<string | null>(null);
@@ -366,8 +375,55 @@ export default function Admin() {
     mode: "create" | "edit";
     account: Partial<Account>;
     password?: string;
+    originalRole?: Role | null;
   } | null>(null);
   const [accountSaving, setAccountSaving] = useState(false);
+  const [adminConfirmationPending, setAdminConfirmationPending] = useState(false);
+  const roleSelectConfig = useMemo(() => {
+    if (!editorState) {
+      return { options: ROLE_OPTIONS, disabled: false };
+    }
+    if (editorRolePriority < 0) {
+      return { options: ROLE_OPTIONS, disabled: false };
+    }
+    const currentUid = auth.currentUser?.uid || null;
+    const accountRole = (editorState.account.role as Role) || DEFAULT_ROLE;
+    const originalRole = (editorState.originalRole as Role | null | undefined) || accountRole;
+    const originalPriority = getRolePriority(originalRole);
+    if (editorState.mode === "edit" && originalPriority > editorRolePriority) {
+      const currentOption = ROLE_OPTIONS.find((option) => option.value === accountRole);
+      if (currentOption) {
+        return { options: [currentOption], disabled: true };
+      }
+      return {
+        options: [
+          {
+            value: accountRole,
+            label: ROLE_LABELS[accountRole] || accountRole,
+          },
+        ],
+        disabled: true,
+      };
+    }
+    const isSelfEdit =
+      editorState.mode === "edit" && currentUid != null && editorState.account.uid === currentUid;
+    const limit = isSelfEdit ? Math.min(editorRolePriority, originalPriority) : editorRolePriority;
+    if (limit < 0) {
+      return { options: ROLE_OPTIONS, disabled: false };
+    }
+    const filtered = ROLE_OPTIONS.filter((option) => getRolePriority(option.value) <= limit);
+    if (!filtered.some((option) => option.value === accountRole)) {
+      const fallback = ROLE_OPTIONS.find((option) => option.value === accountRole);
+      if (fallback) {
+        filtered.push(fallback);
+      }
+    }
+    const unique = filtered.filter(
+      (option, index, self) => index === self.findIndex((item) => item.value === option.value)
+    );
+    unique.sort((a, b) => getRolePriority(a.value) - getRolePriority(b.value));
+    return { options: unique, disabled: false };
+  }, [editorState, editorRolePriority]);
 
   // ogłoszenia
   const [announcementMessage, setAnnouncementMessage] = useState("");
@@ -910,6 +966,7 @@ export default function Admin() {
         adminPrivileges: false,
       },
       password: "",
+      originalRole: DEFAULT_ROLE,
     });
   };
 
@@ -929,7 +986,78 @@ export default function Admin() {
         adminPrivileges: !!account.adminPrivileges,
       },
       password: "",
+      originalRole: account.role,
     });
+  };
+
+  const handleAdminToggle = async () => {
+    if (!editorState || !canToggleAdmin || adminConfirmationPending) {
+      return;
+    }
+    if (editorState.account.adminPrivileges) {
+      setEditorState((prev) =>
+        prev
+          ? {
+              ...prev,
+              account: { ...prev.account, adminPrivileges: false },
+            }
+          : prev
+      );
+      return;
+    }
+
+    const subjectLabel = (editorState.account.fullName || editorState.account.login || "tego konta").trim();
+    const label = subjectLabel || "tego konta";
+    const steps = [
+      {
+        title: "Potwierdzenie 1/4",
+        message:
+          "Nadanie uprawnień administratora zapewnia pełny dostęp do panelu zarządu i danych osobowych. Czy chcesz kontynuować?",
+      },
+      {
+        title: "Potwierdzenie 2/4",
+        message:
+          "Administrator może modyfikować rangi, jednostki oraz treści w systemie. Upewnij się, że ufasz tej osobie.",
+      },
+      {
+        title: "Potwierdzenie 3/4",
+        message:
+          "Nieprawidłowe użycie tych uprawnień może prowadzić do utraty danych lub naruszenia procedur. Czy wciąż chcesz kontynuować?",
+      },
+      {
+        title: "Potwierdzenie 4/4",
+        message: `Czy na pewno chcesz nadać uprawnienia administratora dla ${label}?`,
+        tone: "danger" as const,
+      },
+    ];
+
+    let confirmed = true;
+    setAdminConfirmationPending(true);
+    try {
+      for (const step of steps) {
+        const ok = await confirm({
+          confirmLabel: "Tak",
+          cancelLabel: "Anuluj",
+          ...step,
+        });
+        if (!ok) {
+          confirmed = false;
+          break;
+        }
+      }
+      if (confirmed) {
+        setEditorState((prev) =>
+          prev
+            ? {
+                ...prev,
+                account: { ...prev.account, adminPrivileges: true },
+              }
+            : prev
+        );
+      }
+    } finally {
+      setAdminConfirmationPending(false);
+    }
   };
 
   const saveAccount = async () => {
@@ -997,37 +1125,77 @@ export default function Admin() {
       }
     }
 
+    const requesterPriority = editorRolePriority;
+    const desiredPriority = getRolePriority(roleValue);
+    const originalRoleValue = (editorState.originalRole as Role | null | undefined) || roleValue;
+    const originalPriority = getRolePriority(originalRoleValue);
+    const currentUid = auth.currentUser?.uid || null;
+    const editingSelf =
+      editorState.mode === "edit" && currentUid != null && editorState.account.uid === currentUid;
+    let includeRoleInPayload = true;
+
+    if (editorState.mode === "create") {
+      if (requesterPriority >= 0 && desiredPriority > requesterPriority) {
+        setErr("Nie możesz nadawać rangi wyższej niż Twoja.");
+        return;
+      }
+    } else {
+      if (requesterPriority >= 0 && originalPriority > requesterPriority) {
+        if (desiredPriority !== originalPriority) {
+          setErr("Nie możesz zmieniać rangi funkcjonariusza o wyższej randze niż Twoja.");
+          return;
+        }
+        includeRoleInPayload = false;
+      } else {
+        if (requesterPriority >= 0 && !editingSelf && desiredPriority > requesterPriority) {
+          setErr("Nie możesz nadawać rangi wyższej niż Twoja.");
+          return;
+        }
+        if (editingSelf && desiredPriority > originalPriority) {
+          setErr("Nie możesz nadać sobie wyższej rangi niż obecna.");
+          return;
+        }
+      }
+      if (desiredPriority === originalPriority) {
+        includeRoleInPayload = false;
+      }
+    }
+
     try {
       setAccountSaving(true);
       setErr(null);
       const user = auth.currentUser;
       if (!user) throw new Error("Brak zalogowanego użytkownika.");
       const token = await user.getIdToken();
-      const payload: Record<string, any> =
-        editorState.mode === "create"
-          ? {
-              login: loginValue,
-              fullName: fullNameValue,
-              role: roleValue,
-              password: passwordValue,
-              badgeNumber: badgeNumberValue,
-              department: departmentValue,
-              units: unitsValue,
-              additionalRanks: additionalRanksValue,
-              additionalRank: additionalRanksValue[0] ?? null,
-              adminPrivileges: !!editorState.account.adminPrivileges,
-            }
-          : {
-              uid: editorState.account.uid,
-              fullName: fullNameValue,
-              role: roleValue,
-              badgeNumber: badgeNumberValue,
-              department: departmentValue,
-              units: unitsValue,
-              additionalRanks: additionalRanksValue,
-              additionalRank: additionalRanksValue[0] ?? null,
-              adminPrivileges: editorState.account.adminPrivileges,
-            };
+      let payload: Record<string, any>;
+      if (editorState.mode === "create") {
+        payload = {
+          login: loginValue,
+          fullName: fullNameValue,
+          role: roleValue,
+          password: passwordValue,
+          badgeNumber: badgeNumberValue,
+          department: departmentValue,
+          units: unitsValue,
+          additionalRanks: additionalRanksValue,
+          additionalRank: additionalRanksValue[0] ?? null,
+          adminPrivileges: !!editorState.account.adminPrivileges,
+        };
+      } else {
+        payload = {
+          uid: editorState.account.uid,
+          fullName: fullNameValue,
+          badgeNumber: badgeNumberValue,
+          department: departmentValue,
+          units: unitsValue,
+          additionalRanks: additionalRanksValue,
+          additionalRank: additionalRanksValue[0] ?? null,
+          adminPrivileges: editorState.account.adminPrivileges,
+        };
+        if (includeRoleInPayload) {
+          payload.role = roleValue;
+        }
+      }
       const res = await fetch("/api/admin/accounts", {
         method: editorState.mode === "create" ? "POST" : "PATCH",
         headers: {
@@ -2646,6 +2814,7 @@ export default function Admin() {
                 <select
                   className="input bg-white text-black"
                   value={editorState.account.role || DEFAULT_ROLE}
+                  disabled={roleSelectConfig.disabled}
                   onChange={(e) =>
                     setEditorState((prev) =>
                       prev
@@ -2654,12 +2823,17 @@ export default function Admin() {
                     )
                   }
                 >
-                  {ROLE_OPTIONS.map(({ value, label }) => (
+                  {roleSelectConfig.options.map(({ value, label }) => (
                     <option key={value} value={value}>
                       {label}
                     </option>
                   ))}
                 </select>
+                {roleSelectConfig.disabled && (
+                  <p className="mt-1 text-xs text-white/60">
+                    Nie możesz zmienić rangi funkcjonariusza o wyższej randze niż Twoja.
+                  </p>
+                )}
               </div>
 
               <div className="md:col-span-2 flex flex-col gap-2">
@@ -2670,22 +2844,8 @@ export default function Admin() {
                       ? "bg-yellow-400 text-slate-900 hover:bg-yellow-300"
                       : "bg-slate-200 text-slate-900 hover:bg-slate-100"
                   } disabled:opacity-60 disabled:cursor-not-allowed`}
-                  onClick={() =>
-                    canToggleAdmin
-                      ? setEditorState((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                account: {
-                                  ...prev.account,
-                                  adminPrivileges: !prev.account.adminPrivileges,
-                                },
-                              }
-                            : prev
-                        )
-                      : undefined
-                  }
-                  disabled={!canToggleAdmin}
+                  onClick={handleAdminToggle}
+                  disabled={!canToggleAdmin || adminConfirmationPending}
                 >
                   {editorState.account.adminPrivileges
                     ? "Odbierz uprawnienia administratora"

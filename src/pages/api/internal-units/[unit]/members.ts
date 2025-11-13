@@ -16,7 +16,7 @@ import {
   normalizeDepartment,
   type Department,
 } from "@/lib/hr";
-import { normalizeRole, type Role } from "@/lib/roles";
+import { normalizeRole, isHighCommand, type Role } from "@/lib/roles";
 import { resolveUnitPermission, getUnitSection } from "@/lib/internalUnits";
 
 const SUPPORTED_UNITS = new Set<InternalUnit>(["iad", "swat-sert", "usms", "dtu", "gu", "ftd"]);
@@ -49,8 +49,22 @@ async function ensureUnitAccess(req: NextApiRequest, unit: InternalUnit) {
   }
   const profileDoc = await fetchFirestoreDocument(`profiles/${user.localId}`, idToken);
   const profileData = decodeFirestoreDocument(profileDoc);
+  const role = normalizeRole(profileData.role);
   const additionalRanks = normalizeAdditionalRanks(profileData.additionalRanks ?? profileData.additionalRank);
-  const permission = resolveUnitPermission(unit, additionalRanks);
+  let permission = resolveUnitPermission(unit, additionalRanks);
+  if (!permission && isHighCommand(role)) {
+    const section = getUnitSection(unit);
+    if (section) {
+      const hierarchy = section.rankHierarchy.slice();
+      if (hierarchy.length > 0) {
+        permission = {
+          unit,
+          highestRank: hierarchy[0],
+          manageableRanks: hierarchy,
+        };
+      }
+    }
+  }
   if (!permission) {
     throw Object.assign(new Error("Brak uprawnień"), { status: 403 });
   }

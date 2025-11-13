@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { Role, normalizeRole, hasBoardAccess, canAssignAdminPrivileges } from "@/lib/roles";
+import { Role, ROLE_VALUES, normalizeRole, hasBoardAccess, canAssignAdminPrivileges } from "@/lib/roles";
 import {
   type Department,
   type InternalUnit,
@@ -40,6 +40,14 @@ type AccountResponse = {
   additionalRank?: AdditionalRank | null;
   adminPrivileges?: boolean;
 };
+
+const ROLE_PRIORITY = new Map<Role, number>(ROLE_VALUES.map((value, index) => [value, index]));
+
+function getRolePriority(value: Role | null | undefined): number {
+  if (!value) return -1;
+  return ROLE_PRIORITY.get(value) ?? -1;
+}
+
 async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]> {
   const documents = await listFirestoreCollection("profiles", idToken, { pageSize: 200 });
   const accounts: AccountResponse[] = documents.map((doc) => {
@@ -131,7 +139,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { idToken, role: requesterRole } = await ensureBoardAccess(req);
+    const { idToken, role: requesterRole, uid: requesterUid } = await ensureBoardAccess(req);
+    const requesterPriority = getRolePriority(requesterRole);
 
     if (req.method === "GET") {
       const accounts = await listFirestoreProfiles(idToken);
@@ -164,6 +173,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: "Numer odznaki jest wymagany." });
       }
       validateBadge(normalizedBadge);
+
+      const normalizedRoleValue = normalizeRole(role);
+      if (requesterPriority >= 0 && getRolePriority(normalizedRoleValue) > requesterPriority) {
+        return res.status(403).json({ error: "Nie możesz nadawać rangi wyższej niż Twoja." });
+      }
 
       const normalizedDepartment = normalizeDepartment(department);
       if (!normalizedDepartment) {
@@ -204,7 +218,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         {
           login: normalizedLogin,
           fullName: displayName,
-          role: normalizeRole(role),
+          role: normalizedRoleValue,
           badgeNumber: normalizedBadge,
           department: normalizedDepartment,
           units: normalizedUnits,
@@ -241,6 +255,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       const profileData = decodeFirestoreDocument(profileDoc);
       const updates: Record<string, any> = {};
+      const currentRole = normalizeRole(profileData.role);
+      const targetPriority = getRolePriority(currentRole);
+      const editingSelf = typeof uid === "string" && uid === requesterUid;
       if (typeof fullName === "string") {
         const trimmed = fullName.trim();
         if (trimmed) {
@@ -248,7 +265,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
       if (role) {
-        updates.role = normalizeRole(role);
+        const desiredRole = normalizeRole(role);
+        const desiredPriority = getRolePriority(desiredRole);
+        if (requesterPriority >= 0 && targetPriority > requesterPriority) {
+          if (desiredPriority !== targetPriority) {
+            return res
+              .status(403)
+              .json({ error: "Nie możesz zmieniać rangi funkcjonariusza o wyższej randze niż Twoja." });
+          }
+        } else {
+          if (requesterPriority >= 0 && !editingSelf && desiredPriority > requesterPriority) {
+            return res.status(403).json({ error: "Nie możesz nadawać rangi wyższej niż Twoja." });
+          }
+          if (editingSelf && desiredPriority > targetPriority) {
+            return res.status(403).json({ error: "Nie możesz nadać sobie wyższej rangi." });
+          }
+        }
+        if (desiredPriority !== targetPriority) {
+          updates.role = desiredRole;
+        }
       }
       if (badgeNumber !== undefined) {
         const normalizedBadge = String(badgeNumber).trim();
