@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { Role, normalizeRole, hasBoardAccess } from "@/lib/roles";
+import { Role, normalizeRole, hasBoardAccess, canAssignAdminPrivileges } from "@/lib/roles";
 import {
   type Department,
   type InternalUnit,
@@ -38,6 +38,7 @@ type AccountResponse = {
   units?: InternalUnit[];
   additionalRanks?: AdditionalRank[];
   additionalRank?: AdditionalRank | null;
+  adminPrivileges?: boolean;
 };
 async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]> {
   const documents = await listFirestoreCollection("profiles", idToken, { pageSize: 200 });
@@ -65,6 +66,7 @@ async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]
       units,
       additionalRanks,
       additionalRank: additionalRanks[0] ?? null,
+      adminPrivileges: payload.adminPrivileges === true,
     };
   });
 
@@ -92,10 +94,11 @@ async function ensureBoardAccess(req: NextApiRequest) {
   const profileDoc = await fetchFirestoreDocument(`profiles/${user.localId}`, idToken);
   const profileData = decodeFirestoreDocument(profileDoc || {});
   const role = normalizeRole(profileData.role);
-  if (!hasBoardAccess(role)) {
+  const adminPrivileges = profileData.adminPrivileges === true;
+  if (!hasBoardAccess(role) && !adminPrivileges) {
     throw Object.assign(new Error("Brak uprawnień"), { status: 403 });
   }
-  return { idToken, uid: user.localId };
+  return { idToken, uid: user.localId, role, adminPrivileges };
 }
 
 function validateLogin(login: string) {
@@ -128,7 +131,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { idToken } = await ensureBoardAccess(req);
+    const { idToken, role: requesterRole } = await ensureBoardAccess(req);
 
     if (req.method === "GET") {
       const accounts = await listFirestoreProfiles(idToken);
@@ -136,7 +139,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
-      const { login, fullName, role, password, badgeNumber, department, units, additionalRanks, additionalRank } = req.body || {};
+      const {
+        login,
+        fullName,
+        role,
+        password,
+        badgeNumber,
+        department,
+        units,
+        additionalRanks,
+        additionalRank,
+        adminPrivileges,
+      } = req.body || {};
       if (!login || !password) {
         return res.status(400).json({ error: "Login i hasło są wymagane" });
       }
@@ -183,6 +197,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         throw new Error("Firebase nie zwrócił identyfikatora użytkownika.");
       }
 
+      const allowAdminGrant = canAssignAdminPrivileges(requesterRole);
+
       await createFirestoreProfile(
         created.localId,
         {
@@ -194,6 +210,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           units: normalizedUnits,
           additionalRanks: normalizedAdditionalRanks,
           additionalRank: normalizedAdditionalRanks[0] ?? null,
+          adminPrivileges: allowAdminGrant && adminPrivileges === true,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         },
@@ -204,7 +221,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PATCH") {
-      const { uid, fullName, role, badgeNumber, department, units, additionalRanks, additionalRank } = req.body || {};
+      const {
+        uid,
+        fullName,
+        role,
+        badgeNumber,
+        department,
+        units,
+        additionalRanks,
+        additionalRank,
+        adminPrivileges,
+      } = req.body || {};
       if (!uid) {
         return res.status(400).json({ error: "Brak UID" });
       }
@@ -260,6 +287,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         updates.additionalRanks = normalizedAdditionalRanks;
         updates.additionalRank = normalizedAdditionalRanks[0] ?? null;
+      }
+      if (adminPrivileges !== undefined) {
+        const desiredAdmin = !!adminPrivileges;
+        const currentAdmin = profileData.adminPrivileges === true;
+        if (desiredAdmin !== currentAdmin) {
+          if (!canAssignAdminPrivileges(requesterRole)) {
+            return res.status(403).json({ error: "Brak uprawnień do zmiany uprawnień administratora." });
+          }
+          updates.adminPrivileges = desiredAdmin;
+        }
       }
       if (!Object.keys(updates).length) {
         return res.status(400).json({ error: "Brak zmian do zapisania." });

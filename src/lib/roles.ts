@@ -54,7 +54,9 @@ const ROLE_LABEL_MAP: Record<Role, string> = {
 
 export const ROLE_LABELS = ROLE_LABEL_MAP;
 
-export const ROLE_OPTIONS: { value: Role; label: string }[] = ROLE_VALUES.map((role) => ({
+export const ROLE_OPTIONS: { value: Role; label: string }[] = ROLE_VALUES.filter(
+  (role) => role !== "admin"
+).map((role) => ({
   value: role,
   label: ROLE_LABELS[role],
 }));
@@ -154,6 +156,16 @@ const BOARD_ROLE_SET = new Set<Role>(BOARD_ROLES);
 
 export function hasBoardAccess(role: Role | null | undefined): role is Role {
   return !!role && BOARD_ROLE_SET.has(role);
+}
+
+export function hasOfficerAccess(role: Role | null | undefined): role is Role {
+  if (!role) return false;
+  return role !== "cadet" && role !== "solo-cadet";
+}
+
+export function canAssignAdminPrivileges(role: Role | null | undefined): role is Role {
+  if (!role) return false;
+  return role === "admin" || role === "director" || role === "chief-of-police";
 }
 
 export const HIGH_COMMAND_ROLES: Role[] = [

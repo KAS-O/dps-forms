@@ -29,7 +29,7 @@ const ROLE_GROUPS: { id: string; title: string; accent: string; roles: Role[] }[
     id: "board",
     title: "Zarząd i administracja",
     accent: "#f97316",
-    roles: ["director", "admin"],
+    roles: ["director"],
   },
   {
     id: "command",
@@ -99,6 +99,7 @@ type ChainMember = {
   department: Department | null;
   units: InternalUnit[];
   additionalRanks: AdditionalRank[];
+  adminPrivileges: boolean;
 };
 
 type RoleEntry = { role: Role; members: ChainMember[] };
@@ -122,7 +123,18 @@ function MemberBadge({ member, highlight }: { member: ChainMember; highlight: bo
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-semibold text-white/90">{label}</span>
+        <span className="text-sm font-semibold text-white/90">
+          {label}
+          {member.adminPrivileges && (
+            <span
+              className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-full border border-yellow-300/60 bg-yellow-400/20 text-[9px] font-semibold text-yellow-300"
+              title="Uprawnienia administratora"
+              aria-label="Uprawnienia administratora"
+            >
+              ★
+            </span>
+          )}
+        </span>
         {member.badgeNumber && (
           <span className="text-[11px] font-mono text-white/60">#{member.badgeNumber}</span>
         )}
@@ -209,6 +221,7 @@ export default function ChainOfCommandPage() {
             department: department ?? null,
             units,
             additionalRanks,
+            adminPrivileges: !!data?.adminPrivileges,
           };
         });
 

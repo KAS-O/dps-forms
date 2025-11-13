@@ -31,7 +31,14 @@ import { deriveLoginFromEmail } from "@/lib/login";
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useAnnouncement } from "@/hooks/useAnnouncement";
-import { ROLE_LABELS, ROLE_OPTIONS, hasBoardAccess, DEFAULT_ROLE, normalizeRole } from "@/lib/roles";
+import {
+  ROLE_LABELS,
+  ROLE_OPTIONS,
+  hasBoardAccess,
+  DEFAULT_ROLE,
+  normalizeRole,
+  canAssignAdminPrivileges,
+} from "@/lib/roles";
 import {
   DEPARTMENTS,
   INTERNAL_UNITS,
@@ -63,6 +70,7 @@ type Account = {
   units: InternalUnit[];
   additionalRanks: AdditionalRank[];
   additionalRank?: AdditionalRank | null;
+  adminPrivileges: boolean;
 };
 
 type TicketRecord = {
@@ -312,7 +320,9 @@ async function readErrorResponse(res: Response, fallback: string) {
 
 
 export default function Admin() {
-  const { role, login, fullName, ready } = useProfile();
+  const { role, login, fullName, adminPrivileges, ready } = useProfile();
+  const hasAdminAccess = adminPrivileges || hasBoardAccess(role);
+  const canToggleAdmin = canAssignAdminPrivileges(role);
   const { writeLog } = useLogWriter();
   const { confirm, prompt, alert } = useDialog();
   const { announcement } = useAnnouncement();
@@ -411,7 +421,7 @@ export default function Admin() {
   );
 
   useEffect(() => {
-    if (!hasBoardAccess(role)) return;
+    if (!hasAdminAccess) return;
     setLogPages([]);
     setLogCursors([]);
     setLogPageHasMore([]);
@@ -422,7 +432,7 @@ export default function Admin() {
   }, [logFilters, role]);
 
   useEffect(() => {
-    if (!hasBoardAccess(role)) {
+    if (!hasAdminAccess) {
       setTickets([]);
       setTicketsLoading(false);
       setTicketsError(null);
@@ -479,7 +489,7 @@ export default function Admin() {
   }, [role]);
 
   useEffect(() => {
-    if (!hasBoardAccess(role)) {
+    if (!hasAdminAccess) {
       setTicketArchive([]);
       setTicketArchiveLoading(false);
       setTicketArchiveError(null);
@@ -622,7 +632,7 @@ export default function Admin() {
   );
 
   useEffect(() => {
-    if (!hasBoardAccess(role)) {
+    if (!hasAdminAccess) {
       setLogsLoading(false);
       return;
     }
@@ -871,6 +881,7 @@ export default function Admin() {
         units: unitsValue,
         additionalRanks: additionalRanksValue,
         additionalRank: additionalRanksValue[0] ?? null,
+        adminPrivileges: !!data?.adminPrivileges,
       } as Account;
     });
       arr.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login, "pl", { sensitivity: "base" }));
@@ -896,6 +907,7 @@ export default function Admin() {
         units: [],
         additionalRanks: [],
         additionalRank: null,
+        adminPrivileges: false,
       },
       password: "",
     });
@@ -914,6 +926,7 @@ export default function Admin() {
           ? [account.additionalRank]
           : [],
         additionalRank: account.additionalRank ?? null,
+        adminPrivileges: !!account.adminPrivileges,
       },
       password: "",
     });
@@ -1002,6 +1015,7 @@ export default function Admin() {
               units: unitsValue,
               additionalRanks: additionalRanksValue,
               additionalRank: additionalRanksValue[0] ?? null,
+              adminPrivileges: !!editorState.account.adminPrivileges,
             }
           : {
               uid: editorState.account.uid,
@@ -1012,6 +1026,7 @@ export default function Admin() {
               units: unitsValue,
               additionalRanks: additionalRanksValue,
               additionalRank: additionalRanksValue[0] ?? null,
+              adminPrivileges: editorState.account.adminPrivileges,
             };
       const res = await fetch("/api/admin/accounts", {
         method: editorState.mode === "create" ? "POST" : "PATCH",
@@ -1567,19 +1582,19 @@ export default function Admin() {
 
   // lifecycle
   useEffect(() => {
-    if (!ready || !hasBoardAccess(role)) return;
+    if (!ready || !hasAdminAccess) return;
     recalcAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, role, since]);
 
   useEffect(() => {
-    if (!ready || !hasBoardAccess(role) || !person) return;
+    if (!ready || !hasAdminAccess || !person) return;
     recalcPerson();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, role, person, since, people]);
 
   useEffect(() => {
-    if (!ready || !hasBoardAccess(role)) return;
+    if (!ready || !hasAdminAccess) return;
     if (section !== "hr") return;
     loadAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1710,7 +1725,7 @@ export default function Admin() {
       </AuthGate>
     );
   }
-  if (!hasBoardAccess(role)) {
+  if (!hasAdminAccess) {
     return (
       <AuthGate>
         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
@@ -1997,7 +2012,18 @@ export default function Admin() {
                           className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
                         >
                           <div>
-                            <h3 className="text-lg font-semibold">{acc.fullName || "Bez nazwy"}</h3>
+                            <h3 className="text-lg font-semibold">
+                              {acc.fullName || "Bez nazwy"}
+                              {acc.adminPrivileges && (
+                                <span
+                                  className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-yellow-300/60 bg-yellow-400/20 text-[11px] font-semibold text-yellow-300"
+                                  title="Uprawnienia administratora"
+                                  aria-label="Uprawnienia administratora"
+                                >
+                                  ★
+                                </span>
+                              )}
+                            </h3>
                             <p className="text-sm text-beige-700">
                               Login: <span className="font-mono text-base">{acc.login}@{loginDomain}</span>
                             </p>
@@ -2634,6 +2660,42 @@ export default function Admin() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="md:col-span-2 flex flex-col gap-2">
+                <button
+                  type="button"
+                  className={`btn ${
+                    editorState.account.adminPrivileges
+                      ? "bg-yellow-400 text-slate-900 hover:bg-yellow-300"
+                      : "bg-slate-200 text-slate-900 hover:bg-slate-100"
+                  } disabled:opacity-60 disabled:cursor-not-allowed`}
+                  onClick={() =>
+                    canToggleAdmin
+                      ? setEditorState((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                account: {
+                                  ...prev.account,
+                                  adminPrivileges: !prev.account.adminPrivileges,
+                                },
+                              }
+                            : prev
+                        )
+                      : undefined
+                  }
+                  disabled={!canToggleAdmin}
+                >
+                  {editorState.account.adminPrivileges
+                    ? "Odbierz uprawnienia administratora"
+                    : "Nadaj uprawnienia administratora"}
+                </button>
+                <p className="text-xs text-white/60">
+                  {canToggleAdmin
+                    ? "Osoby z uprawnieniami administratora są oznaczone gwiazdką na liście kont."
+                    : "Tylko rangi Admin, Director i Chief Of Police mogą nadawać uprawnienia administratora."}
+                </p>
               </div>
 
               <div className="md:col-span-2">
