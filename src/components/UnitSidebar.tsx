@@ -58,7 +58,18 @@ function resolveRankLabels(ranks: AdditionalRank[]): string[] {
 }
 
 export default function UnitSidebar() {
-  const { role, login, fullName, badgeNumber, units, additionalRanks, photoURL, photoPath, ready } = useProfile();
+  const {
+    role,
+    login,
+    fullName,
+    badgeNumber,
+    units,
+    additionalRanks,
+    photoURL,
+    photoPath,
+    ready,
+    isAdministrator,
+  } = useProfile();
   const router = useRouter();
   const { prompt, alert, confirm } = useDialog();
   const [uploadState, setUploadState] = useState<UploadState>("idle");
@@ -66,10 +77,12 @@ export default function UnitSidebar() {
   const [missingIcons, setMissingIcons] = useState<Record<string, boolean>>({});
 
   const accessibleSections = useMemo(() => {
-    return UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks, role)).sort((a, b) =>
+    return UNIT_SECTIONS.filter((section) =>
+      unitHasAccess(section.unit, additionalRanks, role, units)
+    ).sort((a, b) =>
       a.label.localeCompare(b.label, "pl", { sensitivity: "base" })
     );
-  }, [additionalRanks, role]);
+  }, [additionalRanks, role, units]);
 
   const membershipUnits = useMemo(() => {
     return units
@@ -352,7 +365,18 @@ export default function UnitSidebar() {
 
             <div className="flex flex-1 flex-col gap-3 text-left text-sm text-white/80">
               <div className="space-y-1">
-                <p className="text-lg font-semibold text-white">{fullName || login || "Nieznany funkcjonariusz"}</p>
+                <p className="text-lg font-semibold text-white">
+                  {fullName || login || "Nieznany funkcjonariusz"}
+                  {isAdministrator && (
+                    <span
+                      className="ml-2 inline-flex items-center justify-center text-base text-amber-300"
+                      title="Uprawnienia administratora"
+                      aria-label="Uprawnienia administratora"
+                    >
+                      ★
+                    </span>
+                  )}
+                </p>
                 <p className="text-xs uppercase tracking-wide text-white/60">{groupLabel || "Brak grupy"}</p>
                 <p className="text-xs text-white/60">Login: {login || "—"}</p>
                 <p className="text-xs text-white/60">Stopień: {roleLabel}</p>

@@ -46,14 +46,16 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 }
 
 export default function Nav() {
-  const { role, additionalRanks } = useProfile();
+  const { role, additionalRanks, units } = useProfile();
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
   const router = useRouter();
   const archiveActive = router.pathname.startsWith("/archive");
   const adminActive = router.pathname.startsWith("/admin");
   const currentPath = router.asPath;
-  const unitLinks = UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks, role));
+  const unitLinks = UNIT_SECTIONS.filter((section) =>
+    unitHasAccess(section.unit, additionalRanks, role, units)
+  );
 
   const logout = async () => {
     const ok = await confirm({

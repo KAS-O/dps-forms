@@ -24,6 +24,11 @@ service cloud.firestore {
       );
     }
 
+    function isOfficer() {
+      let r = roleOf(request.auth.uid);
+      return signedIn() && r != "cadet" && r != "solo-cadet";
+    }
+
     function isStaff() {
       let r = roleOf(request.auth.uid);
       return signedIn() && (
@@ -49,6 +54,26 @@ service cloud.firestore {
         r == "director" ||
         r == "admin"
       );
+    }
+
+    function canGrantAdmin() {
+      let r = roleOf(request.auth.uid);
+      return signedIn() && (r == "admin" || r == "director" || r == "chief-of-police");
+    }
+
+    function adminFieldInRequest() {
+      return request.resource.data.keys().has("isAdministrator");
+    }
+
+    function adminCreateAllowed() {
+      return !adminFieldInRequest() || canGrantAdmin();
+    }
+
+    function adminUpdateAllowed() {
+      if (!adminFieldInRequest()) {
+        return true;
+      }
+      return (resource.data.isAdministrator == request.resource.data.isAdministrator) || canGrantAdmin();
     }
 
     function vehicleFolderProtectedFieldsUnchanged() {
@@ -86,8 +111,13 @@ service cloud.firestore {
     match /profiles/{uid} {
       allow read: if signedIn();
       // panel kadr: dowództwo może tworzyć profile dla innych użytkowników
-      allow create: if signedIn() && (uid == request.auth.uid || isBoard());
-      allow update: if isBoard() || (signedIn() && uid == request.auth.uid);
+      allow create: if signedIn() && (
+        (uid == request.auth.uid && !adminFieldInRequest()) ||
+        (isBoard() && adminCreateAllowed())
+      );
+      allow update: if
+        (signedIn() && uid == request.auth.uid && !adminFieldInRequest()) ||
+        (isBoard() && adminUpdateAllowed());
       allow delete: if isBoard();
 
       match /counters/{counterId} {
@@ -119,17 +149,14 @@ service cloud.firestore {
     match /dossiers/{dossierId} {
       allow read: if signedIn();
       allow create: if signedIn();
-      allow update: if isBoard() ||
-        (signedIn() && resource.data.createdByUid == request.auth.uid) ||
-        (isStaff() && isCriminalGroupContext());
-      allow delete: if isBoard();
+      allow update: if isBoard() || isOfficer();
+      allow delete: if isBoard() ||
+        (isOfficer() && resource.data.category != "criminal-group");
 
       match /records/{recordId} {
         allow read: if signedIn();
         allow create: if signedIn() && (!isGroupRosterRecord() || isStaff());
-        allow update, delete: if isBoard() ||
-          (signedIn() && resource.data.authorUid == request.auth.uid) ||
-          (isStaff() && isCriminalGroupDossier(dossierId));
+        allow update, delete: if isBoard() || isOfficer();
       }
     }
 
