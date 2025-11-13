@@ -71,15 +71,18 @@ export default function Nav() {
     <>
       <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto w-full px-4 py-4 flex flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-[220px]">
               <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />
               <span className="font-semibold tracking-wide text-beige-900/90">
                 Los Santos Police Department
               </span>
             </div>
-            <div className="flex items-center gap-2 whitespace-nowrap text-sm">
-              <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold">
+            <div className="flex items-center justify-end gap-2 whitespace-nowrap text-sm">
+              <button
+                onClick={logout}
+                className="btn h-10 px-5 text-sm font-semibold shadow-sm transition-transform hover:translate-y-[-1px]"
+              >
                 Wyloguj
               </button>
             </div>

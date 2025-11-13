@@ -4,7 +4,7 @@ import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { ROLE_LABELS, ROLE_VALUES, normalizeRole, type Role } from "@/lib/roles";
+import { ROLE_LABELS, ROLE_VALUES, ROLE_ORDER as ROLE_ORDER_MAP, normalizeRole, type Role } from "@/lib/roles";
 import {
   DEPARTMENTS,
   INTERNAL_UNITS,
@@ -22,14 +22,12 @@ import {
 import { useProfile } from "@/hooks/useProfile";
 import { useSessionActivity } from "@/components/ActivityLogger";
 
-const ROLE_ORDER = new Map<Role, number>(ROLE_VALUES.map((role, index) => [role, index]));
-
 const ROLE_GROUPS: { id: string; title: string; accent: string; roles: Role[] }[] = [
   {
-    id: "board",
-    title: "Zarząd i administracja",
-    accent: "#f97316",
-    roles: ["director"],
+    id: "directors-fib",
+    title: "Directors & FIB",
+    accent: "#facc15",
+    roles: ["director", "fib"],
   },
   {
     id: "command",
@@ -60,12 +58,6 @@ const ROLE_GROUPS: { id: string; title: string; accent: string; roles: Role[] }[
     title: "Trainee",
     accent: "#f59e0b",
     roles: ["solo-cadet", "cadet"],
-  },
-  {
-    id: "fib",
-    title: "Federal Investigation Bureau",
-    accent: "#facc15",
-    roles: ["fib"],
   },
 ];
 
@@ -226,8 +218,8 @@ export default function ChainOfCommandPage() {
         });
 
         records.sort((a, b) => {
-          const orderA = ROLE_ORDER.get(a.role) ?? ROLE_VALUES.length;
-          const orderB = ROLE_ORDER.get(b.role) ?? ROLE_VALUES.length;
+          const orderA = ROLE_ORDER_MAP.get(a.role) ?? ROLE_VALUES.length;
+          const orderB = ROLE_ORDER_MAP.get(b.role) ?? ROLE_VALUES.length;
           if (orderA !== orderB) return orderA - orderB;
           const nameA = formatPersonLabel(a.fullName, a.login).toLowerCase();
           const nameB = formatPersonLabel(b.fullName, b.login).toLowerCase();
@@ -309,7 +301,15 @@ export default function ChainOfCommandPage() {
       INTERNAL_UNITS.map((unit) => ({
         option: unit,
         members: members
-          .filter((member) => member.units.includes(unit.value))
+          .filter((member) => {
+            if (member.units.includes(unit.value)) {
+              return true;
+            }
+            return member.additionalRanks.some((rank) => {
+              const rankOption = getAdditionalRankOption(rank);
+              return rankOption?.unit === unit.value;
+            });
+          })
           .slice()
           .sort(compareMembers),
       })),

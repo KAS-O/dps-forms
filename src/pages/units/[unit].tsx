@@ -117,7 +117,15 @@ function arraysEqual<T>(a: T[], b: T[]): boolean {
 }
 
 function MemberRow({ member, unit, manageableRanks, onSubmit, saving }: MemberRowProps) {
-  const originalMembership = useMemo(() => member.units.includes(unit), [member.units, unit]);
+  const originalMembership = useMemo(() => {
+    if (member.units.includes(unit)) {
+      return true;
+    }
+    return member.additionalRanks.some((rank) => {
+      const rankOption = getAdditionalRankOption(rank);
+      return rankOption?.unit === unit;
+    });
+  }, [member.units, member.additionalRanks, unit]);
   const originalRanks = useMemo(
     () => manageableRanks.filter((rank) => member.additionalRanks.includes(rank)),
     [manageableRanks, member.additionalRanks]
@@ -325,6 +333,29 @@ export default function UnitPanelPage() {
   const supportsCriminalGroups = unit === "gu" || unit === "dtu";
   const unitRankSet = useMemo(() => new Set(section?.rankHierarchy ?? []), [section]);
 
+  const belongsToUnit = useCallback(
+    (member: UnitMember) => {
+      if (!unit) {
+        return false;
+      }
+      const hasRank = member.additionalRanks.some((rank) => {
+        if (unitRankSet.has(rank)) {
+          return true;
+        }
+        const rankOption = getAdditionalRankOption(rank);
+        return rankOption?.unit === unit;
+      });
+      if (member.units.includes(unit)) {
+        if (unitRankSet.size === 0) {
+          return true;
+        }
+        return hasRank;
+      }
+      return hasRank;
+    },
+    [unit, unitRankSet]
+  );
+
   const managementPermission = useMemo(() => {
     if (permission) {
       return permission;
@@ -458,10 +489,7 @@ export default function UnitPanelPage() {
   const unitMembers = useMemo(() => {
     if (!unit) return [] as UnitMember[];
     return members.filter((member) => {
-      if (!member.units.includes(unit)) {
-        return false;
-      }
-      if (unitRankSet.size > 0 && !member.additionalRanks.some((rank) => unitRankSet.has(rank))) {
+      if (!belongsToUnit(member)) {
         return false;
       }
       if (isHighCommand(member.role)) {
@@ -469,7 +497,7 @@ export default function UnitPanelPage() {
       }
       return true;
     });
-  }, [members, unit, unitRankSet]);
+  }, [members, unit, belongsToUnit]);
 
   const filteredMembers = useMemo(() => {
     if (!search.trim()) return unitMembers;
@@ -507,11 +535,11 @@ export default function UnitPanelPage() {
   const candidateMembers = useMemo(() => {
     if (!unit) return [] as UnitMember[];
     return members.filter((member) => {
-      if (member.units.includes(unit)) return false;
+      if (belongsToUnit(member)) return false;
       if (isHighCommand(member.role)) return false;
       return true;
     });
-  }, [members, unit]);
+  }, [members, unit, belongsToUnit]);
 
   const filteredCandidates = useMemo(() => {
     if (!candidateSearch.trim()) return candidateMembers;

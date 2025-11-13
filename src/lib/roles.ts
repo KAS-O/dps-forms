@@ -61,9 +61,23 @@ export const ROLE_OPTIONS: { value: Role; label: string }[] = ROLE_VALUES.filter
   label: ROLE_LABELS[role],
 }));
 
+export const ROLE_ORDER = new Map<Role, number>(ROLE_VALUES.map((role, index) => [role, index]));
+
+export function getRoleRank(role: Role | null | undefined): number {
+  if (!role) {
+    return -1;
+  }
+  const rank = ROLE_ORDER.get(role);
+  return typeof rank === "number" ? rank : -1;
+}
+
+export function isRoleHigher(role: Role | null | undefined, other: Role | null | undefined): boolean {
+  return getRoleRank(role) > getRoleRank(other);
+}
+
 const ROLE_GROUP_LABEL_MAP: Record<Role, string> = {
-  director: "Zarząd i administracja",
-  admin: "Zarząd i administracja",
+  director: "Directors & FIB",
+  admin: "Administracja",
   "chief-of-police": "High Command",
   "assistant-chief": "High Command",
   "deputy-chief": "High Command",
@@ -83,7 +97,7 @@ const ROLE_GROUP_LABEL_MAP: Record<Role, string> = {
   "officer-i": "Officers",
   "solo-cadet": "Trainee",
   cadet: "Trainee",
-  fib: "Federal Investigation Bureau",
+  fib: "Directors & FIB",
 };
 
 export function getRoleGroupLabel(role: Role | null | undefined): string | null {
