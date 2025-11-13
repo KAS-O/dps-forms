@@ -26,10 +26,10 @@ const ROLE_ORDER = new Map<Role, number>(ROLE_VALUES.map((role, index) => [role,
 
 const ROLE_GROUPS: { id: string; title: string; accent: string; roles: Role[] }[] = [
   {
-    id: "board",
-    title: "Zarząd i administracja",
+    id: "directors-fib",
+    title: "Directors & FIB",
     accent: "#f97316",
-    roles: ["director"],
+    roles: ["director", "fib"],
   },
   {
     id: "command",
@@ -60,12 +60,6 @@ const ROLE_GROUPS: { id: string; title: string; accent: string; roles: Role[] }[
     title: "Trainee",
     accent: "#f59e0b",
     roles: ["solo-cadet", "cadet"],
-  },
-  {
-    id: "fib",
-    title: "Federal Investigation Bureau",
-    accent: "#facc15",
-    roles: ["fib"],
   },
 ];
 

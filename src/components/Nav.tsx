@@ -78,8 +78,11 @@ export default function Nav() {
                 Los Santos Police Department
               </span>
             </div>
-            <div className="flex items-center gap-2 whitespace-nowrap text-sm">
-              <button onClick={logout} className="btn h-9 px-5 text-xs font-semibold">
+            <div className="flex items-center justify-end gap-2 whitespace-nowrap text-sm sm:self-center">
+              <button
+                onClick={logout}
+                className="btn w-full px-5 text-sm font-semibold tracking-wide sm:w-auto sm:min-h-[2.75rem]"
+              >
                 Wyloguj
               </button>
             </div>

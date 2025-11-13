@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { Role, normalizeRole, hasBoardAccess, canAssignAdminPrivileges } from "@/lib/roles";
+import { Role, ROLE_VALUES, normalizeRole, hasBoardAccess, canAssignAdminPrivileges } from "@/lib/roles";
 import {
   type Department,
   type InternalUnit,
@@ -72,6 +72,15 @@ async function listFirestoreProfiles(idToken: string): Promise<AccountResponse[]
 
   accounts.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login, "pl", { sensitivity: "base" }));
   return accounts;
+}
+
+const ROLE_RANK = new Map<Role, number>(ROLE_VALUES.map((value, index) => [value, index]));
+
+function getRoleRank(role: Role | null | undefined): number {
+  if (!role) {
+    return -1;
+  }
+  return ROLE_RANK.get(role) ?? -1;
 }
 
 async function createFirestoreProfile(uid: string, fields: Record<string, any>, idToken: string) {
@@ -172,6 +181,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const normalizedUnits = normalizeInternalUnits(units);
       const normalizedAdditionalRanks = normalizeAdditionalRanks(additionalRanks ?? additionalRank);
+      const desiredRole = normalizeRole(role);
+      if (requesterRole !== "admin" && getRoleRank(desiredRole) > getRoleRank(requesterRole)) {
+        return res.status(403).json({ error: "Nie możesz utworzyć konta z rangą wyższą niż Twoja." });
+      }
       for (const rank of normalizedAdditionalRanks) {
         const rankOption = getAdditionalRankOption(rank);
         if (rankOption && !normalizedUnits.includes(rankOption.unit)) {
@@ -204,7 +217,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         {
           login: normalizedLogin,
           fullName: displayName,
-          role: normalizeRole(role),
+          role: desiredRole,
           badgeNumber: normalizedBadge,
           department: normalizedDepartment,
           units: normalizedUnits,
@@ -240,6 +253,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(404).json({ error: "Nie znaleziono konta." });
       }
       const profileData = decodeFirestoreDocument(profileDoc);
+      const currentRole = normalizeRole(profileData.role);
+      const requesterRank = getRoleRank(requesterRole);
+      const targetRank = getRoleRank(currentRole);
+      const isAdminRequester = requesterRole === "admin";
       const updates: Record<string, any> = {};
       if (typeof fullName === "string") {
         const trimmed = fullName.trim();
@@ -247,8 +264,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           updates.fullName = trimmed;
         }
       }
-      if (role) {
-        updates.role = normalizeRole(role);
+      if (role !== undefined) {
+        const desiredRole = normalizeRole(role);
+        if (!isAdminRequester && targetRank > requesterRank) {
+          return res.status(403).json({ error: "Nie możesz zmienić rangi funkcjonariusza z wyższą rangą." });
+        }
+        if (!isAdminRequester && getRoleRank(desiredRole) > requesterRank) {
+          return res.status(403).json({ error: "Nie możesz nadać rangi wyższej niż Twoja." });
+        }
+        updates.role = desiredRole;
       }
       if (badgeNumber !== undefined) {
         const normalizedBadge = String(badgeNumber).trim();
