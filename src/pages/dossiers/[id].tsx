@@ -25,7 +25,7 @@ import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useLogWriter } from "@/hooks/useLogWriter";
 import { getActiveVehicleFlags, getVehicleHighlightStyle } from "@/lib/vehicleFlags";
-import { hasBoardAccess } from "@/lib/roles";
+import { hasOfficerPrivileges } from "@/lib/roles";
 
 type RecordAttachment = {
   url: string;
@@ -292,16 +292,10 @@ export default function DossierPage() {
   const closeActiveForm = useCallback(() => setActiveForm(null), []);
   const openForm = useCallback((form: Exclude<ActiveFormType, null>) => setActiveForm(form), []);
 
-  const canEditRecord = useCallback(
-    (r: DossierRecord) => {
-      const me = auth.currentUser?.uid;
-      return hasBoardAccess(role) || (!!me && r.authorUid === me);
-    },
-    [role]
-  );
+  const canEditRecord = useCallback(() => hasOfficerPrivileges(role), [role]);
 
   const isCriminalGroup = info.category === "criminal-group";
-  const canDeleteDossier = hasBoardAccess(role) && !isCriminalGroup;
+  const canDeleteDossier = hasOfficerPrivileges(role) && !isCriminalGroup;
   const groupColorHex = info.group?.colorHex || "#7c3aed";
   const groupDisplayName = useMemo(
     () => info.group?.name || title || "Grupa przestępcza",
@@ -2060,7 +2054,7 @@ export default function DossierPage() {
                   {organizationMembers.length ? (
                     <div className="grid gap-3 md:grid-cols-2">
                       {organizationMembers.map((member) => {
-                        const allowRemove = canEditRecord(member);
+                        const allowRemove = canEditRecord();
                         return (
                           <div
                             key={member.id}
@@ -2144,7 +2138,7 @@ export default function DossierPage() {
                   {organizationVehicles.length ? (
                     <div className="grid gap-3 md:grid-cols-2">
                       {organizationVehicles.map((vehicle) => {
-                        const allowRemove = canEditRecord(vehicle);
+                        const allowRemove = canEditRecord();
                         return (
                           <div
                             key={vehicle.id}
@@ -2314,7 +2308,7 @@ export default function DossierPage() {
                     </div>
                     {renderRecordDetails(record)}
                     {renderAttachments(record)}
-                    {canEditRecord(record) && (
+                    {canEditRecord() && (
                       <div className="mt-2 flex gap-2">
                         <button className="btn" onClick={() => editRecord(record.id, record.text || "", record.type || "note")}>Edytuj</button>
                         <button className="btn bg-red-700 text-white" onClick={() => deleteRecord(record.id)}>

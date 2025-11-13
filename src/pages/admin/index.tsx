@@ -31,7 +31,14 @@ import { deriveLoginFromEmail } from "@/lib/login";
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useAnnouncement } from "@/hooks/useAnnouncement";
-import { ROLE_LABELS, ROLE_OPTIONS, hasBoardAccess, DEFAULT_ROLE, normalizeRole } from "@/lib/roles";
+import {
+  ROLE_LABELS,
+  ROLE_OPTIONS,
+  hasBoardAccess,
+  DEFAULT_ROLE,
+  normalizeRole,
+  canGrantAdminPrivileges,
+} from "@/lib/roles";
 import {
   DEPARTMENTS,
   INTERNAL_UNITS,
@@ -63,6 +70,7 @@ type Account = {
   units: InternalUnit[];
   additionalRanks: AdditionalRank[];
   additionalRank?: AdditionalRank | null;
+  isAdministrator: boolean;
 };
 
 type TicketRecord = {
@@ -313,6 +321,7 @@ async function readErrorResponse(res: Response, fallback: string) {
 
 export default function Admin() {
   const { role, login, fullName, ready } = useProfile();
+  const canModifyAdminPrivileges = canGrantAdminPrivileges(role);
   const { writeLog } = useLogWriter();
   const { confirm, prompt, alert } = useDialog();
   const { announcement } = useAnnouncement();
@@ -356,6 +365,7 @@ export default function Admin() {
     mode: "create" | "edit";
     account: Partial<Account>;
     password?: string;
+    initialIsAdministrator: boolean;
   } | null>(null);
   const [accountSaving, setAccountSaving] = useState(false);
 
@@ -871,6 +881,7 @@ export default function Admin() {
         units: unitsValue,
         additionalRanks: additionalRanksValue,
         additionalRank: additionalRanksValue[0] ?? null,
+        isAdministrator: data?.isAdministrator === true,
       } as Account;
     });
       arr.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login, "pl", { sensitivity: "base" }));
@@ -896,8 +907,10 @@ export default function Admin() {
         units: [],
         additionalRanks: [],
         additionalRank: null,
+        isAdministrator: false,
       },
       password: "",
+      initialIsAdministrator: false,
     });
   };
 
@@ -916,6 +929,7 @@ export default function Admin() {
         additionalRank: account.additionalRank ?? null,
       },
       password: "",
+      initialIsAdministrator: account.isAdministrator,
     });
   };
 
@@ -931,6 +945,11 @@ export default function Admin() {
       ? editorState.account.units.filter((unit): unit is InternalUnit => !!getInternalUnitOption(unit))
       : [];
     const additionalRanksValue = normalizeAdditionalRanks(editorState.account.additionalRanks);
+    const adminPrivilegesValue = !!editorState.account.isAdministrator;
+    const adminFlagChanged =
+      editorState.mode === "edit"
+        ? adminPrivilegesValue !== editorState.initialIsAdministrator
+        : adminPrivilegesValue;
 
     if (!loginValue) {
       setErr("Login jest wymagany.");
@@ -1002,6 +1021,7 @@ export default function Admin() {
               units: unitsValue,
               additionalRanks: additionalRanksValue,
               additionalRank: additionalRanksValue[0] ?? null,
+              ...(adminFlagChanged ? { isAdministrator: true } : {}),
             }
           : {
               uid: editorState.account.uid,
@@ -1012,6 +1032,7 @@ export default function Admin() {
               units: unitsValue,
               additionalRanks: additionalRanksValue,
               additionalRank: additionalRanksValue[0] ?? null,
+              ...(adminFlagChanged ? { isAdministrator: adminPrivilegesValue } : {}),
             };
       const res = await fetch("/api/admin/accounts", {
         method: editorState.mode === "create" ? "POST" : "PATCH",
@@ -1997,7 +2018,18 @@ export default function Admin() {
                           className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
                         >
                           <div>
-                            <h3 className="text-lg font-semibold">{acc.fullName || "Bez nazwy"}</h3>
+                            <h3 className="text-lg font-semibold">
+                              {acc.fullName || "Bez nazwy"}
+                              {acc.isAdministrator && (
+                                <span
+                                  className="ml-2 inline-flex items-center text-sm text-amber-300"
+                                  title="Uprawnienia administratora"
+                                  aria-label="Uprawnienia administratora"
+                                >
+                                  ★
+                                </span>
+                              )}
+                            </h3>
                             <p className="text-sm text-beige-700">
                               Login: <span className="font-mono text-base">{acc.login}@{loginDomain}</span>
                             </p>
@@ -2628,12 +2660,49 @@ export default function Admin() {
                     )
                   }
                 >
-                  {ROLE_OPTIONS.map(({ value, label }) => (
-                    <option key={value} value={value}>
+                  {ROLE_OPTIONS.filter(
+                    ({ value }) => value !== "admin" || editorState.account.role === "admin"
+                  ).map(({ value, label }) => (
+                    <option key={value} value={value} disabled={value === "admin"}>
                       {label}
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-white/80">Uprawnienia administratora</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className={`btn btn--ghost ${
+                      editorState.account.isAdministrator ? "border-amber-400 text-amber-300" : "text-white"
+                    }`}
+                    onClick={() =>
+                      setEditorState((prev) => {
+                        if (!prev || !canModifyAdminPrivileges) return prev;
+                        const nextValue = !prev.account.isAdministrator;
+                        return { ...prev, account: { ...prev.account, isAdministrator: nextValue } };
+                      })
+                    }
+                    disabled={!canModifyAdminPrivileges}
+                  >
+                    {editorState.account.isAdministrator
+                      ? "Odbierz uprawnienia administratora"
+                      : "Nadaj uprawnienia administratora"}
+                  </button>
+                  {editorState.account.isAdministrator && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-200">
+                      <span aria-hidden>★</span>
+                      Aktywne uprawnienia administratora
+                    </span>
+                  )}
+                </div>
+                {!canModifyAdminPrivileges && (
+                  <p className="text-xs text-white/60">
+                    Tylko rangi Admin, Director oraz Chief Of Police mogą zarządzać uprawnieniami administratora.
+                  </p>
+                )}
               </div>
 
               <div className="md:col-span-2">

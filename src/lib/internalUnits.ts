@@ -67,9 +67,13 @@ export function getUnitSection(unit: InternalUnit): UnitSectionConfig | null {
 export function unitHasAccess(
   unit: InternalUnit,
   ranks: AdditionalRank[] | null | undefined,
-  role?: Role | null | undefined
+  role?: Role | null | undefined,
+  memberships?: InternalUnit[] | null | undefined
 ): boolean {
   if (isHighCommand(role)) {
+    return true;
+  }
+  if (Array.isArray(memberships) && memberships.includes(unit)) {
     return true;
   }
   if (!Array.isArray(ranks) || ranks.length === 0) {

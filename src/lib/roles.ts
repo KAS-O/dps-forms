@@ -172,6 +172,24 @@ export function isHighCommand(role: Role | null | undefined): role is Role {
   return !!role && HIGH_COMMAND_ROLE_SET.has(role);
 }
 
+const CADET_ROLES: Role[] = ["cadet", "solo-cadet"];
+const CADET_ROLE_SET = new Set<Role>(CADET_ROLES);
+
+export function isCadetRole(role: Role | null | undefined): role is Role {
+  return !!role && CADET_ROLE_SET.has(role);
+}
+
+export function hasOfficerPrivileges(role: Role | null | undefined): role is Role {
+  return !!role && !CADET_ROLE_SET.has(role);
+}
+
+const ADMIN_PRIVILEGE_ROLES: Role[] = ["admin", "director", "chief-of-police"];
+const ADMIN_PRIVILEGE_ROLE_SET = new Set<Role>(ADMIN_PRIVILEGE_ROLES);
+
+export function canGrantAdminPrivileges(role: Role | null | undefined): role is Role {
+  return !!role && ADMIN_PRIVILEGE_ROLE_SET.has(role);
+}
+
 const FALLBACK_ROLE: Role = DEFAULT_ROLE;
 
 export function normalizeRole(value: unknown): Role {
