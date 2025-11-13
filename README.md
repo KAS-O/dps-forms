@@ -27,6 +27,12 @@ firebase deploy --only storage:rules
 
 Reguły obejmują m.in. możliwość zakładania teczek (`/dossiers/{id}`) przez zalogowanych funkcjonariuszy oraz modyfikację wpisów tylko przez autora lub kadrę kierowniczą.
 
+## Ikony jednostek
+- Pliki z logotypami umieszczaj w katalogu `public/unit-logos/`.
+- Nazwy plików muszą odpowiadać identyfikatorom jednostek (np. `iad.png`, `swat-sert.png`, `usms.png`, `dtu.png`, `gu.png`, `ftd.png`).
+- Obsługiwany format to PNG z przezroczystym tłem (rekomendowana rozdzielczość: 256×256 px lub większa, kwadratowa).
+- Po podmianie obrazów nie jest wymagane przebudowanie kodu — komponenty same podładują nowe pliki.
+
 ## Dział kadr i konta użytkowników
 - Przy zakładaniu kont wymagany jest **numer odznaki** (1–6 cyfr). Numer można też edytować dla istniejących profili – pole jest
   przechowywane w kolekcji `profiles` jako `badgeNumber`.

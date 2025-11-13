@@ -101,6 +101,25 @@ const ANNOUNCEMENT_WINDOWS: { value: string; label: string; ms: number | null }[
   { value: "forever", label: "Do czasu usunięcia", ms: null },
 ];
 
+const findAnnouncementWindow = (value: string | null | undefined) =>
+  ANNOUNCEMENT_WINDOWS.find((window) => window.value === value) || null;
+
+const shouldFallbackToClient = (status: number, message?: string | null) => {
+  if (status >= 500 || status === 0) {
+    return true;
+  }
+  if (!message) {
+    return false;
+  }
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("firebase admin") ||
+    normalized.includes("brak konfiguracji") ||
+    normalized.includes("failed to fetch") ||
+    normalized.includes("network")
+  );
+};
+
 const LOG_PAGE_SIZE = 150;
 
 const CHIP_CLASS =
@@ -116,23 +135,6 @@ const humanizeIdentifier = (value: string) => {
     .trim();
   if (!normalized) return value.trim();
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-};
-
-const createInitials = (fullName?: string | null, login?: string | null) => {
-  const source = fullName?.trim() || login?.trim() || "";
-  if (!source) return "?";
-  const parts = source
-    .replace(/[^a-ząćęłńóśźż0-9\s]/gi, " ")
-    .split(" ")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (parts.length === 0) {
-    return source.slice(0, 2).toUpperCase();
-  }
-  if (parts.length === 1) {
-    return parts[0].slice(0, 2).toUpperCase();
-  }
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 };
 
 const SECTION_LABELS: Record<string, string> = {
@@ -310,18 +312,11 @@ async function readErrorResponse(res: Response, fallback: string) {
 
 
 export default function Admin() {
-  const { role, login, fullName, badgeNumber, ready } = useProfile();
+  const { role, login, fullName, ready } = useProfile();
   const { writeLog } = useLogWriter();
   const { confirm, prompt, alert } = useDialog();
   const { announcement } = useAnnouncement();
   const loginDomain = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
-  const displayLogin = login || "—";
-  const displayName = fullName || login || "Nieznany funkcjonariusz";
-  const displayInitials = createInitials(fullName, login);
-  const normalizedRoleValue = role ? normalizeRole(role) : null;
-  const currentRoleLabel = normalizedRoleValue
-    ? ROLE_LABELS[normalizedRoleValue] || normalizedRoleValue
-    : "—";
 
   const [range, setRange] = useState<Range>("all");
   const [err, setErr] = useState<string | null>(null);
@@ -1080,6 +1075,39 @@ export default function Admin() {
     return base;
   }, [accounts, accountSearch, accountRoleFilter]);
 
+  const saveAnnouncementFallback = async (message: string, duration: string) => {
+    if (!db) {
+      throw new Error("Brak połączenia z bazą danych.");
+    }
+    const user = auth.currentUser;
+    if (!user) {
+      throw new Error("Brak zalogowanego użytkownika.");
+    }
+    const windowOption = findAnnouncementWindow(duration);
+    const expiresAt =
+      windowOption && windowOption.ms != null ? Timestamp.fromMillis(Date.now() + windowOption.ms) : null;
+    const baseLogin = (login || user.email?.split("@")?.[0] || user.uid || "").trim();
+    const authorLogin = baseLogin || user.uid;
+    const authorName = (fullName || authorLogin).trim() || authorLogin;
+
+    await setDoc(doc(db, "configs", "announcement"), {
+      message,
+      duration: windowOption?.value ?? null,
+      expiresAt,
+      createdAt: serverTimestamp(),
+      createdBy: authorLogin,
+      createdByUid: user.uid,
+      createdByName: authorName,
+    });
+  };
+
+  const removeAnnouncementFallback = async () => {
+    if (!db) {
+      throw new Error("Brak połączenia z bazą danych.");
+    }
+    await deleteDoc(doc(db, "configs", "announcement"));
+  };
+
   const publishAnnouncement = async () => {
     const message = announcementMessage.trim();
     if (!message) {
@@ -1098,25 +1126,44 @@ export default function Admin() {
         throw new Error("Brak zalogowanego użytkownika.");
       }
       const token = await user.getIdToken();
-      const res = await fetch("/api/admin/announcement", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message,
-          duration: announcementDuration,
-        }),
-      });
-      if (!res.ok) {
-        const messageText = await readErrorResponse(res, "Nie udało się opublikować ogłoszenia.");
-        throw new Error(messageText);
+      let fallbackUsed = false;
+      try {
+        const res = await fetch("/api/admin/announcement", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message,
+            duration: announcementDuration,
+          }),
+        });
+        if (!res.ok) {
+          const messageText = await readErrorResponse(res, "Nie udało się opublikować ogłoszenia.");
+          if (shouldFallbackToClient(res.status, messageText)) {
+            fallbackUsed = true;
+          } else {
+            throw new Error(messageText);
+          }
+        }
+      } catch (apiError: any) {
+        if (shouldFallbackToClient(0, apiError?.message)) {
+          fallbackUsed = true;
+        } else {
+          throw apiError;
+        }
       }
-    
+
+      if (fallbackUsed) {
+        await saveAnnouncementFallback(message, announcementDuration);
+      }
+
       await alert({
         title: "Opublikowano",
-        message: "Ogłoszenie zostało opublikowane.",
+        message: fallbackUsed
+          ? "Ogłoszenie zostało opublikowane (zapis awaryjny)."
+          : "Ogłoszenie zostało opublikowane.",
         tone: "info",
       });
     } catch (e: any) {
@@ -1147,16 +1194,34 @@ export default function Admin() {
         throw new Error("Brak zalogowanego użytkownika.");
       }
       const token = await user.getIdToken();
-      const res = await fetch("/api/admin/announcement", {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (!res.ok) {
-        const message = await readErrorResponse(res, "Nie udało się usunąć ogłoszenia.");
-        throw new Error(message);
+      let fallbackUsed = false;
+      try {
+        const res = await fetch("/api/admin/announcement", {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (!res.ok) {
+          const message = await readErrorResponse(res, "Nie udało się usunąć ogłoszenia.");
+          if (shouldFallbackToClient(res.status, message)) {
+            fallbackUsed = true;
+          } else {
+            throw new Error(message);
+          }
+        }
+      } catch (apiError: any) {
+        if (shouldFallbackToClient(0, apiError?.message)) {
+          fallbackUsed = true;
+        } else {
+          throw apiError;
+        }
       }
+
+      if (fallbackUsed) {
+        await removeAnnouncementFallback();
+      }
+
       setAnnouncementMessage("");
     } catch (e: any) {
       console.error(e);
@@ -1745,45 +1810,6 @@ export default function Admin() {
           </aside>
 
           <div className="grid gap-6">
-            <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-sm">
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div className="flex items-center gap-4">
-                  <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-xl font-semibold text-white shadow-lg">
-                    {displayInitials}
-                  </span>
-                  <div>
-                    <div className="text-xl font-semibold text-slate-900">{displayName}</div>
-                    <p className="text-sm text-slate-500">Ranga: {currentRoleLabel}</p>
-                  </div>
-                </div>
-                {badgeNumber && (
-                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-1.5 text-sm font-semibold text-slate-700">
-                    <span className="text-xs uppercase tracking-[0.3em] text-slate-400">Odznaka</span>
-                    #{badgeNumber}
-                  </div>
-                )}
-              </div>
-              <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-2">
-                <div className="space-y-1">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Login</dt>
-                  <dd className="font-mono text-base text-slate-900">
-                    {displayLogin === "—" ? "—" : `${displayLogin}@${loginDomain}`}
-                  </dd>
-                </div>
-                <div className="space-y-1">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Uprawnienia</dt>
-                  <dd className="text-slate-700">
-                    {hasBoardAccess(role)
-                      ? "Pełny dostęp do panelu zarządu"
-                      : "Brak dostępu do panelu zarządu"}
-                  </dd>
-                </div>
-              </dl>
-              <p className="mt-4 text-xs leading-relaxed text-slate-500">
-                Informacje o koncie są przechowywane w systemie logowania. W razie potrzeby resetu hasła skorzystaj z konsoli Firebase.
-              </p>
-            </section>
-
             {section === "overview" && (
               <div className="grid gap-6">
                 <div className="card p-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -2043,65 +2069,86 @@ export default function Admin() {
             {section === "announcements" && (
               <div className="grid gap-5">
                 <div className="card bg-gradient-to-br from-purple-900/85 via-indigo-900/80 to-blue-900/80 text-white p-6 shadow-xl">
-                  <h2 className="text-xl font-semibold">Ogłoszenia</h2>
-                  <p className="text-sm text-white/70">
-                    Komunikaty są wyświetlane na stronie dokumentów, teczek i archiwum.
-                  </p>
-                  <textarea
-                    className="mt-4 h-44 w-full rounded-2xl border border-white/30 bg-white/10 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/60 focus:border-white focus:outline-none focus:ring-2 focus:ring-white/70"
-                    value={announcementMessage}
-                    onChange={(e) => setAnnouncementMessage(e.target.value)}
-                    placeholder="Treść ogłoszenia..."
-                  />
-                  <div className="mt-4 flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-white/80">Czas wyświetlania:</span>
-                      <select
-                         className="input bg-white text-black"
-                        value={announcementDuration}
-                        onChange={(e) => setAnnouncementDuration(e.target.value)}
-                      >
-                        {ANNOUNCEMENT_WINDOWS.map((w) => (
-                          <option key={w.value} value={w.value}>
-                            {w.label}
-                          </option>
-                        ))}
-                      </select>
+                  <div className="space-y-5">
+                    <div className="space-y-2">
+                      <h2 className="text-xl font-semibold">Ogłoszenia</h2>
+                      <p className="text-sm text-white/70">
+                        Komunikaty są wyświetlane na stronie dokumentów, teczek i archiwum.
+                      </p>
                     </div>
-                    <button
-                      className="btn border-white/30 bg-white/10 text-white hover:bg-white/20"
-                      onClick={publishAnnouncement}
-                      disabled={announcementSaving}
-                    >
-                      {announcementSaving ? "Zapisywanie..." : "Opublikuj"}
-                    </button>
-                    <button
-                      className="btn bg-red-600/80 text-white"
-                      onClick={removeAnnouncement}
-                      disabled={announcementSaving || !announcement?.message}
-                    >
-                      Usuń
-                    </button>
-                  </div>
 
-                  {announcement?.message && (
-                    <div className="mt-5 rounded-2xl border border-white/30 bg-black/30 p-4 text-sm text-white/80">
-                      <div className="font-semibold text-white">Aktualnie opublikowane</div>
-                      <p className="mt-2 whitespace-pre-wrap">{announcement.message}</p>
-                      <div className="mt-2 text-xs text-white/60 flex flex-wrap gap-2">
-                        <span>
-                          Widoczne: {
-                            ANNOUNCEMENT_WINDOWS.find((w) => w.value === announcement.duration)?.label || "—"
-                          }
-                        </span>
-                        <span>
-                          {announcement.expiresAtDate
-                            ? `Wygasa: ${announcement.expiresAtDate.toLocaleString()}`
-                            : "Wygasa: do czasu usunięcia"}
-                        </span>
+                    <div className="grid gap-5 items-start lg:grid-cols-[minmax(0,1fr)_280px]">
+                      <div className="space-y-4">
+                        <textarea
+                          className="min-h-[11rem] w-full resize-y rounded-2xl border border-white/30 bg-white/10 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/60 focus:border-white focus:outline-none focus:ring-2 focus:ring-white/70"
+                          value={announcementMessage}
+                          onChange={(e) => setAnnouncementMessage(e.target.value)}
+                          placeholder="Treść ogłoszenia..."
+                        />
+                        <div className="flex flex-wrap items-center gap-3">
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-white/80">Czas wyświetlania:</span>
+                            <select
+                              className="input w-44 bg-white text-black"
+                              value={announcementDuration}
+                              onChange={(e) => setAnnouncementDuration(e.target.value)}
+                            >
+                              {ANNOUNCEMENT_WINDOWS.map((w) => (
+                                <option key={w.value} value={w.value}>
+                                  {w.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <button
+                            className="btn border-white/30 bg-white/10 text-white hover:bg-white/20"
+                            onClick={publishAnnouncement}
+                            disabled={announcementSaving}
+                          >
+                            {announcementSaving ? "Zapisywanie..." : "Opublikuj"}
+                          </button>
+                          <button
+                            className="btn bg-red-600/80 text-white"
+                            onClick={removeAnnouncement}
+                            disabled={announcementSaving || !announcement?.message}
+                          >
+                            Usuń
+                          </button>
+                        </div>
                       </div>
+
+                      <aside className="rounded-2xl border border-white/30 bg-black/30 p-4 text-sm text-white/80">
+                        {announcement?.message ? (
+                          <div className="space-y-2">
+                            <div className="font-semibold text-white">Aktualnie opublikowane</div>
+                            <p className="whitespace-pre-wrap leading-relaxed">{announcement.message}</p>
+                            <div className="mt-1 flex flex-wrap gap-3 text-xs text-white/60">
+                              <span>
+                                Widoczne: {
+                                  ANNOUNCEMENT_WINDOWS.find((w) => w.value === announcement.duration)?.label || "—"
+                                }
+                              </span>
+                              <span>
+                                {announcement.expiresAtDate
+                                  ? `Wygasa: ${announcement.expiresAtDate.toLocaleString()}`
+                                  : "Wygasa: do czasu usunięcia"}
+                              </span>
+                              {announcement.createdByName && (
+                                <span>Autor: {announcement.createdByName}</span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-white/65">
+                            <div className="text-sm font-semibold text-white">Brak aktywnego ogłoszenia</div>
+                            <p className="text-xs leading-relaxed text-white/60">
+                              Użyj formularza obok, aby opublikować komunikat dla funkcjonariuszy.
+                            </p>
+                          </div>
+                        )}
+                      </aside>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             )}
