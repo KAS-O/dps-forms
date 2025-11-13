@@ -58,7 +58,18 @@ function resolveRankLabels(ranks: AdditionalRank[]): string[] {
 }
 
 export default function UnitSidebar() {
-  const { role, login, fullName, badgeNumber, units, additionalRanks, photoURL, photoPath, ready } = useProfile();
+  const {
+    role,
+    login,
+    fullName,
+    badgeNumber,
+    units,
+    additionalRanks,
+    photoURL,
+    photoPath,
+    adminPrivileges,
+    ready,
+  } = useProfile();
   const router = useRouter();
   const { prompt, alert, confirm } = useDialog();
   const [uploadState, setUploadState] = useState<UploadState>("idle");
@@ -66,13 +77,20 @@ export default function UnitSidebar() {
   const [missingIcons, setMissingIcons] = useState<Record<string, boolean>>({});
 
   const accessibleSections = useMemo(() => {
-    return UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks, role)).sort((a, b) =>
+    return UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks, role, units)).sort((a, b) =>
       a.label.localeCompare(b.label, "pl", { sensitivity: "base" })
     );
-  }, [additionalRanks, role]);
+  }, [additionalRanks, role, units]);
 
   const membershipUnits = useMemo(() => {
-    return units
+    const derived = new Set(units);
+    additionalRanks.forEach((rank) => {
+      const option = getAdditionalRankOption(rank);
+      if (option) {
+        derived.add(option.unit);
+      }
+    });
+    return Array.from(derived)
       .map((value) => {
         const option = getInternalUnitOption(value);
         if (!option) return null;
@@ -80,7 +98,7 @@ export default function UnitSidebar() {
         return { option, section };
       })
       .filter((entry): entry is { option: NonNullable<ReturnType<typeof getInternalUnitOption>>; section: ReturnType<typeof getUnitSection> } => !!entry);
-  }, [units]);
+  }, [additionalRanks, units]);
 
   const highestRanks = useMemo(() => {
     if (!additionalRanks.length) return [] as string[];
@@ -352,7 +370,14 @@ export default function UnitSidebar() {
 
             <div className="flex flex-1 flex-col gap-3 text-left text-sm text-white/80">
               <div className="space-y-1">
-                <p className="text-lg font-semibold text-white">{fullName || login || "Nieznany funkcjonariusz"}</p>
+                <p className="text-lg font-semibold text-white flex items-center gap-1">
+                  <span>{fullName || login || "Nieznany funkcjonariusz"}</span>
+                  {adminPrivileges && (
+                    <span className="text-amber-300" title="Uprawnienia administratora">
+                      ★
+                    </span>
+                  )}
+                </p>
                 <p className="text-xs uppercase tracking-wide text-white/60">{groupLabel || "Brak grupy"}</p>
                 <p className="text-xs text-white/60">Login: {login || "—"}</p>
                 <p className="text-xs text-white/60">Stopień: {roleLabel}</p>

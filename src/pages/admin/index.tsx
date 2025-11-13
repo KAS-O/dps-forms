@@ -31,7 +31,14 @@ import { deriveLoginFromEmail } from "@/lib/login";
 import { auth, db } from "@/lib/firebase";
 import { useDialog } from "@/components/DialogProvider";
 import { useAnnouncement } from "@/hooks/useAnnouncement";
-import { ROLE_LABELS, ROLE_OPTIONS, hasBoardAccess, DEFAULT_ROLE, normalizeRole } from "@/lib/roles";
+import {
+  ROLE_LABELS,
+  ROLE_SELECT_OPTIONS,
+  hasBoardAccess,
+  DEFAULT_ROLE,
+  normalizeRole,
+  canManageAdminPrivileges,
+} from "@/lib/roles";
 import {
   DEPARTMENTS,
   INTERNAL_UNITS,
@@ -63,6 +70,7 @@ type Account = {
   units: InternalUnit[];
   additionalRanks: AdditionalRank[];
   additionalRank?: AdditionalRank | null;
+  adminPrivileges: boolean;
 };
 
 type TicketRecord = {
@@ -313,6 +321,7 @@ async function readErrorResponse(res: Response, fallback: string) {
 
 export default function Admin() {
   const { role, login, fullName, ready } = useProfile();
+  const canGrantAdmin = canManageAdminPrivileges(role);
   const { writeLog } = useLogWriter();
   const { confirm, prompt, alert } = useDialog();
   const { announcement } = useAnnouncement();
@@ -871,6 +880,7 @@ export default function Admin() {
         units: unitsValue,
         additionalRanks: additionalRanksValue,
         additionalRank: additionalRanksValue[0] ?? null,
+        adminPrivileges: data?.adminPrivileges === true,
       } as Account;
     });
       arr.sort((a, b) => (a.fullName || a.login).localeCompare(b.fullName || b.login, "pl", { sensitivity: "base" }));
@@ -896,6 +906,7 @@ export default function Admin() {
         units: [],
         additionalRanks: [],
         additionalRank: null,
+        adminPrivileges: false,
       },
       password: "",
     });
@@ -914,6 +925,7 @@ export default function Admin() {
           ? [account.additionalRank]
           : [],
         additionalRank: account.additionalRank ?? null,
+        adminPrivileges: !!account.adminPrivileges,
       },
       password: "",
     });
@@ -931,6 +943,7 @@ export default function Admin() {
       ? editorState.account.units.filter((unit): unit is InternalUnit => !!getInternalUnitOption(unit))
       : [];
     const additionalRanksValue = normalizeAdditionalRanks(editorState.account.additionalRanks);
+    const adminPrivilegesValue = !!editorState.account.adminPrivileges;
 
     if (!loginValue) {
       setErr("Login jest wymagany.");
@@ -1002,6 +1015,7 @@ export default function Admin() {
               units: unitsValue,
               additionalRanks: additionalRanksValue,
               additionalRank: additionalRanksValue[0] ?? null,
+              adminPrivileges: canGrantAdmin ? adminPrivilegesValue : false,
             }
           : {
               uid: editorState.account.uid,
@@ -1012,6 +1026,7 @@ export default function Admin() {
               units: unitsValue,
               additionalRanks: additionalRanksValue,
               additionalRank: additionalRanksValue[0] ?? null,
+              ...(canGrantAdmin ? { adminPrivileges: adminPrivilegesValue } : {}),
             };
       const res = await fetch("/api/admin/accounts", {
         method: editorState.mode === "create" ? "POST" : "PATCH",
@@ -1960,7 +1975,7 @@ export default function Admin() {
                       onChange={(e) => setAccountRoleFilter(e.target.value as Role | "")}
                     >
                       <option value="">Wszystkie rangi</option>
-                      {ROLE_OPTIONS.map(({ value, label }) => (
+                      {ROLE_SELECT_OPTIONS.map(({ value, label }) => (
                         <option key={value} value={value}>
                           {label}
                         </option>
@@ -1997,7 +2012,14 @@ export default function Admin() {
                           className="card p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
                         >
                           <div>
-                            <h3 className="text-lg font-semibold">{acc.fullName || "Bez nazwy"}</h3>
+                            <h3 className="text-lg font-semibold flex items-center gap-1">
+                              <span>{acc.fullName || "Bez nazwy"}</span>
+                              {acc.adminPrivileges && (
+                                <span className="text-amber-400" title="Uprawnienia administratora">
+                                  ★
+                                </span>
+                              )}
+                            </h3>
                             <p className="text-sm text-beige-700">
                               Login: <span className="font-mono text-base">{acc.login}@{loginDomain}</span>
                             </p>
@@ -2628,12 +2650,43 @@ export default function Admin() {
                     )
                   }
                 >
-                  {ROLE_OPTIONS.map(({ value, label }) => (
+                  {ROLE_SELECT_OPTIONS.map(({ value, label }) => (
                     <option key={value} value={value}>
                       {label}
                     </option>
                   ))}
                 </select>
+                <div className="mt-3 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    className={`btn justify-center text-xs ${
+                      editorState.account.adminPrivileges
+                        ? "border-amber-400/60 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30"
+                        : "border-white/30 bg-white/10 text-white/80 hover:bg-white/20"
+                    }`}
+                    disabled={!canGrantAdmin}
+                    onClick={() =>
+                      setEditorState((prev) => {
+                        if (!prev || !canGrantAdmin) return prev;
+                        return {
+                          ...prev,
+                          account: {
+                            ...prev.account,
+                            adminPrivileges: !prev.account.adminPrivileges,
+                          },
+                        };
+                      })
+                    }
+                  >
+                    {editorState.account.adminPrivileges
+                      ? "Odbierz uprawnienia administratora"
+                      : "Nadaj uprawnienia administratora"}
+                    {editorState.account.adminPrivileges ? " ★" : ""}
+                  </button>
+                  <p className="text-[11px] leading-4 text-white/50">
+                    Tylko rangi Admin, Director oraz Chief Of Police mogą zarządzać uprawnieniami administratora.
+                  </p>
+                </div>
               </div>
 
               <div className="md:col-span-2">
