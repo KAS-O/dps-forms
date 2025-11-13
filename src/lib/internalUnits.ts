@@ -67,16 +67,21 @@ export function getUnitSection(unit: InternalUnit): UnitSectionConfig | null {
 export function unitHasAccess(
   unit: InternalUnit,
   ranks: AdditionalRank[] | null | undefined,
-  role?: Role | null | undefined
+  role?: Role | null | undefined,
+  memberships?: InternalUnit[] | null | undefined
 ): boolean {
   if (isHighCommand(role)) {
     return true;
   }
-  if (!Array.isArray(ranks) || ranks.length === 0) {
-    return false;
-  }
   const config = UNIT_CONFIG_MAP.get(unit);
   if (!config) {
+    return false;
+  }
+  const membershipSet = new Set(memberships || []);
+  if (membershipSet.has(unit)) {
+    return true;
+  }
+  if (!Array.isArray(ranks) || ranks.length === 0) {
     return false;
   }
   const rankSet = new Set(ranks);

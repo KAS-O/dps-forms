@@ -59,6 +59,8 @@ export const ROLE_OPTIONS: { value: Role; label: string }[] = ROLE_VALUES.map((r
   label: ROLE_LABELS[role],
 }));
 
+export const ROLE_SELECT_OPTIONS = ROLE_OPTIONS.filter(({ value }) => value !== "admin");
+
 const ROLE_GROUP_LABEL_MAP: Record<Role, string> = {
   director: "Zarząd i administracja",
   admin: "Zarząd i administracja",
@@ -170,6 +172,18 @@ const HIGH_COMMAND_ROLE_SET = new Set<Role>(HIGH_COMMAND_ROLES);
 
 export function isHighCommand(role: Role | null | undefined): role is Role {
   return !!role && HIGH_COMMAND_ROLE_SET.has(role);
+}
+
+export const ADMIN_PRIVILEGE_ROLES: Role[] = ["admin", "director", "chief-of-police"];
+
+const ADMIN_PRIVILEGE_ROLE_SET = new Set<Role>(ADMIN_PRIVILEGE_ROLES);
+
+export function canManageAdminPrivileges(role: Role | null | undefined): role is Role {
+  return !!role && ADMIN_PRIVILEGE_ROLE_SET.has(role);
+}
+
+export function canManageDossiers(role: Role | null | undefined): role is Role {
+  return !!role && role !== "cadet" && role !== "solo-cadet";
 }
 
 const FALLBACK_ROLE: Role = DEFAULT_ROLE;

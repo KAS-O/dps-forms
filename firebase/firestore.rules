@@ -51,6 +51,19 @@ service cloud.firestore {
       );
     }
 
+    function canManageAdminPrivileges() {
+      let r = roleOf(request.auth.uid);
+      return signedIn() && (r == "admin" || r == "director" || r == "chief-of-police");
+    }
+
+    function adminPrivilegesGrantedInCreate() {
+      return request.resource.data.adminPrivileges == true;
+    }
+
+    function adminPrivilegeChangeRequested() {
+      return request.resource.data.diff(resource.data).changedKeys().hasAny(["adminPrivileges"]);
+    }
+
     function vehicleFolderProtectedFieldsUnchanged() {
       return request.resource.data.createdBy == resource.data.createdBy &&
         request.resource.data.createdByUid == resource.data.createdByUid &&
@@ -86,8 +99,10 @@ service cloud.firestore {
     match /profiles/{uid} {
       allow read: if signedIn();
       // panel kadr: dowództwo może tworzyć profile dla innych użytkowników
-      allow create: if signedIn() && (uid == request.auth.uid || isBoard());
-      allow update: if isBoard() || (signedIn() && uid == request.auth.uid);
+      allow create: if signedIn() && (uid == request.auth.uid || (isBoard() && (!adminPrivilegesGrantedInCreate() || canManageAdminPrivileges())));
+      allow update: if
+        (isBoard() || (signedIn() && uid == request.auth.uid)) &&
+        (!adminPrivilegeChangeRequested() || canManageAdminPrivileges());
       allow delete: if isBoard();
 
       match /counters/{counterId} {

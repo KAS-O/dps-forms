@@ -29,7 +29,7 @@ const ROLE_GROUPS: { id: string; title: string; accent: string; roles: Role[] }[
     id: "board",
     title: "Zarząd i administracja",
     accent: "#f97316",
-    roles: ["director", "admin"],
+    roles: ["director"],
   },
   {
     id: "command",
@@ -99,6 +99,7 @@ type ChainMember = {
   department: Department | null;
   units: InternalUnit[];
   additionalRanks: AdditionalRank[];
+  isAdministrator: boolean;
 };
 
 type RoleEntry = { role: Role; members: ChainMember[] };
@@ -122,7 +123,14 @@ function MemberBadge({ member, highlight }: { member: ChainMember; highlight: bo
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-semibold text-white/90">{label}</span>
+        <span className="text-sm font-semibold text-white/90 flex items-center gap-1">
+          <span>{label}</span>
+          {member.isAdministrator && (
+            <span className="text-amber-300" title="Uprawnienia administratora">
+              ★
+            </span>
+          )}
+        </span>
         {member.badgeNumber && (
           <span className="text-[11px] font-mono text-white/60">#{member.badgeNumber}</span>
         )}
@@ -197,6 +205,7 @@ export default function ChainOfCommandPage() {
           const department = normalizeDepartment(data?.department);
           const units = normalizeInternalUnits(data?.units);
           const additionalRanks = normalizeAdditionalRanks(data?.additionalRanks ?? data?.additionalRank);
+          const isAdministrator = data?.adminPrivileges === true;
           const badge =
             typeof data?.badgeNumber === "string" ? data.badgeNumber.trim() : undefined;
 
@@ -209,6 +218,7 @@ export default function ChainOfCommandPage() {
             department: department ?? null,
             units,
             additionalRanks,
+            isAdministrator,
           };
         });
 
