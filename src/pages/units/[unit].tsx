@@ -458,13 +458,10 @@ export default function UnitPanelPage() {
   const unitMembers = useMemo(() => {
     if (!unit) return [] as UnitMember[];
     return members.filter((member) => {
-      if (!member.units.includes(unit)) {
-        return false;
-      }
-      if (unitRankSet.size > 0 && !member.additionalRanks.some((rank) => unitRankSet.has(rank))) {
-        return false;
-      }
-      if (isHighCommand(member.role)) {
+      const hasDirectMembership = member.units.includes(unit);
+      const hasRankMembership =
+        unitRankSet.size > 0 && member.additionalRanks.some((rank) => unitRankSet.has(rank));
+      if (!hasDirectMembership && !hasRankMembership) {
         return false;
       }
       return true;
