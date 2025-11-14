@@ -3,20 +3,26 @@ export type Department = "lspd" | "lssd" | "saspr";
 export type InternalUnit = "iad" | "swat-sert" | "usms" | "dtu" | "gu" | "ftd";
 
 export type AdditionalRank =
+  | "iad"
   | "opiekun-iad"
   | "iad-chief-inspector"
   | "iad-deputy-chief-inspector"
+  | "swat-sert"
   | "opiekun-swat-sert"
   | "swat-commander"
   | "swat-deputy-commander"
+  | "usms"
   | "opiekun-usms"
   | "us-marshal"
+  | "dtu"
   | "opiekun-dtu"
   | "dtu-commander"
   | "dtu-deputy-commander"
+  | "gu"
   | "opiekun-gu"
   | "gu-commander"
   | "gu-deputy-commander"
+  | "ftd"
   | "opiekun-ftd"
   | "ftd-commander"
   | "ftd-deputy-commander";
@@ -153,6 +159,12 @@ const INTERNAL_UNIT_OPTIONS: InternalUnitOption[] = [
 
 const ADDITIONAL_RANK_OPTIONS: AdditionalRankOption[] = [
   {
+    value: "iad",
+    label: "Członek IAD",
+    unit: "iad",
+    ...UNIT_STYLES.iad,
+  },
+  {
     value: "opiekun-iad",
     label: "Opiekun IAD",
     unit: "iad",
@@ -169,6 +181,12 @@ const ADDITIONAL_RANK_OPTIONS: AdditionalRankOption[] = [
     label: "IAD Deputy Chief Inspector",
     unit: "iad",
     ...UNIT_STYLES.iad,
+  },
+  {
+    value: "swat-sert",
+    label: "Członek SWAT/SERT",
+    unit: "swat-sert",
+    ...UNIT_STYLES["swat-sert"],
   },
   {
     value: "opiekun-swat-sert",
@@ -189,6 +207,12 @@ const ADDITIONAL_RANK_OPTIONS: AdditionalRankOption[] = [
     ...UNIT_STYLES["swat-sert"],
   },
   {
+    value: "usms",
+    label: "Członek USMS",
+    unit: "usms",
+    ...UNIT_STYLES.usms,
+  },
+  {
     value: "opiekun-usms",
     label: "Opiekun USMS",
     unit: "usms",
@@ -199,6 +223,12 @@ const ADDITIONAL_RANK_OPTIONS: AdditionalRankOption[] = [
     label: "U.S. Marshal",
     unit: "usms",
     ...UNIT_STYLES.usms,
+  },
+  {
+    value: "dtu",
+    label: "Członek DTU",
+    unit: "dtu",
+    ...UNIT_STYLES.dtu,
   },
   {
     value: "opiekun-dtu",
@@ -219,6 +249,12 @@ const ADDITIONAL_RANK_OPTIONS: AdditionalRankOption[] = [
     ...UNIT_STYLES.dtu,
   },
   {
+    value: "gu",
+    label: "Członek G.U.",
+    unit: "gu",
+    ...UNIT_STYLES.gu,
+  },
+  {
     value: "opiekun-gu",
     label: "Opiekun G.U.",
     unit: "gu",
@@ -235,6 +271,12 @@ const ADDITIONAL_RANK_OPTIONS: AdditionalRankOption[] = [
     label: "G.U. Deputy Commander",
     unit: "gu",
     ...UNIT_STYLES.gu,
+  },
+  {
+    value: "ftd",
+    label: "Członek FTD",
+    unit: "ftd",
+    ...UNIT_STYLES.ftd,
   },
   {
     value: "opiekun-ftd",

@@ -50,6 +50,7 @@ type MemberRowProps = {
   member: UnitMember;
   unit: InternalUnit;
   manageableRanks: AdditionalRank[];
+  membershipRank: AdditionalRank | null;
   onSubmit: (uid: string, update: MemberUpdate) => Promise<void>;
   saving: boolean;
 };
@@ -116,7 +117,7 @@ function arraysEqual<T>(a: T[], b: T[]): boolean {
   return true;
 }
 
-function MemberRow({ member, unit, manageableRanks, onSubmit, saving }: MemberRowProps) {
+function MemberRow({ member, unit, manageableRanks, membershipRank, onSubmit, saving }: MemberRowProps) {
   const originalMembership = useMemo(() => member.units.includes(unit), [member.units, unit]);
   const originalRanks = useMemo(
     () => manageableRanks.filter((rank) => member.additionalRanks.includes(rank)),
@@ -150,10 +151,26 @@ function MemberRow({ member, unit, manageableRanks, onSubmit, saving }: MemberRo
     return manageableRanks.filter((rank) => set.has(rank));
   }, [selectedRanks, manageableRanks]);
 
+  useEffect(() => {
+    if (!membershipRank) return;
+    setSelectedRanks((prev) => {
+      const hasRank = prev.includes(membershipRank);
+      if (membership) {
+        if (hasRank) return prev;
+        return [...prev, membershipRank];
+      }
+      if (!hasRank) return prev;
+      return prev.filter((rank) => rank !== membershipRank);
+    });
+  }, [membership, membershipRank]);
+
   const dirty = membership !== originalMembership || !arraysEqual(sortedSelectedRanks, originalRanks);
 
   const toggleRank = (rank: AdditionalRank) => {
     setSelectedRanks((prev) => {
+      if (membershipRank && rank === membershipRank && membership) {
+        return prev;
+      }
       if (prev.includes(rank)) {
         return prev.filter((value) => value !== rank);
       }
@@ -322,8 +339,18 @@ export default function UnitPanelPage() {
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
 
   const unit = section?.unit ?? null;
+  const membershipRank = section?.membershipRank ?? null;
   const supportsCriminalGroups = unit === "gu" || unit === "dtu";
-  const unitRankSet = useMemo(() => new Set(section?.rankHierarchy ?? []), [section]);
+  const unitRankSet = useMemo(() => {
+    if (!section) {
+      return new Set<AdditionalRank>();
+    }
+    const ranks = [...section.rankHierarchy];
+    if (section.membershipRank) {
+      ranks.push(section.membershipRank);
+    }
+    return new Set(ranks);
+  }, [section]);
 
   const managementPermission = useMemo(() => {
     if (permission) {
@@ -332,14 +359,21 @@ export default function UnitPanelPage() {
     if (!section || !isHighCommand(role)) {
       return null;
     }
+    if (section.rankHierarchy.length === 0) {
+      if (!section.membershipRank) {
+        return null;
+      }
+      return { unit: section.unit, highestRank: section.membershipRank, manageableRanks: [] };
+    }
     const [highestRank, ...rest] = section.rankHierarchy;
-    if (!highestRank) {
-      return null;
+    const manageableRanks = [...rest];
+    if (section.membershipRank) {
+      manageableRanks.push(section.membershipRank);
     }
     return {
       unit: section.unit,
       highestRank,
-      manageableRanks: rest,
+      manageableRanks,
     };
   }, [permission, role, section]);
 
@@ -459,12 +493,8 @@ export default function UnitPanelPage() {
     if (!unit) return [] as UnitMember[];
     return members.filter((member) => {
       const hasDirectMembership = member.units.includes(unit);
-      const hasRankMembership =
-        unitRankSet.size > 0 && member.additionalRanks.some((rank) => unitRankSet.has(rank));
+      const hasRankMembership = member.additionalRanks.some((rank) => unitRankSet.has(rank));
       if (!hasDirectMembership && !hasRankMembership) {
-        return false;
-      }
-      if (unitRankSet.size > 0 && !hasRankMembership) {
         return false;
       }
       if (isHighCommand(member.role)) {
@@ -511,10 +541,11 @@ export default function UnitPanelPage() {
     if (!unit) return [] as UnitMember[];
     return members.filter((member) => {
       if (member.units.includes(unit)) return false;
+      if (member.additionalRanks.some((rank) => unitRankSet.has(rank))) return false;
       if (isHighCommand(member.role)) return false;
       return true;
     });
-  }, [members, unit]);
+  }, [members, unit, unitRankSet]);
 
   const filteredCandidates = useMemo(() => {
     if (!candidateSearch.trim()) return candidateMembers;
@@ -677,10 +708,14 @@ export default function UnitPanelPage() {
     if (!canAddMembers) return;
     setCandidateSearch("");
     setSelectedCandidate("");
-    setCandidateRanks(manageableRanks.length ? [manageableRanks[manageableRanks.length - 1]] : []);
+    if (membershipRank) {
+      setCandidateRanks([membershipRank]);
+    } else {
+      setCandidateRanks(manageableRanks.length ? [manageableRanks[manageableRanks.length - 1]] : []);
+    }
     setAddMemberError(null);
     setAddMemberOpen(true);
-  }, [canAddMembers, manageableRanks]);
+  }, [canAddMembers, manageableRanks, membershipRank]);
 
   const handleCloseAddMember = useCallback(() => {
     setAddMemberOpen(false);
@@ -693,6 +728,11 @@ export default function UnitPanelPage() {
   const toggleCandidateRank = useCallback(
     (rank: AdditionalRank) => {
       setCandidateRanks((prev) => {
+        if (membershipRank && rank === membershipRank) {
+          if (prev.includes(rank)) {
+            return prev;
+          }
+        }
         if (prev.includes(rank)) {
           return prev.filter((value) => value !== rank);
         }
@@ -701,7 +741,7 @@ export default function UnitPanelPage() {
         return manageableRanks.filter((value) => set.has(value));
       });
     },
-    [manageableRanks]
+    [manageableRanks, membershipRank]
   );
 
   const handleAddMemberSubmit = useCallback(
@@ -712,16 +752,21 @@ export default function UnitPanelPage() {
         setAddMemberError("Wybierz funkcjonariusza.");
         return;
       }
-      const ranksToAssign =
+      let ranksToAssign =
         candidateRanks.length > 0 ? candidateRanks : manageableRanks.slice(-1);
-      if (!ranksToAssign.length) {
+      if (membershipRank && !ranksToAssign.includes(membershipRank)) {
+        ranksToAssign = [...ranksToAssign, membershipRank];
+      }
+      const rankSet = new Set(ranksToAssign);
+      const orderedRanks = manageableRanks.filter((value) => rankSet.has(value));
+      if (!orderedRanks.length) {
         setAddMemberError("Wybierz przynajmniej jedną rangę jednostki.");
         return;
       }
       setAddingMember(true);
       setAddMemberError(null);
       try {
-        await handleSubmit(selectedCandidate, { membership: true, ranks: ranksToAssign });
+        await handleSubmit(selectedCandidate, { membership: true, ranks: orderedRanks });
         setAddMemberOpen(false);
         setSelectedCandidate("");
         setCandidateRanks([]);
@@ -738,6 +783,7 @@ export default function UnitPanelPage() {
       selectedCandidate,
       candidateRanks,
       manageableRanks,
+      membershipRank,
       handleSubmit,
     ]
   );
@@ -967,6 +1013,7 @@ export default function UnitPanelPage() {
                             member={member}
                             unit={unit!}
                             manageableRanks={manageableRanks}
+                            membershipRank={section?.membershipRank ?? null}
                             onSubmit={handleSubmit}
                             saving={mutating === member.uid}
                           />

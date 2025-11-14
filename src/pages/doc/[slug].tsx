@@ -232,18 +232,6 @@ export default function DocPage() {
     });
   }, [requiresVehicleFolder, vehicleFolders, vehicleSearch]);
   
-  const nextPayoutDate = useMemo(() => {
-    if (!requiresDossier) return "";
-    const dniRaw = values["dni"];
-    if (!dniRaw) return "";
-    const dni = Number(dniRaw);
-    if (Number.isNaN(dni)) return "";
-    const base = new Date();
-    base.setHours(0, 0, 0, 0);
-    base.setDate(base.getDate() + dni);
-    return base.toLocaleDateString();
-  }, [requiresDossier, values]);
-
   const previewFields = useMemo<FieldRender[]>(() => {
     if (!template) return [];
 
@@ -260,19 +248,13 @@ export default function DocPage() {
         displayText = String(rawValue);
       }
 
-      let note = "";
-      if (template.slug === "swiadczenie-spoleczne" && f.key === "dni") {
-        displayText = nextPayoutDate || "—";
-        if (nextPayoutDate) {
-          note = "Wyliczono z dnia dzisiejszego.";
-        }
-      }
-
       if (!displayText) {
         displayText = "—";
       } else {
         displayText = compressMultilineText(displayText) || "—";
       }
+
+      const note = "";
 
       return {
         id: f.key,
@@ -283,7 +265,7 @@ export default function DocPage() {
         signature: `${displayText}|${note}`,
       };
     });
-  }, [nextPayoutDate, template, values]);
+  }, [template, values]);
 
   const isWniosekTemplate = template?.slug === "wniosek-o-ukaranie";
 
@@ -609,9 +591,6 @@ export default function DocPage() {
         funkcjonariusze: officerText,
         signature: signatureForText,
       };
-      if (requiresDossier && nextPayoutDate) {
-        valuesOut["dni"] = nextPayoutDate;
-      }
       valuesOut["liczbaStron"] = imageUrlsAll.length;
       if (requiresVehicleFolder && selectedVehicle) {
         valuesOut["teczkaPojazdu"] = vehicleLabel || selectedVehicle.registration || selectedVehicle.id;
