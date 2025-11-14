@@ -28,33 +28,6 @@ export type Template = {
 };
 
 export const TEMPLATES: Template[] = [
-  // Kontrola LSEB (zamiast sanitarnej) — z wielokrotnym wyborem
-  {
-    slug: "kontrola-lseb",
-    name: "Kontrola LSEB",
-    description: "Kontrola sanitarna / BHP / Ochrona prawa pracy",
-    signaturePrefix: "LSEB-K",
-    fields: [
-      {
-        key: "typ",
-        label: "Rodzaj kontroli",
-        type: "multiselect",
-        options: [
-          "Kontrola sanitarna",
-          "Kontrola BHP",
-          "Ochrona prawa pracy",
-        ],
-        required: true,
-      },
-      { key: "data", label: "Data", type: "date", required: true },
-      { key: "miejsce", label: "Nazwa firmy / miejsce", type: "text", required: true },
-      { key: "adres", label: "Adres", type: "text", required: true },
-      { key: "ustalenia", label: "Ustalenia", type: "textarea", required: true },
-      { key: "zalecenia", label: "Zalecenia", type: "textarea" },
-      { key: "grzywna", label: "Grzywna (USD)", type: "number" },
-    ],
-  },
-
   // Bloczek mandatowy — bez punktów karnych
   {
     slug: "bloczek-mandatowy",
@@ -147,36 +120,6 @@ export const TEMPLATES: Template[] = [
     ],
   },
 
-  // NOWE: Świadczenie społeczne — kwota nie wpływa na saldo DPS
-  {
-    slug: "swiadczenie-spoleczne",
-    name: "Wypłata świadczeń socjalnych",
-    requiresDossier: true,
-    signaturePrefix: "LSPD-WS",
-    fields: [
-      { key: "data", label: "Data", type: "date", required: true },
-      { key: "godzina", label: "Godzina", type: "text", required: true },
-      { key: "beneficjent", label: "Beneficjent (imię i nazwisko)", type: "text", required: true },
-      { key: "cid", label: "CID beneficjenta", type: "text", required: true },
-      { key: "powod", label: "Powód przyznania świadczenia", type: "textarea", required: true },
-       {
-        key: "niepelnosprawnosc",
-        label: "Stopień niepełnosprawności",
-        type: "select",
-        options: ["Brak", "Lekki", "Umiarkowany", "Znaczny"],
-      },
-      {
-        key: "praca",
-        label: "Czy posiada pracę?",
-        type: "select",
-        options: ["Tak", "Nie"],
-        required: true,
-      },
-      { key: "kwota", label: "Wysokość świadczenia (USD)", type: "number", required: true },
-      { key: "dni", label: "Następna wypłata dostępna dnia", type: "number", required: true },
-    ],
-  },
-  
   {
     slug: "raport-zalozenia-blokady",
     name: "Raport z założenia blokady",
