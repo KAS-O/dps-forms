@@ -55,16 +55,20 @@ async function ensureUnitAccess(req: NextApiRequest, unit: InternalUnit) {
     if (!config) {
       throw Object.assign(new Error("Jednostka nie obsługuje uprawnień."), { status: 404 });
     }
-    if (!config.rankHierarchy.length) {
+    if (!config.rankHierarchy.length && !config.membershipRank) {
       throw Object.assign(new Error("Brak konfiguracji rang jednostki."), { status: 500 });
     }
-    const [firstRank] = config.rankHierarchy;
+    const highestRank = config.rankHierarchy[0] ?? config.membershipRank!;
+    const manageableRanks = config.rankHierarchy.slice();
+    if (config.membershipRank && !manageableRanks.includes(config.membershipRank)) {
+      manageableRanks.push(config.membershipRank);
+    }
     return {
       idToken,
       permission: {
         unit,
-        highestRank: firstRank ?? config.rankHierarchy[config.rankHierarchy.length - 1],
-        manageableRanks: config.rankHierarchy.slice(),
+        highestRank,
+        manageableRanks,
       },
     };
   }
@@ -150,6 +154,9 @@ function removeUnitRanks(
     return ranks;
   }
   const unitRankSet = new Set(config.rankHierarchy);
+  if (config.membershipRank) {
+    unitRankSet.add(config.membershipRank);
+  }
   return ranks.filter((rank) => {
     if (!unitRankSet.has(rank)) return true;
     return !manageableSet.has(rank);
@@ -183,6 +190,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const { idToken, permission } = await ensureUnitAccess(req, unit);
+    const config = getUnitSection(unit);
+    if (!config) {
+      return res.status(404).json({ error: "Jednostka nie obsługuje uprawnień." });
+    }
+    const membershipRank = config.membershipRank;
 
     if (req.method === "GET") {
       const documents = await listFirestoreCollection("profiles", idToken, { pageSize: 200 });
@@ -203,9 +215,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? normalizeAdditionalRanks(payload.ranks)
       : [];
     const manageableRanks = permission.manageableRanks;
-    const allowedRanks = filterManageableRanks(requestedRanks, manageableRanks);
+    let allowedRanks = filterManageableRanks(requestedRanks, manageableRanks);
     if (allowedRanks.length !== requestedRanks.length) {
       return res.status(400).json({ error: "Próba nadania rangi spoza zakresu uprawnień." });
+    }
+    if (payload.membership && membershipRank && manageableRanks.includes(membershipRank)) {
+      if (!allowedRanks.includes(membershipRank)) {
+        allowedRanks = [...allowedRanks, membershipRank];
+      }
     }
 
     const targetDoc = await fetchFirestoreDocument(`profiles/${encodeURIComponent(targetUid)}`, idToken);

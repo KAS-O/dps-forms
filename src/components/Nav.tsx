@@ -45,14 +45,16 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 }
 
 export default function Nav() {
-  const { role, additionalRanks, adminPrivileges } = useProfile();
+  const { role, units, additionalRanks, adminPrivileges } = useProfile();
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
   const router = useRouter();
   const archiveActive = router.pathname.startsWith("/archive");
   const adminActive = router.pathname.startsWith("/admin");
   const currentPath = router.asPath;
-  const unitLinks = UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks, role));
+  const unitLinks = UNIT_SECTIONS.filter((section) =>
+    unitHasAccess(section.unit, additionalRanks, role, units)
+  );
 
   const logout = async () => {
     const ok = await confirm({
@@ -78,16 +80,8 @@ export default function Nav() {
                 Los Santos Police Department
               </span>
             </div>
-            <div className="flex items-center justify-end gap-2 whitespace-nowrap text-sm sm:self-center">
-              <button
-                onClick={logout}
-                className="btn w-full px-5 text-sm font-semibold tracking-wide sm:w-auto sm:min-h-[2.75rem]"
-              >
-                Wyloguj
-              </button>
-            </div>
           </div>
-          <div className="flex items-center">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex-1 overflow-x-auto pb-1">
               <div className="flex min-w-max items-center gap-2 text-sm">
                 {NAV_LINKS.map((link) => {
@@ -141,6 +135,14 @@ export default function Nav() {
                   </Link>
                 )}
               </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 whitespace-nowrap text-sm sm:text-base">
+              <button
+                onClick={logout}
+                className="btn w-full px-6 py-2.5 text-sm font-semibold tracking-wide shadow-lg sm:w-auto sm:min-h-[3rem]"
+              >
+                Wyloguj
+              </button>
             </div>
           </div>
         </div>
