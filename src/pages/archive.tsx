@@ -58,7 +58,6 @@ const DOCUMENT_LINE_PATTERN = /^dokument\s*:/i;
 
 const FINE_FIELDS_BY_SLUG: Record<string, string[]> = {
   "bloczek-mandatowy": ["kwota"],
-  "kontrola-lseb": ["grzywna"],
   "protokol-aresztowania": ["grzywna"],
   "raport-zalozenia-blokady": ["kara"],
   "protokol-zajecia-pojazdu": ["grzywna"],
@@ -66,7 +65,6 @@ const FINE_FIELDS_BY_SLUG: Record<string, string[]> = {
 
 const FINE_FIELDS_BY_NAME: Record<string, string[]> = {
   "bloczek mandatowy": ["kwota"],
-  "kontrola lseb": ["grzywna"],
   "protokół aresztowania": ["grzywna"],
   "raport z założenia blokady": ["kara"],
   "protokół zajęcia pojazdu": ["grzywna"],

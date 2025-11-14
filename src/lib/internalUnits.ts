@@ -7,39 +7,52 @@ export type UnitSectionConfig = {
   label: string;
   shortLabel: string;
   navColor: string;
+  membershipRank: AdditionalRank;
+  managementRanks: AdditionalRank[];
   rankHierarchy: AdditionalRank[];
   icon: string;
 };
 
-const BASE_UNIT_CONFIG: Record<InternalUnit, { navColor: string; rankHierarchy: AdditionalRank[]; iconName: string }> = {
+const BASE_UNIT_CONFIG: Record<InternalUnit, {
+  navColor: string;
+  membershipRank: AdditionalRank;
+  managementRanks: AdditionalRank[];
+  iconName: string;
+}> = {
   iad: {
     navColor: "#ef4444",
-    rankHierarchy: ["opiekun-iad", "iad-chief-inspector", "iad-deputy-chief-inspector"],
+    membershipRank: "iad",
+    managementRanks: ["opiekun-iad", "iad-chief-inspector", "iad-deputy-chief-inspector"],
     iconName: "iad.png",
   },
   "swat-sert": {
     navColor: "#64748b",
-    rankHierarchy: ["opiekun-swat-sert", "swat-commander", "swat-deputy-commander"],
+    membershipRank: "swat-sert",
+    managementRanks: ["opiekun-swat-sert", "swat-commander", "swat-deputy-commander"],
     iconName: "swat-sert.png",
   },
   usms: {
     navColor: "#eab308",
-    rankHierarchy: ["opiekun-usms", "us-marshal"],
+    membershipRank: "usms",
+    managementRanks: ["opiekun-usms", "us-marshal"],
     iconName: "usms.png",
   },
   dtu: {
     navColor: "#22d3ee",
-    rankHierarchy: ["opiekun-dtu", "dtu-commander", "dtu-deputy-commander"],
+    membershipRank: "dtu",
+    managementRanks: ["opiekun-dtu", "dtu-commander", "dtu-deputy-commander"],
     iconName: "dtu.png",
   },
   gu: {
     navColor: "#10b981",
-    rankHierarchy: ["opiekun-gu", "gu-commander", "gu-deputy-commander"],
+    membershipRank: "gu",
+    managementRanks: ["opiekun-gu", "gu-commander", "gu-deputy-commander"],
     iconName: "gu.png",
   },
   ftd: {
     navColor: "#6366f1",
-    rankHierarchy: ["opiekun-ftd", "ftd-commander", "ftd-deputy-commander"],
+    membershipRank: "ftd",
+    managementRanks: ["opiekun-ftd", "ftd-commander", "ftd-deputy-commander"],
     iconName: "ftd.png",
   },
 };
@@ -53,7 +66,9 @@ export const UNIT_SECTIONS: UnitSectionConfig[] = (Object.keys(BASE_UNIT_CONFIG)
     label: option?.label || option?.abbreviation || unit.toUpperCase(),
     shortLabel: option?.shortLabel || option?.abbreviation || unit.toUpperCase(),
     navColor: config.navColor,
-    rankHierarchy: config.rankHierarchy.slice(),
+    membershipRank: config.membershipRank,
+    managementRanks: config.managementRanks.slice(),
+    rankHierarchy: [config.membershipRank, ...config.managementRanks],
     icon: `/unit-logos/${config.iconName}`,
   };
 });
@@ -66,21 +81,28 @@ export function getUnitSection(unit: InternalUnit): UnitSectionConfig | null {
 
 export function unitHasAccess(
   unit: InternalUnit,
+  membershipUnits: InternalUnit[] | null | undefined,
   ranks: AdditionalRank[] | null | undefined,
   role?: Role | null | undefined
 ): boolean {
   if (isHighCommand(role)) {
     return true;
   }
-  if (!Array.isArray(ranks) || ranks.length === 0) {
-    return false;
-  }
   const config = UNIT_CONFIG_MAP.get(unit);
   if (!config) {
     return false;
   }
+  if (Array.isArray(membershipUnits) && membershipUnits.includes(unit)) {
+    return true;
+  }
+  if (!Array.isArray(ranks) || ranks.length === 0) {
+    return false;
+  }
   const rankSet = new Set(ranks);
-  return config.rankHierarchy.some((rank) => rankSet.has(rank));
+  if (rankSet.has(config.membershipRank)) {
+    return true;
+  }
+  return config.managementRanks.some((rank) => rankSet.has(rank));
 }
 
 export type UnitPermission = {
@@ -101,15 +123,14 @@ export function resolveUnitPermission(
     return null;
   }
   const rankSet = new Set(ranks);
-  for (let index = 0; index < config.rankHierarchy.length; index += 1) {
-    const rank = config.rankHierarchy[index];
-    if (rankSet.has(rank)) {
-      return {
-        unit,
-        highestRank: rank,
-        manageableRanks: config.rankHierarchy.slice(index + 1),
-      };
-    }
+  for (let index = 0; index < config.managementRanks.length; index += 1) {
+    const rank = config.managementRanks[index];
+    if (!rankSet.has(rank)) continue;
+    return {
+      unit,
+      highestRank: rank,
+      manageableRanks: config.managementRanks.slice(index + 1),
+    };
   }
   return null;
 }

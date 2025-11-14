@@ -55,16 +55,16 @@ async function ensureUnitAccess(req: NextApiRequest, unit: InternalUnit) {
     if (!config) {
       throw Object.assign(new Error("Jednostka nie obsługuje uprawnień."), { status: 404 });
     }
-    if (!config.rankHierarchy.length) {
+    if (!config.managementRanks.length) {
       throw Object.assign(new Error("Brak konfiguracji rang jednostki."), { status: 500 });
     }
-    const [firstRank] = config.rankHierarchy;
+    const [firstRank] = config.managementRanks;
     return {
       idToken,
       permission: {
         unit,
-        highestRank: firstRank ?? config.rankHierarchy[config.rankHierarchy.length - 1],
-        manageableRanks: config.rankHierarchy.slice(),
+        highestRank: firstRank ?? config.managementRanks[config.managementRanks.length - 1],
+        manageableRanks: config.managementRanks.slice(),
       },
     };
   }
@@ -125,7 +125,7 @@ function assertNoHigherRanks(member: UnitMember, unit: InternalUnit, manageableR
     return;
   }
   const manageableSet = new Set(manageableRanks);
-  const higherRanks = config.rankHierarchy.filter((rank) => !manageableSet.has(rank));
+  const higherRanks = config.managementRanks.filter((rank) => !manageableSet.has(rank));
   if (!higherRanks.length) {
     return;
   }
@@ -149,8 +149,11 @@ function removeUnitRanks(
   if (!config) {
     return ranks;
   }
-  const unitRankSet = new Set(config.rankHierarchy);
+  const unitRankSet = new Set([config.membershipRank, ...config.managementRanks]);
   return ranks.filter((rank) => {
+    if (rank === config.membershipRank) {
+      return false;
+    }
     if (!unitRankSet.has(rank)) return true;
     return !manageableSet.has(rank);
   });
@@ -235,8 +238,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const manageableSet = new Set(manageableRanks);
+    const config = getUnitSection(unit);
     let nextRanks = member.additionalRanks.filter((rank) => !manageableSet.has(rank));
     if (payload.membership) {
+      if (config && !nextRanks.includes(config.membershipRank)) {
+        nextRanks.push(config.membershipRank);
+      }
       allowedRanks.forEach((rank) => {
         if (!nextRanks.includes(rank)) {
           nextRanks.push(rank);
@@ -244,6 +251,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     } else {
       nextRanks = removeUnitRanks(nextRanks, unit, manageableRanks);
+      if (config) {
+        nextRanks = nextRanks.filter((rank) => rank !== config.membershipRank);
+      }
     }
 
     const updates: Record<string, any> = {};

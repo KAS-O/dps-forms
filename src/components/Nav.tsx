@@ -45,14 +45,16 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
 }
 
 export default function Nav() {
-  const { role, additionalRanks, adminPrivileges } = useProfile();
+  const { role, units, additionalRanks, adminPrivileges } = useProfile();
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
   const router = useRouter();
   const archiveActive = router.pathname.startsWith("/archive");
   const adminActive = router.pathname.startsWith("/admin");
   const currentPath = router.asPath;
-  const unitLinks = UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks, role));
+  const unitLinks = UNIT_SECTIONS.filter((section) =>
+    unitHasAccess(section.unit, units, additionalRanks, role)
+  );
 
   const logout = async () => {
     const ok = await confirm({
@@ -71,17 +73,17 @@ export default function Nav() {
     <>
       <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto w-full px-4 py-4 flex flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex items-center gap-3 min-w-[220px]">
               <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />
               <span className="font-semibold tracking-wide text-beige-900/90">
                 Los Santos Police Department
               </span>
             </div>
-            <div className="flex items-center justify-end gap-2 whitespace-nowrap text-sm sm:self-center">
+            <div className="flex items-center justify-end gap-2 whitespace-nowrap text-sm sm:self-end sm:mt-4">
               <button
                 onClick={logout}
-                className="btn w-full px-5 text-sm font-semibold tracking-wide sm:w-auto sm:min-h-[2.75rem]"
+                className="btn w-full px-5 text-sm font-semibold tracking-wide sm:w-auto sm:px-6 sm:min-h-[3rem] sm:text-base"
               >
                 Wyloguj
               </button>
