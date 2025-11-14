@@ -50,6 +50,7 @@ type MemberRowProps = {
   member: UnitMember;
   unit: InternalUnit;
   manageableRanks: AdditionalRank[];
+  membershipRank: AdditionalRank | null;
   onSubmit: (uid: string, update: MemberUpdate) => Promise<void>;
   saving: boolean;
 };
@@ -116,8 +117,16 @@ function arraysEqual<T>(a: T[], b: T[]): boolean {
   return true;
 }
 
-function MemberRow({ member, unit, manageableRanks, onSubmit, saving }: MemberRowProps) {
-  const originalMembership = useMemo(() => member.units.includes(unit), [member.units, unit]);
+function MemberRow({ member, unit, manageableRanks, membershipRank, onSubmit, saving }: MemberRowProps) {
+  const originalMembership = useMemo(() => {
+    if (member.units.includes(unit)) {
+      return true;
+    }
+    if (membershipRank) {
+      return member.additionalRanks.includes(membershipRank);
+    }
+    return false;
+  }, [member.additionalRanks, member.units, membershipRank, unit]);
   const originalRanks = useMemo(
     () => manageableRanks.filter((rank) => member.additionalRanks.includes(rank)),
     [manageableRanks, member.additionalRanks]
@@ -322,8 +331,12 @@ export default function UnitPanelPage() {
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
 
   const unit = section?.unit ?? null;
+  const membershipRank = section?.membershipRank ?? null;
+  const managementRankSet = useMemo(
+    () => new Set(section?.managementRanks ?? []),
+    [section]
+  );
   const supportsCriminalGroups = unit === "gu" || unit === "dtu";
-  const unitRankSet = useMemo(() => new Set(section?.rankHierarchy ?? []), [section]);
 
   const managementPermission = useMemo(() => {
     if (permission) {
@@ -332,7 +345,7 @@ export default function UnitPanelPage() {
     if (!section || !isHighCommand(role)) {
       return null;
     }
-    const [highestRank, ...rest] = section.rankHierarchy;
+    const [highestRank, ...rest] = section.managementRanks;
     if (!highestRank) {
       return null;
     }
@@ -458,21 +471,17 @@ export default function UnitPanelPage() {
   const unitMembers = useMemo(() => {
     if (!unit) return [] as UnitMember[];
     return members.filter((member) => {
-      const hasDirectMembership = member.units.includes(unit);
-      const hasRankMembership =
-        unitRankSet.size > 0 && member.additionalRanks.some((rank) => unitRankSet.has(rank));
-      if (!hasDirectMembership && !hasRankMembership) {
-        return false;
-      }
-      if (unitRankSet.size > 0 && !hasRankMembership) {
-        return false;
-      }
       if (isHighCommand(member.role)) {
         return false;
       }
-      return true;
+      const hasDirectMembership = member.units.includes(unit);
+      const hasMembershipRank = membershipRank
+        ? member.additionalRanks.includes(membershipRank)
+        : false;
+      const hasManagementRank = member.additionalRanks.some((rank) => managementRankSet.has(rank));
+      return hasDirectMembership || hasMembershipRank || hasManagementRank;
     });
-  }, [members, unit, unitRankSet]);
+  }, [members, unit, membershipRank, managementRankSet]);
 
   const filteredMembers = useMemo(() => {
     if (!search.trim()) return unitMembers;
@@ -511,10 +520,12 @@ export default function UnitPanelPage() {
     if (!unit) return [] as UnitMember[];
     return members.filter((member) => {
       if (member.units.includes(unit)) return false;
+      if (membershipRank && member.additionalRanks.includes(membershipRank)) return false;
+      if (member.additionalRanks.some((rank) => managementRankSet.has(rank))) return false;
       if (isHighCommand(member.role)) return false;
       return true;
     });
-  }, [members, unit]);
+  }, [members, unit, membershipRank, managementRankSet]);
 
   const filteredCandidates = useMemo(() => {
     if (!candidateSearch.trim()) return candidateMembers;
@@ -967,6 +978,7 @@ export default function UnitPanelPage() {
                             member={member}
                             unit={unit!}
                             manageableRanks={manageableRanks}
+                            membershipRank={membershipRank}
                             onSubmit={handleSubmit}
                             saving={mutating === member.uid}
                           />
