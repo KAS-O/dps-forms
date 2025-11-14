@@ -14,32 +14,32 @@ export type UnitSectionConfig = {
 const BASE_UNIT_CONFIG: Record<InternalUnit, { navColor: string; rankHierarchy: AdditionalRank[]; iconName: string }> = {
   iad: {
     navColor: "#ef4444",
-    rankHierarchy: ["opiekun-iad", "iad-chief-inspector", "iad-deputy-chief-inspector"],
+    rankHierarchy: ["opiekun-iad", "iad-chief-inspector", "iad-deputy-chief-inspector", "iad"],
     iconName: "iad.png",
   },
   "swat-sert": {
     navColor: "#64748b",
-    rankHierarchy: ["opiekun-swat-sert", "swat-commander", "swat-deputy-commander"],
+    rankHierarchy: ["opiekun-swat-sert", "swat-commander", "swat-deputy-commander", "swat-sert"],
     iconName: "swat-sert.png",
   },
   usms: {
     navColor: "#eab308",
-    rankHierarchy: ["opiekun-usms", "us-marshal"],
+    rankHierarchy: ["opiekun-usms", "us-marshal", "usms"],
     iconName: "usms.png",
   },
   dtu: {
     navColor: "#22d3ee",
-    rankHierarchy: ["opiekun-dtu", "dtu-commander", "dtu-deputy-commander"],
+    rankHierarchy: ["opiekun-dtu", "dtu-commander", "dtu-deputy-commander", "dtu"],
     iconName: "dtu.png",
   },
   gu: {
     navColor: "#10b981",
-    rankHierarchy: ["opiekun-gu", "gu-commander", "gu-deputy-commander"],
+    rankHierarchy: ["opiekun-gu", "gu-commander", "gu-deputy-commander", "gu"],
     iconName: "gu.png",
   },
   ftd: {
     navColor: "#6366f1",
-    rankHierarchy: ["opiekun-ftd", "ftd-commander", "ftd-deputy-commander"],
+    rankHierarchy: ["opiekun-ftd", "ftd-commander", "ftd-deputy-commander", "ftd"],
     iconName: "ftd.png",
   },
 };
@@ -66,17 +66,21 @@ export function getUnitSection(unit: InternalUnit): UnitSectionConfig | null {
 
 export function unitHasAccess(
   unit: InternalUnit,
+  units: InternalUnit[] | null | undefined,
   ranks: AdditionalRank[] | null | undefined,
   role?: Role | null | undefined
 ): boolean {
   if (isHighCommand(role)) {
     return true;
   }
-  if (!Array.isArray(ranks) || ranks.length === 0) {
-    return false;
-  }
   const config = UNIT_CONFIG_MAP.get(unit);
   if (!config) {
+    return false;
+  }
+  if (Array.isArray(units) && units.includes(unit)) {
+    return true;
+  }
+  if (!Array.isArray(ranks) || ranks.length === 0) {
     return false;
   }
   const rankSet = new Set(ranks);

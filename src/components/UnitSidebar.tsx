@@ -82,10 +82,10 @@ export default function UnitSidebar() {
   const [missingIcons, setMissingIcons] = useState<Record<string, boolean>>({});
 
   const accessibleSections = useMemo(() => {
-    return UNIT_SECTIONS.filter((section) => unitHasAccess(section.unit, additionalRanks, role)).sort((a, b) =>
-      a.label.localeCompare(b.label, "pl", { sensitivity: "base" })
-    );
-  }, [additionalRanks, role]);
+    return UNIT_SECTIONS.filter((section) =>
+      unitHasAccess(section.unit, units, additionalRanks, role)
+    ).sort((a, b) => a.label.localeCompare(b.label, "pl", { sensitivity: "base" }));
+  }, [units, additionalRanks, role]);
 
   const membershipUnits = useMemo(() => {
     const unitSet = new Set<InternalUnit>();

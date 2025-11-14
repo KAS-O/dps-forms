@@ -354,7 +354,6 @@ export default function Admin() {
 
   // ogólne
   const [mandaty, setMandaty] = useState(0);
-  const [lseb, setLseb] = useState(0);
   const [areszty, setAreszty] = useState(0);
 
   // saldo
@@ -365,7 +364,7 @@ export default function Admin() {
   // personel
   const [people, setPeople] = useState<Person[]>([]);
   const [person, setPerson] = useState<string>(""); // uid
-  const [pStats, setPStats] = useState({ m: 0, k: 0, a: 0, income: 0 });
+  const [pStats, setPStats] = useState({ m: 0, a: 0, income: 0 });
 
   // dzial kadr
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -738,7 +737,6 @@ export default function Admin() {
   // które szablony mają kary pieniężne
   const FINE_TEMPLATES: { name: string; field: string }[] = [
     { name: "Bloczek mandatowy", field: "kwota" },
-    { name: "Kontrola LSEB", field: "grzywna" },
     { name: "Protokół aresztowania", field: "grzywna" },
     { name: "Raport z założenia blokady", field: "kara" },
     { name: "Protokół zajęcia pojazdu", field: "grzywna" },
@@ -754,11 +752,9 @@ export default function Admin() {
 
       // ogólne liczniki
       const qM = query(archives, where("templateName", "==", "Bloczek mandatowy"), ...time);
-      const qK = query(archives, where("templateName", "==", "Kontrola LSEB"), ...time);
       const qA = query(archives, where("templateName", "==", "Protokół aresztowania"), ...time);
 
       setMandaty((await getCountFromServer(qM)).data().count);
-      setLseb((await getCountFromServer(qK)).data().count);
       setAreszty((await getCountFromServer(qA)).data().count);
 
       // suma kar z archiwum
@@ -809,7 +805,6 @@ export default function Admin() {
 
       const cutoff = effSince ? effSince.toMillis() : null;
       let m = 0;
-      let k = 0;
       let a = 0;
       let income = 0;
 
@@ -827,11 +822,6 @@ export default function Admin() {
           const val = (data?.values || {}) as any;
           const n = Number(val.kwota || 0);
           if (!Number.isNaN(n)) income += n;
-        } else if (template === "Kontrola LSEB") {
-          k += 1;
-          const val = (data?.values || {}) as any;
-          const n = Number(val.grzywna || 0);
-          if (!Number.isNaN(n)) income += n;
         } else if (template === "Protokół aresztowania") {
           a += 1;
           const val = (data?.values || {}) as any;
@@ -848,7 +838,7 @@ export default function Admin() {
         }
       });
 
-      setPStats({ m, k, a, income });
+      setPStats({ m, a, income });
     } catch (e: any) {
       setErr(e?.message || "Błąd statystyk personelu");
     }
@@ -1979,14 +1969,10 @@ export default function Admin() {
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-4">
+                <div className="grid md:grid-cols-2 gap-4">
                   <div className="card p-4 bg-white/70">
                     <div className="text-sm text-beige-700">Liczba mandatów</div>
                     <div className="text-3xl font-bold">{mandaty}</div>
-                  </div>
-                  <div className="card p-4 bg-white/70">
-                    <div className="text-sm text-beige-700">Kontrole LSEB</div>
-                    <div className="text-3xl font-bold">{lseb}</div>
                   </div>
                   <div className="card p-4 bg-white/70">
                     <div className="text-sm text-beige-700">Areszty</div>
@@ -2059,14 +2045,10 @@ export default function Admin() {
                     </button>
                   </div>
 
-                  <div className="grid md:grid-cols-4 gap-4">
+                  <div className="grid md:grid-cols-3 gap-4">
                     <div className="card p-4 bg-white/70">
                       <div className="text-sm text-beige-700">Mandaty</div>
                       <div className="text-2xl font-bold">{pStats.m}</div>
-                    </div>
-                    <div className="card p-4 bg-white/70">
-                      <div className="text-sm text-beige-700">Kontrole LSEB</div>
-                      <div className="text-2xl font-bold">{pStats.k}</div>
                     </div>
                     <div className="card p-4 bg-white/70">
                       <div className="text-sm text-beige-700">Areszty</div>
