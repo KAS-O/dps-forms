@@ -1932,10 +1932,12 @@ export default function DossierPage() {
         </Head>
         <Nav />
         <div
-          className={`${isCriminalGroup ? "max-w-6xl" : "max-w-5xl"} mx-auto px-4 py-6 grid gap-4 ${
-            isCriminalGroup ? "md:grid-cols-[minmax(0,1fr)_320px]" : ""
-          }`}
+          className={`layout-shell ${isCriminalGroup ? "layout-shell--wide" : "layout-shell--medium"}`}
         >
+          <div
+            className={`${isCriminalGroup ? "layout-grid" : "flex flex-col"} gap-4`}
+            data-layout={isCriminalGroup ? "with-aside" : undefined}
+          >
           <div className="grid gap-4">
             {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
@@ -2369,6 +2371,7 @@ export default function DossierPage() {
               </div>
             </aside>
           ) : null}
+          </div>
         </div>
 
         {activeForm ? (

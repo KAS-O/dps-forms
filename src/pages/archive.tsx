@@ -1017,9 +1017,9 @@ export default function ArchivePage() {
             <title>LSPD 77RP — Archiwum</title>
           </Head>
           <Nav />
-          <div className="max-w-4xl mx-auto px-4 py-10">
-            <div className="card p-6 text-center" data-section="archive">Brak dostępu do archiwum.</div>
-          </div>
+        <div className="layout-shell layout-shell--narrow">
+          <div className="card p-6 text-center" data-section="archive">Brak dostępu do archiwum.</div>
+        </div>
         </>
       </AuthGate>
     );
@@ -1032,20 +1032,21 @@ export default function ArchivePage() {
           <title>LSPD 77RP — Archiwum</title>
         </Head>
         <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="grid gap-4">
-            <div className="card p-6 space-y-5" data-section="archive">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="space-y-1">
+        <main className="layout-shell">
+          <div className="layout-grid" data-layout="with-aside">
+            <div className="flex flex-col gap-6">
+              <div className="card p-6 space-y-5" data-section="archive">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
+                <div className="space-y-1 flex-1 min-w-[min(320px,100%)]">
                   <span className="section-chip">
                     <span className="section-chip__dot" style={{ background: "#f59e0b" }} />
                     Archiwum
                   </span>
                   <h1 className="text-3xl font-semibold tracking-tight">Archiwum dokumentów służbowych</h1>
                 </div>
-                <div className="ml-auto flex flex-wrap items-center gap-2">
+                <div className="action-stack xl:justify-end">
                   <input
-                    className="input w-[200px] sm:w-[240px]"
+                    className="input"
                     placeholder="Szukaj..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
@@ -1077,8 +1078,8 @@ export default function ArchivePage() {
                   )}
                 </div>
               </div>
-              
-              <div className="grid gap-3 md:grid-cols-3">
+
+              <div className="form-grid">
                 <div className="flex flex-col gap-1">
                   <label className="label">Data od</label>
                   <input
@@ -1122,8 +1123,8 @@ export default function ArchivePage() {
               {reportError && <p className="text-sm text-red-300">{reportError}</p>}
             </div>
   
-            <div className="grid gap-2">
-              {filteredItems.map((item) => {
+              <div className="grid gap-2">
+                {filteredItems.map((item) => {
                 const isSelected = selectedIds.includes(item.id);
                 const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
                 const imageLinks = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
@@ -1215,9 +1216,10 @@ export default function ArchivePage() {
               })}
               {filteredItems.length === 0 && <p>Brak wpisów spełniających kryteria.</p>}
             </div>
+            </div>
+            <AnnouncementSpotlight />
           </div>
-          <AnnouncementSpotlight />
-        </div>
+        </main>
       </>
     </AuthGate>
   );

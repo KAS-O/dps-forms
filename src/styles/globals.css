@@ -12,6 +12,19 @@
   --accent: linear-gradient(135deg, #2564bf 0%, #3d82e2 45%, #6ba8ff 100%);
   --accent-solid: #3d82e2;
   --border: rgba(107, 168, 255, 0.35);
+  --shell-max-width: 1180px;
+  --shell-padding-x: clamp(1rem, 3vw, 2.5rem);
+  --shell-padding-y: clamp(1.25rem, 3vw, 2.75rem);
+  --shell-gap: clamp(1.5rem, 3vw, 3rem);
+  --card-gap: clamp(1rem, 2vw, 1.75rem);
+  --layout-aside-width: clamp(240px, 28vw, 340px);
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --shell-max-width: 1320px;
+    --layout-aside-width: clamp(280px, 26vw, 380px);
+  }
 }
 
 html,
@@ -27,6 +40,116 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   position: relative;
   overflow-x: hidden;
+}
+
+.layout-shell {
+  width: 100%;
+  max-width: var(--shell-max-width);
+  margin-inline: auto;
+  padding-inline: var(--shell-padding-x);
+  padding-block: var(--shell-padding-y);
+  display: flex;
+  flex-direction: column;
+  gap: var(--shell-gap);
+}
+
+.layout-shell--narrow {
+  --shell-max-width: 760px;
+}
+
+.layout-shell--medium {
+  --shell-max-width: 1040px;
+}
+
+.layout-shell--wide {
+  --shell-max-width: 1480px;
+}
+
+.layout-grid {
+  display: grid;
+  gap: var(--shell-gap);
+  align-items: start;
+}
+
+.layout-grid[data-layout="with-aside"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 960px) {
+  .layout-grid[data-layout="with-aside"] {
+    grid-template-columns: minmax(0, 1fr) var(--layout-aside-width);
+  }
+}
+
+.layout-grid[data-layout="split"] {
+  grid-template-columns: minmax(0, 1fr);
+  --split-primary: minmax(0, 0.55fr);
+  --split-secondary: minmax(0, 0.45fr);
+}
+
+.layout-grid[data-layout="split"][data-split="balanced"] {
+  --split-primary: minmax(0, 0.5fr);
+  --split-secondary: minmax(0, 0.5fr);
+}
+
+@media (min-width: 1024px) {
+  .layout-grid[data-layout="split"] {
+    grid-template-columns: var(--split-primary) var(--split-secondary);
+    gap: clamp(1.5rem, 3vw, 3.25rem);
+  }
+}
+
+.module-grid {
+  display: grid;
+  gap: var(--card-gap);
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  align-content: start;
+}
+
+.form-grid {
+  display: grid;
+  gap: clamp(0.85rem, 2vw, 1.35rem);
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+}
+
+.action-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.action-stack > * {
+  flex: 1 1 180px;
+}
+
+@media (min-width: 640px) {
+  .action-stack > * {
+    flex: 0 0 auto;
+  }
+}
+
+.nav-shell {
+  width: 100%;
+  max-width: var(--shell-max-width);
+  margin-inline: auto;
+  padding-inline: var(--shell-padding-x);
+  padding-block: clamp(0.85rem, 2vw, 1.5rem);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.85rem, 2vw, 1.5rem);
+}
+
+.auth-layout {
+  min-height: min(100vh, 960px);
+  padding: clamp(2rem, 8vw, 4rem) clamp(1rem, 6vw, 3rem);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-panel {
+  width: min(420px, 100%);
 }
 
 .card {

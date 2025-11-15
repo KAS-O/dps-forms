@@ -1846,7 +1846,7 @@ export default function Admin() {
       <AuthGate>
          <Head><title>LSPD 77RP — Panel zarządu</title></Head>
         <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-8"><div className="card p-6">Ładowanie…</div></div>
+        <div className="layout-shell"><div className="card p-6">Ładowanie…</div></div>
       </AuthGate>
     );
   }
@@ -1855,7 +1855,7 @@ export default function Admin() {
       <AuthGate>
         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
         <Nav />
-        <div className="max-w-4xl mx-auto px-4 py-8">
+        <div className="layout-shell layout-shell--narrow">
           <div className="card p-6 text-center">
             Brak dostępu. Panel zarządu jest dostępny dla rang <b>Staff Commander</b> i wyższych.
           </div>
@@ -1869,7 +1869,7 @@ export default function Admin() {
       <Head><title>LSPD 77RP — Panel zarządu</title></Head>
       <Nav />
 
-      <div className="max-w-7xl mx-auto px-4 py-6 grid gap-5">
+      <div className="layout-shell layout-shell--wide">
         {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
         <div className="rounded-3xl border border-white/60 bg-white/70 px-6 py-6 shadow-sm backdrop-blur">
@@ -1887,7 +1887,11 @@ export default function Admin() {
           </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+        <div
+          className="layout-grid"
+          data-layout="with-aside"
+          style={{ ["--layout-aside-width" as any]: "320px" }}
+        >
           <aside className="rounded-3xl border border-white/20 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-6 text-white shadow-xl">
             <div className="flex flex-col gap-6">
               <div className="space-y-2">

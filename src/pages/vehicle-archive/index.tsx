@@ -193,8 +193,9 @@ export default function VehicleArchivePage() {
       <>
         <Head><title>LSPD 77RP — Archiwum pojazdów</title></Head>
         <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="grid gap-6">
+        <main className="layout-shell">
+          <div className="layout-grid" data-layout="with-aside" style={{ ["--layout-aside-width" as any]: "320px" }}>
+            <div className="grid gap-6">
             <div className="card p-6 space-y-4" data-section="vehicle">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="space-y-2">
@@ -331,9 +332,10 @@ export default function VehicleArchivePage() {
             <button className="btn w-full md:w-auto" onClick={createVehicle} disabled={creating}>
               {creating ? "Tworzenie..." : "Utwórz teczkę"}
             </button>
+            </div>
+            <AnnouncementSpotlight />
           </div>
-          <AnnouncementSpotlight />
-        </div>
+        </main>
       </>
     </AuthGate>
   );
