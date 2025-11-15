@@ -12,6 +12,7 @@
   --accent: linear-gradient(135deg, #2564bf 0%, #3d82e2 45%, #6ba8ff 100%);
   --accent-solid: #3d82e2;
   --border: rgba(107, 168, 255, 0.35);
+  --shell-max: 1200px;
 }
 
 html,
@@ -27,6 +28,24 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   position: relative;
   overflow-x: hidden;
+}
+
+.page-shell {
+  width: min(var(--shell-max), 100%);
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 4vw, 3.5rem);
+}
+
+@media (max-width: 768px) {
+  .page-shell {
+    padding-inline: clamp(1rem, 6vw, 2.25rem);
+  }
+}
+
+@media (min-width: 1400px) {
+  :root {
+    --shell-max: 1350px;
+  }
 }
 
 .card {
@@ -516,11 +535,14 @@ select option {
 .doc-preview-wrapper {
   position: relative;
   overflow: visible;
+  width: 100%;
+  max-width: 100%;
 }
 
 .doc-preview-scaler {
   position: relative;
   will-change: transform;
+  transition: transform 0.2s ease;
 }
 
 .doc-fields {

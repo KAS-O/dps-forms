@@ -18,6 +18,7 @@ import {
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useLogWriter } from "@/hooks/useLogWriter";
+import PageShell from "@/components/PageShell";
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
 
@@ -471,7 +472,7 @@ export default function DocPage() {
   const OfficersPicker = () => (
     <div className="grid gap-1">
       <label className="label">Funkcjonariusze</label>
-      <div className="grid xs:grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {profiles.map((p) => {
           const name = p.fullName || p.login || p.id;
           const checked = selectedUids.includes(p.id);
@@ -767,16 +768,20 @@ export default function DocPage() {
   return (
     <AuthGate>
       <>
-        <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-8">
-          <Head><title>LSPD 77RP — {template.name}</title></Head>
+        <PageShell as="main" className="py-8 space-y-6">
+          <Head>
+            <title>LSPD 77RP — {template.name}</title>
+          </Head>
 
-         <button className="btn w-max" onClick={()=>history.back()}>← Wróć</button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <button className="btn w-full sm:w-max" onClick={() => history.back()}>← Wróć</button>
+          </div>
 
-         <div className="grid md:grid-cols-2 gap-6">
-          {/* FORM */}
-          <div className="card p-6">
-            <h1 className="text-2xl font-bold mb-3">{template.name}</h1>
-            <form onSubmit={onSubmit} className="grid gap-4">
+          <div className="grid gap-6 items-start xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
+            {/* FORM */}
+            <div className="card p-6">
+              <h1 className="text-2xl font-bold mb-3">{template.name}</h1>
+              <form onSubmit={onSubmit} className="grid gap-4">
               <OfficersPicker />
 
               {/* teczka */}
@@ -815,9 +820,13 @@ export default function DocPage() {
                   <option value="" disabled={!!requiresDossier}>
                     — {requiresDossier ? "wybierz teczkę" : "bez teczki"} —
                   </option>                 
-                  {dossiers.filter(d=>!d._hidden).map(d => (
-                    <option key={d.id} value={d.id}>{d.title}</option>
-                  ))}
+                  {dossiers
+                    .filter((d) => !d._hidden)
+                    .map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.title}
+                      </option>
+                    ))}
                 </select>
                 {requiresDossier && (
                   <p className="text-xs text-beige-700">Dokument wymaga wskazania teczki beneficjenta.</p>
@@ -896,12 +905,12 @@ export default function DocPage() {
                       })}
                     </div>
                   ) : f.type === "textarea" ? (
-                   <textarea
-                    className="input min-h-[220px]"
-                    required={f.required}
-                    value={values[f.key] || ""}
-                    onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-                  />
+                    <textarea
+                      className="input min-h-[220px]"
+                      required={f.required}
+                      value={values[f.key] || ""}
+                      onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                    />
                   ) : f.type === "select" ? (
                     <select
                       className="input"
@@ -929,11 +938,11 @@ export default function DocPage() {
               </button>
               {ok && <p className="text-green-700 text-sm">{ok}</p>}
               {err && <p className="text-red-700 text-sm">{err}</p>}
-            </form>
-          </div>
+              </form>
+            </div>
 
-          {/* PREVIEW */}
-          <div className="card p-6">
+            {/* PREVIEW */}
+            <div className="card p-6 xl:sticky xl:top-6">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Podgląd dokumentu (obraz + zapis tekstowy)</h2>
               <span className="text-xs text-beige-700">Ciągły podgląd • wysoka jakość</span>
@@ -1053,7 +1062,7 @@ export default function DocPage() {
             </div>
           </div>
         </div>
-      </div>
+        </PageShell>
       </>
     </AuthGate>
   );

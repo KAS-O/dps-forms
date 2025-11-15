@@ -5,6 +5,7 @@ import { TEMPLATES } from "@/lib/templates";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
+import PageShell from "@/components/PageShell";
 
 export default function Dashboard() {
   const [q, setQ] = useState("");
@@ -27,8 +28,9 @@ export default function Dashboard() {
 
         <Nav />
 
-        <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="space-y-6">
+        <PageShell as="main" className="py-8">
+          <div className="grid gap-6 items-start xl:grid-cols-[minmax(0,1fr)_minmax(260px,1fr)]">
+            <div className="space-y-6">
             <div className="card p-6 space-y-5" data-section="documents">
               <div className="space-y-3">
                 <span className="section-chip">
@@ -51,7 +53,7 @@ export default function Dashboard() {
                 onChange={(e) => setQ(e.target.value)}
               />
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
                 {filtered.map((t, index) => {
                   const accent = accentPalette[index % accentPalette.length];
                   return (
@@ -93,8 +95,11 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          <AnnouncementSpotlight />
-        </div>
+            <div className="w-full max-w-xl mx-auto xl:max-w-none xl:mx-0">
+              <AnnouncementSpotlight />
+            </div>
+          </div>
+        </PageShell>
       </>
     </AuthGate>
   );

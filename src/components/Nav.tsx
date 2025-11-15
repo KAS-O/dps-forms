@@ -8,6 +8,7 @@ import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { UNIT_SECTIONS, unitHasAccess } from "@/lib/internalUnits";
 import UnitSidebar from "@/components/UnitSidebar";
+import PageShell from "@/components/PageShell";
 
 const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/dashboard", label: "Dokumenty", color: "#60a5fa" },
@@ -72,7 +73,7 @@ export default function Nav() {
   return (
     <>
       <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto w-full px-4 py-4 flex flex-col gap-4">
+        <PageShell className="py-4 flex flex-col gap-4" as="div">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3 min-w-[220px]">
               <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />
@@ -81,7 +82,7 @@ export default function Nav() {
               </span>
             </div>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex-1 overflow-x-auto pb-1">
               <div className="flex min-w-max items-center gap-2 text-sm">
                 {NAV_LINKS.map((link) => {
@@ -145,7 +146,7 @@ export default function Nav() {
               </button>
             </div>
           </div>
-        </div>
+        </PageShell>
       </nav>
       <UnitSidebar />
     </>

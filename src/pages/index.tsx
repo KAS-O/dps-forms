@@ -6,6 +6,7 @@ import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
+import PageShell from "@/components/PageShell";
 
 const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_DOMAIN || "dps.local";
 
@@ -63,8 +64,8 @@ export default function LoginPage() {
           <title>LSPD 77RP — Logowanie</title>
         </Head>
 
-        <div className="min-h-screen flex items-center justify-center px-4">
-          <div className="card w-full max-w-md p-8 bg-[var(--card)] border border-white/10">
+        <PageShell as="main" className="flex min-h-screen items-center justify-center py-12">
+          <div className="card w-full max-w-md p-6 sm:p-8 bg-[var(--card)] border border-white/10">
             <div className="flex flex-col items-center gap-4 mb-6">
               {/* Jeśli masz PNG: zmień logo.svg na logo.png */}
               <Image src="/logo.png" alt="LSPD" width={320} height={80} priority className="floating" />
@@ -111,7 +112,7 @@ export default function LoginPage() {
               Loginy mają format wewnętrzny <code>LOGIN@{LOGIN_DOMAIN}</code>.
             </p>
           </div>
-        </div>
+        </PageShell>
       </>
     </AuthGate>
   );
