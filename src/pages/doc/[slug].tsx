@@ -178,6 +178,9 @@ export default function DocPage() {
   const { logActivity, session } = useSessionActivity();
   const { writeLog } = useLogWriter();
   const previewRef = useRef<HTMLDivElement | null>(null);
+  const previewWrapperRef = useRef<HTMLDivElement | null>(null);
+  const [previewScale, setPreviewScale] = useState(1);
+  const [scaledPreviewHeight, setScaledPreviewHeight] = useState<number | null>(null);
 
   // teczki
   const [dossiers, setDossiers] = useState<any[]>([]);
@@ -268,6 +271,39 @@ export default function DocPage() {
   }, [template, values]);
 
   const isWniosekTemplate = template?.slug === "wniosek-o-ukaranie";
+
+  const basePreviewWidth = isWniosekTemplate ? 820 : 900;
+
+  const updatePreviewScale = useCallback(() => {
+    const wrapper = previewWrapperRef.current;
+    const previewNode = previewRef.current;
+    if (!wrapper || !previewNode) return;
+    const availableWidth = wrapper.clientWidth;
+    const nextScale = availableWidth ? Math.min(1, availableWidth / basePreviewWidth) : 1;
+    setPreviewScale(nextScale || 1);
+    const innerHeight = previewNode.offsetHeight;
+    setScaledPreviewHeight(innerHeight ? innerHeight * nextScale : null);
+  }, [basePreviewWidth]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => updatePreviewScale();
+    window.addEventListener("resize", handleResize);
+    updatePreviewScale();
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && previewRef.current) {
+      observer = new ResizeObserver(() => updatePreviewScale());
+      observer.observe(previewRef.current);
+    }
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      if (observer) {
+        observer.disconnect();
+      }
+    };
+  }, [updatePreviewScale]);
 
   const wniosekContentInput = useMemo(() => {
     if (!isWniosekTemplate) return null;
@@ -905,93 +941,113 @@ export default function DocPage() {
 
             <div className="flex flex-col">
               <div
-                ref={previewRef}
-                className={`bg-white text-black mx-auto max-w-full border border-beige-300 shadow-sm doc-page ${
-                  isWniosekTemplate ? "w-[820px] p-4 text-[11px]" : "w-[900px] p-5 text-[11px]"
-                }`}
+                ref={previewWrapperRef}
+                className="doc-preview-wrapper mx-auto w-full"
+                style={
+                  typeof scaledPreviewHeight === "number"
+                    ? { height: `${scaledPreviewHeight}px` }
+                    : undefined
+                }
               >
                 <div
-                  className={`flex items-center ${
-                    isWniosekTemplate ? "gap-2 mb-2.5" : "gap-2.5 mb-3"
-                  }`}
+                  className="doc-preview-scaler mx-auto"
+                  style={{
+                    transform: `scale(${previewScale})`,
+                    transformOrigin: "top center",
+                    width: `${basePreviewWidth}px`,
+                  }}
                 >
-                  <img src="/logo.png" alt="LSPD" width={isWniosekTemplate ? 90 : 140} className="floating" />
-                  <div className={isWniosekTemplate ? "space-y-1" : undefined}>
+                  <div
+                    ref={previewRef}
+                    className={`bg-white text-black border border-beige-300 shadow-sm doc-page ${
+                      isWniosekTemplate ? "p-4 text-[11px]" : "p-5 text-[11px]"
+                    }`}
+                    style={{ width: `${basePreviewWidth}px` }}
+                  >
                     <div
-                      className={`${
-                        isWniosekTemplate ? "text-lg font-bold leading-tight" : "text-xl font-bold"
+                      className={`flex items-center ${
+                        isWniosekTemplate ? "gap-2 mb-2.5" : "gap-2.5 mb-3"
                       }`}
                     >
-                      Los Santos Police Department
-                    </div>
-                    <div
-                      className={`${
-                        isWniosekTemplate
-                          ? "text-[11px] uppercase tracking-[0.16em] text-gray-600"
-                          : "text-sm text-gray-600"
-                      }`}
-                    >
-                      {template.name}
-                    </div>
-                  </div>
-                </div>
-                <hr className={`border-beige-300 ${isWniosekTemplate ? "mb-2" : "mb-3"}`} />
-
-                {template.signaturePrefix && !isWniosekTemplate && (
-                  <div className="mb-2.5 text-[11px] leading-tight">
-                    <span className="font-semibold">Sygnatura:</span> {signature || "—"}
-                  </div>
-                )}
-
-                <div
-                  className={`${
-                    isWniosekTemplate ? "mb-2 text-[11px]" : "mb-3 text-[11px]"
-                  } whitespace-pre-wrap break-words`}
-                >
-                  <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ") || "—"}
-                </div>
-
-                {requiresVehicleFolder && (
-                  <div className="mb-3 text-[11px] whitespace-pre-wrap break-words">
-                    <span className="font-semibold">Teczka pojazdu:</span>{" "}
-                    {selectedVehicle ? (
-                      <>
-                        {selectedVehicle.registration || "—"}
-                        {selectedVehicle.brand ? ` • ${selectedVehicle.brand}` : ""}
-                        {selectedVehicle.color ? ` • Kolor: ${selectedVehicle.color}` : ""}
-                        {selectedVehicle.ownerName ? ` • Właściciel: ${selectedVehicle.ownerName}` : ""}
-                      </>
-                    ) : (
-                      "—"
-                    )}
-                  </div>
-                )}
-
-                {isWniosekTemplate ? (
-                  <div className="doc-fields text-[11px] leading-[1.3]">
-                    {wniosekPreviewLines
-                      .map((line) => line.trim())
-                      .filter((line) => line.length > 0)
-                      .map((line, idx) => (
-                        <p
-                          key={`wniosek-line-${idx}`}
-                          className="whitespace-pre-wrap break-words"
-                          style={{ textAlign: line.length > 80 ? "justify" : "left" }}
+                      <img src="/logo.png" alt="LSPD" width={isWniosekTemplate ? 90 : 140} className="floating" />
+                      <div className={isWniosekTemplate ? "space-y-1" : undefined}>
+                        <div
+                          className={`${
+                            isWniosekTemplate ? "text-lg font-bold leading-tight" : "text-xl font-bold"
+                          }`}
                         >
-                          {line}
-                        </p>
-                      ))}
-                  </div>
-                ) : (
-                  <div className="doc-fields text-[11px] leading-[1.3]">
-                    {previewFields.map((field) => (
-                      <FieldBlock key={`${field.id}-${field.signature}`} field={field} />
-                    ))}
-                  </div>
-                )}
+                          Los Santos Police Department
+                        </div>
+                        <div
+                          className={`${
+                            isWniosekTemplate
+                              ? "text-[11px] uppercase tracking-[0.16em] text-gray-600"
+                              : "text-sm text-gray-600"
+                          }`}
+                        >
+                          {template.name}
+                        </div>
+                      </div>
+                    </div>
+                    <hr className={`border-beige-300 ${isWniosekTemplate ? "mb-2" : "mb-3"}`} />
 
-                <div className={`${isWniosekTemplate ? "mt-5 text-[10px]" : "mt-6 text-[11px]"} text-gray-600`}>
-                  Wygenerowano w panelu LSPD • {new Date().toLocaleString()}
+                    {template.signaturePrefix && !isWniosekTemplate && (
+                      <div className="mb-2.5 text-[11px] leading-tight">
+                        <span className="font-semibold">Sygnatura:</span> {signature || "—"}
+                      </div>
+                    )}
+
+                    <div
+                      className={`${
+                        isWniosekTemplate ? "mb-2 text-[11px]" : "mb-3 text-[11px]"
+                      } whitespace-pre-wrap break-words`}
+                    >
+                      <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ") || "—"}
+                    </div>
+
+                    {requiresVehicleFolder && (
+                      <div className="mb-3 text-[11px] whitespace-pre-wrap break-words">
+                        <span className="font-semibold">Teczka pojazdu:</span>{" "}
+                        {selectedVehicle ? (
+                          <>
+                            {selectedVehicle.registration || "—"}
+                            {selectedVehicle.brand ? ` • ${selectedVehicle.brand}` : ""}
+                            {selectedVehicle.color ? ` • Kolor: ${selectedVehicle.color}` : ""}
+                            {selectedVehicle.ownerName ? ` • Właściciel: ${selectedVehicle.ownerName}` : ""}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </div>
+                    )}
+
+                    {isWniosekTemplate ? (
+                      <div className="doc-fields text-[11px] leading-[1.3]">
+                        {wniosekPreviewLines
+                          .map((line) => line.trim())
+                          .filter((line) => line.length > 0)
+                          .map((line, idx) => (
+                            <p
+                              key={`wniosek-line-${idx}`}
+                              className="whitespace-pre-wrap break-words"
+                              style={{ textAlign: line.length > 80 ? "justify" : "left" }}
+                            >
+                              {line}
+                            </p>
+                          ))}
+                      </div>
+                    ) : (
+                      <div className="doc-fields text-[11px] leading-[1.3]">
+                        {previewFields.map((field) => (
+                          <FieldBlock key={`${field.id}-${field.signature}`} field={field} />
+                        ))}
+                      </div>
+                    )}
+
+                    <div className={`${isWniosekTemplate ? "mt-5 text-[10px]" : "mt-6 text-[11px]"} text-gray-600`}>
+                      Wygenerowano w panelu LSPD • {new Date().toLocaleString()}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

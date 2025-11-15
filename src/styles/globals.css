@@ -513,6 +513,16 @@ select option {
   flex-direction: column;
 }
 
+.doc-preview-wrapper {
+  position: relative;
+  overflow: visible;
+}
+
+.doc-preview-scaler {
+  position: relative;
+  will-change: transform;
+}
+
 .doc-fields {
   flex: 1;
   display: flex;
