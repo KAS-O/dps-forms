@@ -318,7 +318,7 @@ export default function ChainOfCommandPage() {
         </Head>
         <Nav />
 
-        <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+        <div className="screen-shell py-8 space-y-6">
           <div className="card p-6 space-y-6" data-section="chain-of-command">
             <div className="space-y-2">
               <span className="section-chip">

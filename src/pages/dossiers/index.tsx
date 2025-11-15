@@ -175,7 +175,7 @@ export default function Dossiers() {
       <>
         <Head><title>LSPD 77RP — Teczki</title></Head>
         <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="screen-shell py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="grid gap-6">
             <div className="card p-6 space-y-4" data-section="dossiers">
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">

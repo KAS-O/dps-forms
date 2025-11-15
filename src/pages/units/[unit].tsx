@@ -835,8 +835,8 @@ export default function UnitPanelPage() {
           <title>Panel jednostki — {section?.label || "Jednostka"}</title>
         </Head>
         <Nav />
-        <main className="min-h-screen px-4 py-8">
-          <div className="mx-auto flex max-w-6xl flex-col gap-6">
+        <main className="min-h-screen screen-shell py-8">
+          <div className="flex w-full flex-col gap-6">
             <div className="card space-y-5 p-6" data-section="unit-overview">
               <span className="section-chip">
                 <span

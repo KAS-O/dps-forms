@@ -1931,11 +1931,12 @@ export default function DossierPage() {
           <title>LSPD 77RP — {personTitle}</title>
         </Head>
         <Nav />
-        <div
-          className={`${isCriminalGroup ? "max-w-6xl" : "max-w-5xl"} mx-auto px-4 py-6 grid gap-4 ${
-            isCriminalGroup ? "md:grid-cols-[minmax(0,1fr)_320px]" : ""
-          }`}
-        >
+        <div className="screen-shell py-6">
+          <div
+            className={`mx-auto grid gap-4 ${
+              isCriminalGroup ? "md:grid-cols-[minmax(0,1fr)_320px]" : "max-w-5xl"
+            }`}
+          >
           <div className="grid gap-4">
             {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
@@ -2369,6 +2370,7 @@ export default function DossierPage() {
               </div>
             </aside>
           ) : null}
+          </div>
         </div>
 
         {activeForm ? (

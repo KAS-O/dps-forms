@@ -285,10 +285,10 @@ export default function UnitSidebar() {
   return (
     <>
       <div
-        className="hidden xl:block fixed left-6 top-[140px] z-20 w-[clamp(240px,18vw,320px)] space-y-4"
+        className="hidden [@media(min-width:1700px)]:block fixed left-[clamp(1rem,3vw,2.5rem)] top-[140px] z-20 w-[clamp(240px,16vw,320px)] max-h-[calc(100vh-180px)] space-y-4 overflow-hidden"
         aria-label="Dostępne jednostki"
       >
-        <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-5 shadow-[0_24px_48px_-24px_rgba(59,130,246,0.5)] backdrop-blur">
+        <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-5 shadow-[0_24px_48px_-24px_rgba(59,130,246,0.5)] backdrop-blur max-h-full overflow-y-auto pr-1">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-wide text-white/80">Twoje jednostki</h2>
@@ -354,10 +354,10 @@ export default function UnitSidebar() {
       </div>
 
       <div
-        className="hidden xl:block fixed right-6 top-[152px] z-20 w-[clamp(260px,20vw,360px)]"
+        className="hidden [@media(min-width:1700px)]:block fixed right-[clamp(1rem,3vw,2.5rem)] top-[152px] z-20 w-[clamp(260px,18vw,360px)] max-h-[calc(100vh-192px)] overflow-hidden"
         aria-label="Informacje o koncie"
       >
-        <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-6 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.45)] backdrop-blur">
+        <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-6 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.45)] backdrop-blur max-h-full overflow-y-auto pr-1">
           <div className="flex items-start gap-4">
             <div className="flex flex-col items-center gap-3">
               {photoURL ? (

@@ -384,7 +384,7 @@ export default function DocPage() {
   if (!template) {
     return (
       <AuthGate>
-        <div className="min-h-screen flex items-center justify-center">
+        <div className="min-h-screen screen-shell flex items-center justify-center">
           <div className="card p-6"><p>Nie znaleziono szablonu.</p></div>
         </div>
       </AuthGate>
@@ -731,12 +731,14 @@ export default function DocPage() {
   return (
     <AuthGate>
       <>
-        <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-8">
-          <Head><title>LSPD 77RP — {template.name}</title></Head>
+        <Head>
+          <title>LSPD 77RP — {template.name}</title>
+        </Head>
+        <Nav />
+        <div className="min-h-screen screen-shell py-8 grid gap-8">
+          <button className="btn w-max" onClick={() => history.back()}>← Wróć</button>
 
-         <button className="btn w-max" onClick={()=>history.back()}>← Wróć</button>
-
-         <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid md:grid-cols-2 gap-6">
           {/* FORM */}
           <div className="card p-6">
             <h1 className="text-2xl font-bold mb-3">{template.name}</h1>
@@ -906,20 +908,28 @@ export default function DocPage() {
             <div className="flex flex-col">
               <div
                 ref={previewRef}
-                className={`bg-white text-black mx-auto max-w-full border border-beige-300 shadow-sm doc-page ${
-                  isWniosekTemplate ? "w-[820px] p-4 text-[11px]" : "w-[900px] p-5 text-[11px]"
+                className={`doc-preview-surface bg-white text-black mx-auto border border-beige-300 shadow-sm doc-page ${
+                  isWniosekTemplate ? "doc-preview--wniosek" : ""
                 }`}
               >
                 <div
-                  className={`flex items-center ${
+                  className={`flex flex-wrap items-center ${
                     isWniosekTemplate ? "gap-2 mb-2.5" : "gap-2.5 mb-3"
                   }`}
                 >
-                  <img src="/logo.png" alt="LSPD" width={isWniosekTemplate ? 90 : 140} className="floating" />
+                  <img
+                    src="/logo.png"
+                    alt="LSPD"
+                    className={`floating ${
+                      isWniosekTemplate ? "doc-preview-logo doc-preview-logo--compact" : "doc-preview-logo"
+                    }`}
+                  />
                   <div className={isWniosekTemplate ? "space-y-1" : undefined}>
                     <div
                       className={`${
-                        isWniosekTemplate ? "text-lg font-bold leading-tight" : "text-xl font-bold"
+                        isWniosekTemplate
+                          ? "text-base sm:text-lg font-bold leading-tight"
+                          : "text-lg sm:text-xl font-bold"
                       }`}
                     >
                       Los Santos Police Department
@@ -927,8 +937,8 @@ export default function DocPage() {
                     <div
                       className={`${
                         isWniosekTemplate
-                          ? "text-[11px] uppercase tracking-[0.16em] text-gray-600"
-                          : "text-sm text-gray-600"
+                          ? "text-[0.7rem] sm:text-[11px] uppercase tracking-[0.16em] text-gray-600"
+                          : "text-xs sm:text-sm text-gray-600"
                       }`}
                     >
                       {template.name}

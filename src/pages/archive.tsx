@@ -1017,8 +1017,10 @@ export default function ArchivePage() {
             <title>LSPD 77RP — Archiwum</title>
           </Head>
           <Nav />
-          <div className="max-w-4xl mx-auto px-4 py-10">
-            <div className="card p-6 text-center" data-section="archive">Brak dostępu do archiwum.</div>
+          <div className="screen-shell py-10">
+            <div className="max-w-4xl mx-auto">
+              <div className="card p-6 text-center" data-section="archive">Brak dostępu do archiwum.</div>
+            </div>
           </div>
         </>
       </AuthGate>
@@ -1032,7 +1034,7 @@ export default function ArchivePage() {
           <title>LSPD 77RP — Archiwum</title>
         </Head>
         <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="screen-shell py-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="grid gap-4">
             <div className="card p-6 space-y-5" data-section="archive">
               <div className="flex flex-wrap items-center gap-3">

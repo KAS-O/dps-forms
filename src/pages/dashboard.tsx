@@ -27,7 +27,7 @@ export default function Dashboard() {
 
         <Nav />
 
-        <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="min-h-screen screen-shell py-8 grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="space-y-6">
             <div className="card p-6 space-y-5" data-section="documents">
               <div className="space-y-3">

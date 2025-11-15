@@ -1844,20 +1844,28 @@ export default function Admin() {
   if (!ready) {
     return (
       <AuthGate>
-         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
+        <Head>
+          <title>LSPD 77RP — Panel zarządu</title>
+        </Head>
         <Nav />
-        <div className="max-w-6xl mx-auto px-4 py-8"><div className="card p-6">Ładowanie…</div></div>
+        <div className="screen-shell py-8">
+          <div className="card p-6">Ładowanie…</div>
+        </div>
       </AuthGate>
     );
   }
   if (!hasAdminAccess) {
     return (
       <AuthGate>
-        <Head><title>LSPD 77RP — Panel zarządu</title></Head>
+        <Head>
+          <title>LSPD 77RP — Panel zarządu</title>
+        </Head>
         <Nav />
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          <div className="card p-6 text-center">
-            Brak dostępu. Panel zarządu jest dostępny dla rang <b>Staff Commander</b> i wyższych.
+        <div className="screen-shell py-8">
+          <div className="max-w-4xl mx-auto">
+            <div className="card p-6 text-center">
+              Brak dostępu. Panel zarządu jest dostępny dla rang <b>Staff Commander</b> i wyższych.
+            </div>
           </div>
         </div>
       </AuthGate>
@@ -1869,7 +1877,7 @@ export default function Admin() {
       <Head><title>LSPD 77RP — Panel zarządu</title></Head>
       <Nav />
 
-      <div className="max-w-7xl mx-auto px-4 py-6 grid gap-5">
+      <div className="screen-shell py-6 grid gap-5">
         {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
         <div className="rounded-3xl border border-white/60 bg-white/70 px-6 py-6 shadow-sm backdrop-blur">
