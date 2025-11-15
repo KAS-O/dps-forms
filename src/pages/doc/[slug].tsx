@@ -767,12 +767,16 @@ export default function DocPage() {
   return (
     <AuthGate>
       <>
-        <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-8">
-          <Head><title>LSPD 77RP — {template.name}</title></Head>
+        <div className="page-shell page-shell--compact">
+          <Head>
+            <title>LSPD 77RP — {template.name}</title>
+          </Head>
 
-         <button className="btn w-max" onClick={()=>history.back()}>← Wróć</button>
+          <button className="btn w-full sm:w-auto" onClick={() => history.back()}>
+            ← Wróć
+          </button>
 
-         <div className="grid md:grid-cols-2 gap-6">
+          <div className="doc-layout-grid">
           {/* FORM */}
           <div className="card p-6">
             <h1 className="text-2xl font-bold mb-3">{template.name}</h1>
@@ -933,7 +937,7 @@ export default function DocPage() {
           </div>
 
           {/* PREVIEW */}
-          <div className="card p-6">
+          <div className="card p-5 doc-preview-card">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Podgląd dokumentu (obraz + zapis tekstowy)</h2>
               <span className="text-xs text-beige-700">Ciągły podgląd • wysoka jakość</span>
@@ -942,7 +946,7 @@ export default function DocPage() {
             <div className="flex flex-col">
               <div
                 ref={previewWrapperRef}
-                className="doc-preview-wrapper mx-auto w-full"
+                className="doc-preview-wrapper mx-auto"
                 style={
                   typeof scaledPreviewHeight === "number"
                     ? { height: `${scaledPreviewHeight}px` }

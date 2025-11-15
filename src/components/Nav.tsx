@@ -72,7 +72,7 @@ export default function Nav() {
   return (
     <>
       <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto w-full px-4 py-4 flex flex-col gap-4">
+        <div className="app-container py-4 flex flex-col gap-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3 min-w-[220px]">
               <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />
@@ -82,8 +82,8 @@ export default function Nav() {
             </div>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex-1 overflow-x-auto pb-1">
-              <div className="flex min-w-max items-center gap-2 text-sm">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 text-sm nav-links-flow">
                 {NAV_LINKS.map((link) => {
                   const isActive = router.pathname === link.href || router.pathname.startsWith(`${link.href}/`);
                   return (
@@ -98,7 +98,7 @@ export default function Nav() {
                     </Link>
                   );
                 })}
-                <div className="flex items-center gap-2 lg:hidden">
+                <div className="flex items-center gap-2 lg:hidden nav-links-flow">
                   {unitLinks.map((section) => {
                     const isActive = currentPath === section.href || currentPath.startsWith(`${section.href}/`);
                     return (

@@ -27,14 +27,15 @@ export default function Dashboard() {
 
         <Nav />
 
-        <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="space-y-6">
-            <div className="card p-6 space-y-5" data-section="documents">
-              <div className="space-y-3">
-                <span className="section-chip">
-                  <span className="section-chip__dot" style={{ background: "#60a5fa" }} />
-                  Dokumenty
-                </span>
+        <div className="page-shell">
+          <div className="dashboard-grid">
+            <div className="space-y-6">
+              <div className="card p-6 space-y-5" data-section="documents">
+                <div className="space-y-3">
+                  <span className="section-chip">
+                    <span className="section-chip__dot" style={{ background: "#60a5fa" }} />
+                    Dokumenty
+                  </span>
                 <div>
                   <h1 className="text-3xl font-bold tracking-tight">Wybierz dokument służbowy</h1>
                   <p className="text-sm text-beige-100/80 mt-1">
@@ -51,7 +52,7 @@ export default function Dashboard() {
                 onChange={(e) => setQ(e.target.value)}
               />
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="responsive-tile-grid">
                 {filtered.map((t, index) => {
                   const accent = accentPalette[index % accentPalette.length];
                   return (
@@ -91,9 +92,12 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
+              </div>
+            </div>
+            <div className="flex flex-col gap-4">
+              <AnnouncementSpotlight />
             </div>
           </div>
-          <AnnouncementSpotlight />
         </div>
       </>
     </AuthGate>

@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  --page-max: 1220px;
   --bg: radial-gradient(circle at 10% 20%, rgba(61, 130, 226, 0.25), transparent 45%),
     radial-gradient(circle at 80% 0%, rgba(27, 58, 111, 0.6), transparent 55%),
     #050b18;
@@ -12,6 +13,18 @@
   --accent: linear-gradient(135deg, #2564bf 0%, #3d82e2 45%, #6ba8ff 100%);
   --accent-solid: #3d82e2;
   --border: rgba(107, 168, 255, 0.35);
+}
+
+@media (min-width: 1600px) {
+  :root {
+    --page-max: 1320px;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 html,
@@ -27,6 +40,64 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   position: relative;
   overflow-x: hidden;
+  font-size: clamp(0.95rem, 0.9rem + 0.2vw, 1rem);
+}
+
+.app-container {
+  width: min(var(--page-max), 100%);
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 3vw, 2.5rem);
+}
+
+.page-shell {
+  width: min(var(--page-max), 100%);
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 3vw, 2.5rem);
+  padding-block: clamp(1.5rem, 3vw, 3rem);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1.25rem, 2vw, 2.5rem);
+}
+
+.page-shell--compact {
+  padding-block: clamp(1rem, 2vw, 2rem);
+}
+
+.responsive-tile-grid {
+  display: grid;
+  gap: clamp(1rem, 1.6vw, 1.75rem);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+}
+
+@media (min-width: 768px) {
+  .responsive-tile-grid {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+}
+
+.dashboard-grid {
+  display: grid;
+  gap: clamp(1.25rem, 2vw, 2.5rem);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1024px) {
+  .dashboard-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+    align-items: start;
+  }
+}
+
+.doc-layout-grid {
+  display: grid;
+  gap: clamp(1.25rem, 2vw, 2.25rem);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1100px) {
+  .doc-layout-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+  }
 }
 
 .card {
@@ -38,6 +109,11 @@ body {
   transition: transform 0.35s ease, box-shadow 0.35s ease, border-color 0.35s ease;
   position: relative;
   overflow: hidden;
+}
+
+.doc-preview-card {
+  display: flex;
+  flex-direction: column;
 }
 
 .card:hover {
@@ -120,6 +196,26 @@ body {
 
 .nav-pill--active {
   transform: translateY(-1px);
+}
+
+.nav-links-flow {
+  flex-wrap: wrap;
+  row-gap: 0.5rem;
+}
+
+@media (max-width: 1024px) {
+  .nav-links-flow .nav-pill {
+    flex: 1 1 calc(50% - 0.5rem);
+    justify-content: flex-start;
+    min-width: 12rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .nav-links-flow .nav-pill {
+    flex-basis: 100%;
+    min-width: 0;
+  }
 }
 
 .btn--note {
@@ -516,6 +612,8 @@ select option {
 .doc-preview-wrapper {
   position: relative;
   overflow: visible;
+  width: 100%;
+  max-width: min(100%, 900px);
 }
 
 .doc-preview-scaler {
@@ -529,4 +627,14 @@ select option {
   flex-direction: column;
   gap: 0.2rem;
   overflow: visible;
+}
+
+@media (max-width: 768px) {
+  .card {
+    border-radius: 1rem;
+  }
+
+  .doc-preview-wrapper {
+    max-width: 100%;
+  }
 }
