@@ -27,74 +27,82 @@ export default function Dashboard() {
 
         <Nav />
 
-        <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="space-y-6">
-            <div className="card p-6 space-y-5" data-section="documents">
-              <div className="space-y-3">
-                <span className="section-chip">
-                  <span className="section-chip__dot" style={{ background: "#60a5fa" }} />
-                  Dokumenty
-                </span>
-                <div>
-                  <h1 className="text-3xl font-bold tracking-tight">Wybierz dokument służbowy</h1>
-                  <p className="text-sm text-beige-100/80 mt-1">
-                    Zebraliśmy wszystkie wzory raportów i formularzy w jednym miejscu. Skorzystaj z wyszukiwarki,
-                    aby szybciej odnaleźć potrzebny dokument.
-                  </p>
+        <main className="flex-1">
+          <div className="mx-auto w-full max-w-screen-xl px-4 py-8 sm:px-6 lg:px-8">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="space-y-6">
+                <div className="card space-y-5 p-6" data-section="documents">
+                  <div className="space-y-3">
+                    <span className="section-chip">
+                      <span className="section-chip__dot" style={{ background: "#60a5fa" }} />
+                      Dokumenty
+                    </span>
+                    <div>
+                      <h1 className="text-3xl font-bold tracking-tight">Wybierz dokument służbowy</h1>
+                      <p className="mt-1 text-sm text-beige-100/80">
+                        Zebraliśmy wszystkie wzory raportów i formularzy w jednym miejscu. Skorzystaj z wyszukiwarki,
+                        aby szybciej odnaleźć potrzebny dokument.
+                      </p>
+                    </div>
+                  </div>
+
+                  <input
+                    className="input"
+                    placeholder="Szukaj dokumentu po nazwie lub słowach kluczowych..."
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                  />
+
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2">
+                    {filtered.map((t, index) => {
+                      const accent = accentPalette[index % accentPalette.length];
+                      return (
+                        <Link
+                          key={t.slug}
+                          href={`/doc/${t.slug}`}
+                          className="card p-5 transition hover:-translate-y-1"
+                          data-section="documents"
+                          style={{
+                            borderColor: `${accent}80`,
+                            boxShadow: `0 28px 60px -26px ${accent}aa`,
+                          }}
+                        >
+                          <span
+                            className="absolute inset-0 animate-shimmer opacity-50"
+                            style={{
+                              backgroundImage: `linear-gradient(120deg, transparent 0%, ${accent}26 45%, transparent 90%)`,
+                            }}
+                          />
+                          <div className="relative flex flex-col gap-2">
+                            <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+                              <span className="text-xl" aria-hidden>
+                                📄
+                              </span>
+                              {t.name}
+                            </h2>
+                            {t.description ? (
+                              <p className="text-sm text-beige-100/80">{t.description}</p>
+                            ) : (
+                              <p className="text-sm text-beige-100/60">Kliknij, aby otworzyć szablon dokumentu.</p>
+                            )}
+                          </div>
+                        </Link>
+                      );
+                    })}
+                    {filtered.length === 0 && (
+                      <div className="card p-5 text-sm text-beige-100/70" data-section="documents">
+                        Nie znaleziono dokumentu pasującego do wyszukiwania.
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-
-              <input
-                className="input"
-                placeholder="Szukaj dokumentu po nazwie lub słowach kluczowych..."
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-
-              <div className="grid gap-4 md:grid-cols-2">
-                {filtered.map((t, index) => {
-                  const accent = accentPalette[index % accentPalette.length];
-                  return (
-                    <Link
-                      key={t.slug}
-                      href={`/doc/${t.slug}`}
-                      className="card p-5 transition hover:-translate-y-1"
-                      data-section="documents"
-                      style={{
-                        borderColor: `${accent}80`,
-                        boxShadow: `0 28px 60px -26px ${accent}aa`,
-                      }}
-                    >
-                      <span
-                        className="absolute inset-0 opacity-50 animate-shimmer"
-                        style={{
-                          backgroundImage: `linear-gradient(120deg, transparent 0%, ${accent}26 45%, transparent 90%)`,
-                        }}
-                      />
-                      <div className="relative flex flex-col gap-2">
-                        <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">
-                          <span className="text-xl" aria-hidden>📄</span>
-                          {t.name}
-                        </h2>
-                        {t.description ? (
-                          <p className="text-sm text-beige-100/80">{t.description}</p>
-                        ) : (
-                          <p className="text-sm text-beige-100/60">Kliknij, aby otworzyć szablon dokumentu.</p>
-                        )}
-                      </div>
-                    </Link>
-                  );
-                })}
-                {filtered.length === 0 && (
-                  <div className="card p-5 text-sm text-beige-100/70" data-section="documents">
-                    Nie znaleziono dokumentu pasującego do wyszukiwania.
-                  </div>
-                )}
+              <div className="flex flex-col gap-6">
+                <AnnouncementSpotlight />
               </div>
             </div>
           </div>
-          <AnnouncementSpotlight />
-        </div>
+        </main>
       </>
     </AuthGate>
   );
