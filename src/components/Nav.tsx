@@ -72,7 +72,7 @@ export default function Nav() {
   return (
     <>
       <nav className="w-full border-b border-white/10 bg-[var(--card)]/90 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto w-full px-4 py-4 flex flex-col gap-4">
+        <div className="nav-shell">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3 min-w-[220px]">
               <img src="/logo.png" alt="LSPD" width={32} height={32} className="floating" />

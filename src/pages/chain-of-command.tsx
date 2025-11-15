@@ -318,7 +318,7 @@ export default function ChainOfCommandPage() {
         </Head>
         <Nav />
 
-        <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+        <main className="layout-shell">
           <div className="card p-6 space-y-6" data-section="chain-of-command">
             <div className="space-y-2">
               <span className="section-chip">
@@ -339,7 +339,7 @@ export default function ChainOfCommandPage() {
               </div>
             )}
 
-            <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
+            <div className="layout-grid" data-layout="with-aside">
               <div className="space-y-4">
                 {roleGroups.map((group) => (
                   <section
@@ -511,7 +511,7 @@ export default function ChainOfCommandPage() {
               </div>
             </div>
           </div>
-        </div>
+        </main>
       </>
     </AuthGate>
   );

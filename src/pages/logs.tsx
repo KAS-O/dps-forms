@@ -8,7 +8,8 @@ export default function LogsPage() {
 
   if (!can.seeLogs(role, adminPrivileges)) return (
     <AuthGate>
-      <Nav /><div className="max-w-4xl mx-auto p-6">Brak uprawnień.</div>
+      <Nav />
+      <div className="layout-shell layout-shell--narrow">Brak uprawnień.</div>
     </AuthGate>
   );
 
@@ -16,7 +17,7 @@ export default function LogsPage() {
     <AuthGate>
       <Head><title>LSPD 77RP — Logi</title></Head>
       <Nav />
-      <div className="max-w-4xl mx-auto px-4 py-10">
+      <div className="layout-shell layout-shell--narrow">
         <div className="card p-6">
           <h1 className="text-2xl font-semibold mb-3">Logi aktywności</h1>
           <p className="text-sm text-beige-700">
