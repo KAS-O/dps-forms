@@ -1890,66 +1890,44 @@ export default function Admin() {
         <div
           className="layout-grid"
           data-layout="with-aside"
-          style={{ ["--layout-aside-width" as any]: "320px" }}
+          style={{ ["--layout-aside-width" as any]: "min(220px, 24vw)" }}
         >
-          <aside className="rounded-3xl border border-white/20 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-6 text-white shadow-xl">
-            <div className="flex flex-col gap-6">
-              <div className="space-y-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Sekcje panelu</span>
-                <h2 className="text-2xl font-semibold text-white">Nawigacja</h2>
-                <p className="text-sm text-white/70">
-                  Wybierz obszar pracy zarządu i przełączaj się między modułami bez przewijania bocznego panelu.
-                </p>
-              </div>
+          <aside className="admin-panel-nav" aria-label="Menu panelu zarządu">
+            <div className="admin-panel-nav__header">
+              <span className="admin-panel-nav__eyebrow">Menu</span>
+              <h2 className="admin-panel-nav__title">Wybierz sekcję</h2>
+            </div>
 
-              <nav className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                {ADMIN_SECTION_ORDER.map((value) => {
-                  const meta = ADMIN_SECTION_META[value];
-                  const active = section === value;
-                  const accent = meta.accent;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setSection(value)}
-                      aria-pressed={active}
-                      className={`group relative overflow-hidden rounded-2xl border px-4 py-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
-                        active ? "border-white/40 bg-white/15 shadow-[0_28px_72px_-32px_rgba(59,130,246,0.85)]" : "border-white/10 bg-white/5 hover:bg-white/10"
-                      }`}
-                      style={{ borderColor: active ? `${accent}aa` : undefined }}
-                    >
-                      <span
-                        className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-40"
-                        style={{ background: `radial-gradient(circle at 15% 15%, ${accent}33, transparent 65%)` }}
-                      />
-                      <div className="relative flex flex-col gap-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-3 text-base font-semibold text-white">
-                            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-black/30 text-lg" aria-hidden>
-                              {meta.icon}
-                            </span>
-                            {meta.label}
-                          </div>
-                          {active && (
-                            <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/80">
-                              Aktywne
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs leading-relaxed text-white/70">{meta.description}</p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </nav>
+            <nav className="admin-panel-nav__list">
+              {ADMIN_SECTION_ORDER.map((value) => {
+                const meta = ADMIN_SECTION_META[value];
+                const active = section === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setSection(value)}
+                    aria-pressed={active}
+                    className={`admin-panel-nav__button${active ? " is-active" : ""}`}
+                  >
+                    <span className="admin-panel-nav__icon" aria-hidden="true">
+                      {meta.icon}
+                    </span>
+                    <span className="admin-panel-nav__copy">
+                      <span>{meta.label}</span>
+                      <span>{meta.description}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </nav>
 
-              <div className="rounded-2xl border border-white/15 bg-black/20 p-4 text-sm text-white/70">
-                <div className="font-semibold text-white/85">Domena logowania</div>
-                <div className="font-mono text-base text-white/90">@{loginDomain}</div>
-                <p className="mt-2 text-xs leading-relaxed text-white/60">
-                  Dane dostępowe są chronione. W razie problemów z hasłem skorzystaj z konsoli Firebase.
-                </p>
-              </div>
+            <div className="rounded-2xl border border-white/15 bg-white/5 p-4 text-xs text-white/70">
+              <div className="font-semibold text-white">Domena logowania</div>
+              <div className="font-mono text-base text-white/90">@{loginDomain}</div>
+              <p className="mt-2 leading-relaxed">
+                Dane dostępowe są chronione. W razie problemów z hasłem skorzystaj z konsoli Firebase.
+              </p>
             </div>
           </aside>
 
