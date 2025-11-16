@@ -3,7 +3,7 @@ import Head from "next/head";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useState } from "react";
 import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
 
@@ -14,30 +14,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [scale, setScale] = useState(1);
-  const panelRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
-
-  useEffect(() => {
-    const updateScale = () => {
-      const node = panelRef.current;
-      if (!node) return;
-
-      const width = node.offsetWidth;
-      const height = node.offsetHeight;
-      const availableWidth = window.innerWidth - 24;
-      const availableHeight = window.innerHeight - 24;
-      const widthRatio = availableWidth / width;
-      const heightRatio = availableHeight / height;
-      const nextScale = Math.min(1, widthRatio, heightRatio);
-
-      setScale(Number(nextScale.toFixed(3)));
-    };
-
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
-  }, []);
 
   const getErrorMessage = (code?: string) => {
     switch (code) {
@@ -106,63 +83,61 @@ export default function LoginPage() {
 
         <div className="auth-layout">
           <div className="auth-shell">
-            <div
-              ref={panelRef}
-              className="card auth-panel auth-scale w-full p-6 sm:p-8 bg-[var(--card)] border border-white/10"
-              style={{ transform: `scale(${scale})` }}
-            >
-              <div className="flex flex-col items-center gap-4 mb-6">
-                {/* Jeśli masz PNG: zmień logo.svg na logo.png */}
-                <Image src="/logo.png" alt="LSPD" width={320} height={80} priority className="floating" />
-              <h1 className="text-xl font-semibold text-center">
-                <span className="block">Los Santos Police Department</span>
-                <span className="block">Mobile Data Terminal</span>
-              </h1>
-            </div>
-
-            <form onSubmit={onSubmit} className="space-y-4">
-              <div>
-                <label className="label">Login</label>
-                <input
-                  className="input"
-                  value={login}
-                  onChange={(e) => setLogin(e.target.value)}
-                  required
-                />
+            <div className="card auth-panel auth-scale w-full max-w-xl mx-auto p-6 sm:p-8 bg-[var(--card)] border border-white/10">
+              <div className="flex flex-col items-center text-center gap-3 sm:gap-4 mb-6">
+                <Image src="/logo.png" alt="LSPD" width={240} height={60} priority className="floating" />
+                <h1 className="text-xl sm:text-2xl font-semibold leading-tight">
+                  <span className="block">Los Santos Police Department</span>
+                  <span className="block text-base sm:text-lg text-beige-900/80">Mobile Data Terminal</span>
+                </h1>
               </div>
 
-              <div>
-                <label className="label">Hasło</label>
-                <input
-                  className="input"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </div>
+              <form onSubmit={onSubmit} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="label">Login</label>
+                  <input
+                    className="input"
+                    value={login}
+                    onChange={(e) => setLogin(e.target.value)}
+                    required
+                    inputMode="email"
+                    autoComplete="username"
+                  />
+                </div>
 
-              {error && (
-                <p
-                  className="rounded-xl border border-red-500/40 bg-red-900/40 px-3 py-2 text-sm text-red-100"
-                  role="alert"
-                >
-                  {error}
+                <div className="space-y-1">
+                  <label className="label">Hasło</label>
+                  <input
+                    className="input"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                  />
+                </div>
+
+                {error && (
+                  <p
+                    className="rounded-xl border border-red-500/40 bg-red-900/40 px-3 py-2 text-sm text-red-100"
+                    role="alert"
+                  >
+                    {error}
+                  </p>
+                )}
+
+                <button className="btn w-full min-h-[3rem] text-center" disabled={loading}>
+                  {loading ? "Logowanie..." : "Zaloguj"}
+                </button>
+
+                <p className="text-xs text-beige-900/80 leading-relaxed">
+                  Dostępy nadaje administrator. Brak rejestracji i opcji resetu hasła.
                 </p>
-              )}
+              </form>
 
-              <button className="btn w-full" disabled={loading}>
-                {loading ? "Logowanie..." : "Zaloguj"}
-              </button>
-
-              <p className="text-xs text-beige-900/80">
-                Dostępy nadaje administrator. Brak rejestracji i opcji resetu hasła.
+              <p className="text-[11px] text-center mt-4 text-beige-900/80 leading-relaxed">
+                Loginy mają format wewnętrzny <code>LOGIN@{LOGIN_DOMAIN}</code>.
               </p>
-            </form>
-
-            <p className="text-[11px] text-center mt-3 text-beige-900/80">
-              Loginy mają format wewnętrzny <code>LOGIN@{LOGIN_DOMAIN}</code>.
-            </p>
             </div>
           </div>
         </div>
