@@ -11,7 +11,7 @@ export default function App({ Component, pageProps }: AppProps) {
       <ActivityLoggerProvider>
         <>
           <Head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <meta name="viewport" content="width=device-width, initial-scale=0.8" />
           </Head>
           <div className="min-h-screen flex flex-col relative bg-[#02060f] text-white">
             <UnderlightGlow />
