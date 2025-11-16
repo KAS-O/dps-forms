@@ -11,6 +11,24 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     let hb: any;
 
+    const refreshAfterNavigation = (targetPath: string) => {
+      const reload = () => {
+        if (typeof window !== "undefined") {
+          window.setTimeout(() => window.location.reload(), 50);
+        }
+      };
+
+      if (router.asPath === targetPath) {
+        reload();
+        return;
+      }
+
+      router
+        .replace(targetPath)
+        .then(reload)
+        .catch(reload);
+    };
+
     const unsub = onAuthStateChanged(auth, (user) => {
       const isLoginPage = router.pathname === "/";
 
@@ -33,9 +51,13 @@ export default function AuthGate({ children }: { children: ReactNode }) {
           console.warn("presence write failed:", e);
         }
 
-        if (isLoginPage) router.replace("/dashboard");
+        if (isLoginPage) {
+          refreshAfterNavigation("/dashboard");
+        }
       } else {
-        if (!isLoginPage) router.replace("/");
+        if (!isLoginPage) {
+          refreshAfterNavigation("/");
+        }
       }
 
       setReady(true);
