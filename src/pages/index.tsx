@@ -51,7 +51,7 @@ export default function LoginPage() {
         ts: serverTimestamp(),
       });
 
-      setError("Nieprawidłowy login lub hasło");
+      setError("Wprowadzono błędne dane logowania. Sprawdź login oraz hasło i spróbuj ponownie.");
       setLoading(false);
     }
   };
@@ -96,7 +96,14 @@ export default function LoginPage() {
                 />
               </div>
 
-              {error && <p className="text-red-300 text-sm">{error}</p>}
+              {error && (
+                <p
+                  className="rounded-xl border border-red-500/40 bg-red-900/40 px-3 py-2 text-sm text-red-100"
+                  role="alert"
+                >
+                  {error}
+                </p>
+              )}
 
               <button className="btn w-full" disabled={loading}>
                 {loading ? "Logowanie..." : "Zaloguj"}

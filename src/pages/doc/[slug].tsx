@@ -767,293 +767,322 @@ export default function DocPage() {
   return (
     <AuthGate>
       <>
-        <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto grid gap-8">
-          <Head><title>LSPD 77RP — {template.name}</title></Head>
-
-         <button className="btn w-max" onClick={()=>history.back()}>← Wróć</button>
-
-         <div className="grid md:grid-cols-2 gap-6">
-          {/* FORM */}
-          <div className="card p-6">
-            <h1 className="text-2xl font-bold mb-3">{template.name}</h1>
-            <form onSubmit={onSubmit} className="grid gap-4">
-              <OfficersPicker />
-
-              {/* teczka */}
-              <div className="grid gap-1">
-                <label className="label">
-                  Powiąż z teczką{requiresDossier ? " *" : " (opcjonalnie)"}
-                </label>
-                <input
-                  className="input mb-1"
-                  placeholder="Szukaj po imieniu/nazwisku/CID..."
-                  onChange={(e) => {
-                    const v = e.target.value.toLowerCase();
-                    setDossiers((prev) =>
-                      prev.map((x) => ({
-                        ...x,
-                        _hidden: !(
-                          (x.first || "").toLowerCase().includes(v) ||
-                          (x.last || "").toLowerCase().includes(v) ||
-                          (x.cid || "").toLowerCase().includes(v) ||
-                          (x.title || "").toLowerCase().includes(v)
-                        ),
-                      }))
-                    );
-                  }}
-                />
-                <select
-                  className="input"
-                  value={dossierId}
-                  required={!!requiresDossier}
-                  onChange={async (e) => {
-                    const id = e.target.value;
-                    setDossierId(id);
-                    if (id) await prefillFromDossier(id);
-                  }}
-                >
-                  <option value="" disabled={!!requiresDossier}>
-                    — {requiresDossier ? "wybierz teczkę" : "bez teczki"} —
-                  </option>                 
-                  {dossiers.filter(d=>!d._hidden).map(d => (
-                    <option key={d.id} value={d.id}>{d.title}</option>
-                  ))}
-                </select>
-                {requiresDossier && (
-                  <p className="text-xs text-beige-700">Dokument wymaga wskazania teczki beneficjenta.</p>
-                )}
-              </div>
-
-              {requiresVehicleFolder && (
-                <div className="grid gap-1">
-                  <label className="label">Powiąż z teczką pojazdu *</label>
-                  <input
-                    className="input mb-1"
-                    placeholder="Szukaj po numerze rejestracyjnym, marce, kolorze lub właścicielu..."
-                    value={vehicleSearch}
-                    onChange={(e) => setVehicleSearch(e.target.value)}
-                  />
-                  <select
-                    className="input"
-                    value={vehicleFolderId}
-                    required
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setVehicleFolderId(id);
-                      if (id) prefillFromVehicle(id);
-                    }}
-                  >
-                    <option value="">— wybierz teczkę pojazdu —</option>
-                    {filteredVehicleFolders.map((vehicle) => {
-                      const labelParts = [
-                        vehicle.registration || null,
-                        vehicle.brand || null,
-                        vehicle.color ? `Kolor: ${vehicle.color}` : null,
-                        vehicle.ownerName ? `Właściciel: ${vehicle.ownerName}` : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" • ");
-                      return (
-                        <option key={vehicle.id} value={vehicle.id}>
-                          {labelParts || vehicle.registration || vehicle.id}
-                        </option>
-                      );
-                    })}
-                  </select>
-                  <p className="text-xs text-beige-700">
-                    Dokument zostanie dodany do notatek w wybranej teczce pojazdu.
-                  </p>
-                </div>
-              )}
-
-              {/* pola */}
-              {(template?.fields ?? []).map((f) => (
-                <div key={f.key} className="grid gap-1">
-                  <label className="label">{f.label}{f.required && " *"}</label>
-
-                  {f.type === "multiselect" ? (
-                    <div className="grid gap-1">
-                      {(f.options || []).map((opt) => {
-                        const arr: string[] =
-                          typeof values[f.key] === "string" && values[f.key].length
-                            ? (values[f.key] as string).split("|")
-                            : [];
-                        const checked = arr.includes(opt);
-                        return (
-                          <label key={opt} className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => {
-                                const now = new Set(arr);
-                                if (e.target.checked) now.add(opt); else now.delete(opt);
-                                setValues((v) => ({ ...v, [f.key]: Array.from(now).join("|") }));
-                              }}
-                            />
-                            <span>{opt}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  ) : f.type === "textarea" ? (
-                   <textarea
-                    className="input min-h-[220px]"
-                    required={f.required}
-                    value={values[f.key] || ""}
-                    onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-                  />
-                  ) : f.type === "select" ? (
-                    <select
-                      className="input"
-                      required={f.required}
-                      value={values[f.key] || ""}
-                      onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-                    >
-                      <option value="">-- wybierz --</option>
-                      {(f.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
-                    </select>
-                  ) : (
-                    <input
-                      className="input"
-                      type={f.type === "number" ? "number" : (f.type === "date" ? "date" : "text")}
-                      required={f.required}
-                      value={values[f.key] || ""}
-                      onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-                    />
-                  )}
-                </div>
-              ))}
-
-              <button className="btn" disabled={sending || (requiresDossier && !dossierId)}>
-                {sending ? "Wysyłanie..." : "Wyślij do ARCHIWUM (obraz + tekst)"}
-              </button>
-              {ok && <p className="text-green-700 text-sm">{ok}</p>}
-              {err && <p className="text-red-700 text-sm">{err}</p>}
-            </form>
+        <Head>
+          <title>LSPD 77RP — {template.name}</title>
+        </Head>
+        <div className="panel-layout">
+          <div className="panel-header">
+            <button
+              type="button"
+              className="panel-back"
+              onClick={() => router.back()}
+            >
+              ← Wróć
+            </button>
+            <div className="panel-header__copy">
+              <p className="panel-eyebrow">Dokument służbowy</p>
+              <h1 className="panel-title">{template.name}</h1>
+              <p className="panel-subtitle">
+                Uzupełnij formularz po lewej, a podgląd dokumentu po prawej dostosuje się automatycznie do szerokości
+                ekranu. Możesz przewijać formularz niezależnie od podglądu.
+              </p>
+            </div>
           </div>
 
-          {/* PREVIEW */}
-          <div className="card p-6">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Podgląd dokumentu (obraz + zapis tekstowy)</h2>
-              <span className="text-xs text-beige-700">Ciągły podgląd • wysoka jakość</span>
-            </div>
+          <div className="panel-grid">
+            {/* FORM */}
+            <section className="panel-column panel-column--form">
+              <div className="card panel-card">
+                <form onSubmit={onSubmit} className="grid gap-4">
+                  <OfficersPicker />
 
-            <div className="flex flex-col">
-              <div
-                ref={previewWrapperRef}
-                className="doc-preview-wrapper mx-auto w-full"
-                style={
-                  typeof scaledPreviewHeight === "number"
-                    ? { height: `${scaledPreviewHeight}px` }
-                    : undefined
-                }
-              >
-                <div
-                  className="doc-preview-scaler mx-auto"
-                  style={{
-                    transform: `scale(${previewScale})`,
-                    transformOrigin: "top center",
-                    width: `${basePreviewWidth}px`,
-                  }}
-                >
+                  {/* teczka */}
+                  <div className="grid gap-1">
+                    <label className="label">
+                      Powiąż z teczką{requiresDossier ? " *" : " (opcjonalnie)"}
+                    </label>
+                    <input
+                      className="input mb-1"
+                      placeholder="Szukaj po imieniu/nazwisku/CID..."
+                      onChange={(e) => {
+                        const v = e.target.value.toLowerCase();
+                        setDossiers((prev) =>
+                          prev.map((x) => ({
+                            ...x,
+                            _hidden: !(
+                              (x.first || "").toLowerCase().includes(v) ||
+                              (x.last || "").toLowerCase().includes(v) ||
+                              (x.cid || "").toLowerCase().includes(v) ||
+                              (x.title || "").toLowerCase().includes(v)
+                            ),
+                          }))
+                        );
+                      }}
+                    />
+                    <select
+                      className="input"
+                      value={dossierId}
+                      required={!!requiresDossier}
+                      onChange={async (e) => {
+                        const id = e.target.value;
+                        setDossierId(id);
+                        if (id) await prefillFromDossier(id);
+                      }}
+                    >
+                      <option value="" disabled={!!requiresDossier}>
+                        — {requiresDossier ? "wybierz teczkę" : "bez teczki"} —
+                      </option>
+                      {dossiers
+                        .filter((d) => !d._hidden)
+                        .map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.title}
+                          </option>
+                        ))}
+                    </select>
+                    {requiresDossier && (
+                      <p className="text-xs text-beige-700">Dokument wymaga wskazania teczki beneficjenta.</p>
+                    )}
+                  </div>
+
+                  {requiresVehicleFolder && (
+                    <div className="grid gap-1">
+                      <label className="label">Powiąż z teczką pojazdu *</label>
+                      <input
+                        className="input mb-1"
+                        placeholder="Szukaj po numerze rejestracyjnym, marce, kolorze lub właścicielu..."
+                        value={vehicleSearch}
+                        onChange={(e) => setVehicleSearch(e.target.value)}
+                      />
+                      <select
+                        className="input"
+                        value={vehicleFolderId}
+                        required
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setVehicleFolderId(id);
+                          if (id) prefillFromVehicle(id);
+                        }}
+                      >
+                        <option value="">— wybierz teczkę pojazdu —</option>
+                        {filteredVehicleFolders.map((vehicle) => {
+                          const labelParts = [
+                            vehicle.registration || null,
+                            vehicle.brand || null,
+                            vehicle.color ? `Kolor: ${vehicle.color}` : null,
+                            vehicle.ownerName ? `Właściciel: ${vehicle.ownerName}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" • ");
+                          return (
+                            <option key={vehicle.id} value={vehicle.id}>
+                              {labelParts || vehicle.registration || vehicle.id}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <p className="text-xs text-beige-700">
+                        Dokument zostanie dodany do notatek w wybranej teczce pojazdu.
+                      </p>
+                    </div>
+                  )}
+
+              {/* pola */}
+                  {(template?.fields ?? []).map((f) => (
+                    <div key={f.key} className="grid gap-1">
+                      <label className="label">{f.label}{f.required && " *"}</label>
+
+                      {f.type === "multiselect" ? (
+                        <div className="grid gap-1">
+                          {(f.options || []).map((opt) => {
+                            const arr: string[] =
+                              typeof values[f.key] === "string" && values[f.key].length
+                                ? (values[f.key] as string).split("|")
+                                : [];
+                            const checked = arr.includes(opt);
+                            return (
+                              <label key={opt} className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const now = new Set(arr);
+                                    if (e.target.checked) now.add(opt);
+                                    else now.delete(opt);
+                                    setValues((v) => ({ ...v, [f.key]: Array.from(now).join("|") }));
+                                  }}
+                                />
+                                <span>{opt}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : f.type === "textarea" ? (
+                        <textarea
+                          className="input min-h-[220px]"
+                          required={f.required}
+                          value={values[f.key] || ""}
+                          onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                        />
+                      ) : f.type === "select" ? (
+                        <select
+                          className="input"
+                          required={f.required}
+                          value={values[f.key] || ""}
+                          onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                        >
+                          <option value="">-- wybierz --</option>
+                          {(f.options || []).map((o) => (
+                            <option key={o} value={o}>
+                              {o}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          className="input"
+                          type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
+                          required={f.required}
+                          value={values[f.key] || ""}
+                          onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                        />
+                      )}
+                    </div>
+                  ))}
+
+                  <button className="btn" disabled={sending || (requiresDossier && !dossierId)}>
+                    {sending ? "Wysyłanie..." : "Wyślij do ARCHIWUM (obraz + tekst)"}
+                  </button>
+                  {ok && <p className="text-green-700 text-sm">{ok}</p>}
+                  {err && <p className="text-red-700 text-sm">{err}</p>}
+                </form>
+              </div>
+            </section>
+
+            {/* PREVIEW */}
+            <aside className="panel-column panel-column--preview">
+              <div className="card panel-preview-card">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Podgląd dokumentu (obraz + zapis tekstowy)</h2>
+                  <span className="text-xs text-beige-700">Ciągły podgląd • wysoka jakość</span>
+                </div>
+
+                <div className="flex flex-col">
                   <div
-                    ref={previewRef}
-                    className={`bg-white text-black border border-beige-300 shadow-sm doc-page ${
-                      isWniosekTemplate ? "p-4 text-[11px]" : "p-5 text-[11px]"
-                    }`}
-                    style={{ width: `${basePreviewWidth}px` }}
+                    ref={previewWrapperRef}
+                    className="doc-preview-wrapper mx-auto w-full"
+                    style={
+                      typeof scaledPreviewHeight === "number"
+                        ? { height: `${scaledPreviewHeight}px` }
+                        : undefined
+                    }
                   >
                     <div
-                      className={`flex items-center ${
-                        isWniosekTemplate ? "gap-2 mb-2.5" : "gap-2.5 mb-3"
-                      }`}
+                      className="doc-preview-scaler mx-auto"
+                      style={{
+                        transform: `scale(${previewScale})`,
+                        transformOrigin: "top center",
+                        width: `${basePreviewWidth}px`,
+                      }}
                     >
-                      <img src="/logo.png" alt="LSPD" width={isWniosekTemplate ? 90 : 140} className="floating" />
-                      <div className={isWniosekTemplate ? "space-y-1" : undefined}>
+                      <div
+                        ref={previewRef}
+                        className={`bg-white text-black border border-beige-300 shadow-sm doc-page ${
+                          isWniosekTemplate ? "p-4 text-[11px]" : "p-5 text-[11px]"
+                        }`}
+                        style={{ width: `${basePreviewWidth}px` }}
+                      >
                         <div
-                          className={`${
-                            isWniosekTemplate ? "text-lg font-bold leading-tight" : "text-xl font-bold"
+                          className={`flex items-center ${
+                            isWniosekTemplate ? "gap-2 mb-2.5" : "gap-2.5 mb-3"
                           }`}
                         >
-                          Los Santos Police Department
-                        </div>
-                        <div
-                          className={`${
-                            isWniosekTemplate
-                              ? "text-[11px] uppercase tracking-[0.16em] text-gray-600"
-                              : "text-sm text-gray-600"
-                          }`}
-                        >
-                          {template.name}
-                        </div>
-                      </div>
-                    </div>
-                    <hr className={`border-beige-300 ${isWniosekTemplate ? "mb-2" : "mb-3"}`} />
-
-                    {template.signaturePrefix && !isWniosekTemplate && (
-                      <div className="mb-2.5 text-[11px] leading-tight">
-                        <span className="font-semibold">Sygnatura:</span> {signature || "—"}
-                      </div>
-                    )}
-
-                    <div
-                      className={`${
-                        isWniosekTemplate ? "mb-2 text-[11px]" : "mb-3 text-[11px]"
-                      } whitespace-pre-wrap break-words`}
-                    >
-                      <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ") || "—"}
-                    </div>
-
-                    {requiresVehicleFolder && (
-                      <div className="mb-3 text-[11px] whitespace-pre-wrap break-words">
-                        <span className="font-semibold">Teczka pojazdu:</span>{" "}
-                        {selectedVehicle ? (
-                          <>
-                            {selectedVehicle.registration || "—"}
-                            {selectedVehicle.brand ? ` • ${selectedVehicle.brand}` : ""}
-                            {selectedVehicle.color ? ` • Kolor: ${selectedVehicle.color}` : ""}
-                            {selectedVehicle.ownerName ? ` • Właściciel: ${selectedVehicle.ownerName}` : ""}
-                          </>
-                        ) : (
-                          "—"
-                        )}
-                      </div>
-                    )}
-
-                    {isWniosekTemplate ? (
-                      <div className="doc-fields text-[11px] leading-[1.3]">
-                        {wniosekPreviewLines
-                          .map((line) => line.trim())
-                          .filter((line) => line.length > 0)
-                          .map((line, idx) => (
-                            <p
-                              key={`wniosek-line-${idx}`}
-                              className="whitespace-pre-wrap break-words"
-                              style={{ textAlign: line.length > 80 ? "justify" : "left" }}
+                          <img src="/logo.png" alt="LSPD" width={isWniosekTemplate ? 90 : 140} className="floating" />
+                          <div className={isWniosekTemplate ? "space-y-1" : undefined}>
+                            <div
+                              className={`${
+                                isWniosekTemplate ? "text-lg font-bold leading-tight" : "text-xl font-bold"
+                              }`}
                             >
-                              {line}
-                            </p>
-                          ))}
-                      </div>
-                    ) : (
-                      <div className="doc-fields text-[11px] leading-[1.3]">
-                        {previewFields.map((field) => (
-                          <FieldBlock key={`${field.id}-${field.signature}`} field={field} />
-                        ))}
-                      </div>
-                    )}
+                              Los Santos Police Department
+                            </div>
+                            <div
+                              className={`${
+                                isWniosekTemplate
+                                  ? "text-[11px] uppercase tracking-[0.16em] text-gray-600"
+                                  : "text-sm text-gray-600"
+                              }`}
+                            >
+                              {template.name}
+                            </div>
+                          </div>
+                        </div>
+                        <hr className={`border-beige-300 ${isWniosekTemplate ? "mb-2" : "mb-3"}`} />
 
-                    <div className={`${isWniosekTemplate ? "mt-5 text-[10px]" : "mt-6 text-[11px]"} text-gray-600`}>
-                      Wygenerowano w panelu LSPD • {new Date().toLocaleString()}
+                        {template.signaturePrefix && !isWniosekTemplate && (
+                          <div className="mb-2.5 text-[11px] leading-tight">
+                            <span className="font-semibold">Sygnatura:</span> {signature || "—"}
+                          </div>
+                        )}
+
+                        <div
+                          className={`${
+                            isWniosekTemplate ? "mb-2 text-[11px]" : "mb-3 text-[11px]"
+                          } whitespace-pre-wrap break-words`}
+                        >
+                          <span className="font-semibold">Funkcjonariusze:</span> {selectedNames.join(", ") || "—"}
+                        </div>
+
+                        {requiresVehicleFolder && (
+                          <div className="mb-3 text-[11px] whitespace-pre-wrap break-words">
+                            <span className="font-semibold">Teczka pojazdu:</span>{" "}
+                            {selectedVehicle ? (
+                              <>
+                                {selectedVehicle.registration || "—"}
+                                {selectedVehicle.brand ? ` • ${selectedVehicle.brand}` : ""}
+                                {selectedVehicle.color ? ` • Kolor: ${selectedVehicle.color}` : ""}
+                                {selectedVehicle.ownerName ? ` • Właściciel: ${selectedVehicle.ownerName}` : ""}
+                              </>
+                            ) : (
+                              "—"
+                            )}
+                          </div>
+                        )}
+
+                        {isWniosekTemplate ? (
+                          <div className="doc-fields text-[11px] leading-[1.3]">
+                            {wniosekPreviewLines
+                              .map((line) => line.trim())
+                              .filter((line) => line.length > 0)
+                              .map((line, idx) => (
+                                <p
+                                  key={`wniosek-line-${idx}`}
+                                  className="whitespace-pre-wrap break-words"
+                                  style={{ textAlign: line.length > 80 ? "justify" : "left" }}
+                                >
+                                  {line}
+                                </p>
+                              ))}
+                          </div>
+                        ) : (
+                          <div className="doc-fields text-[11px] leading-[1.3]">
+                            {previewFields.map((field) => (
+                              <FieldBlock key={`${field.id}-${field.signature}`} field={field} />
+                            ))}
+                          </div>
+                        )}
+
+                        <div className={`${isWniosekTemplate ? "mt-5 text-[10px]" : "mt-6 text-[11px]"} text-gray-600`}>
+                          Wygenerowano w panelu LSPD • {new Date().toLocaleString()}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
+            </aside>
           </div>
         </div>
-      </div>
       </>
     </AuthGate>
   );
