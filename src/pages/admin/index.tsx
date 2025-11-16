@@ -4,6 +4,7 @@ import AuthGate from "@/components/AuthGate";
 import { useProfile, Role } from "@/hooks/useProfile";
 import { useLogWriter } from "@/hooks/useLogWriter";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   addDoc,
   collection,
@@ -1887,78 +1888,47 @@ export default function Admin() {
           </div>
         </div>
 
-        <div
-          className="layout-grid"
-          data-layout="with-aside"
-          style={{ ["--layout-aside-width" as any]: "320px" }}
-        >
-          <aside className="rounded-3xl border border-white/20 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-6 text-white shadow-xl">
-            <div className="flex flex-col gap-6">
-              <div className="space-y-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Sekcje panelu</span>
-                <h2 className="text-2xl font-semibold text-white">Nawigacja</h2>
-                <p className="text-sm text-white/70">
-                  Wybierz obszar pracy zarządu i przełączaj się między modułami bez przewijania bocznego panelu.
-                </p>
-              </div>
-
-              <nav className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+        <div className="admin-panel-grid">
+          <aside className="admin-nav text-white/90">
+            <div className="space-y-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Moduły</span>
+              <h2 className="text-lg font-semibold text-white">Nawigacja</h2>
+            </div>
+            <div className="admin-nav__scroller">
+              <div className="admin-nav__list">
                 {ADMIN_SECTION_ORDER.map((value) => {
                   const meta = ADMIN_SECTION_META[value];
                   const active = section === value;
-                  const accent = meta.accent;
                   return (
                     <button
                       key={value}
                       type="button"
                       onClick={() => setSection(value)}
                       aria-pressed={active}
-                      className={`group relative overflow-hidden rounded-2xl border px-4 py-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
-                        active ? "border-white/40 bg-white/15 shadow-[0_28px_72px_-32px_rgba(59,130,246,0.85)]" : "border-white/10 bg-white/5 hover:bg-white/10"
-                      }`}
-                      style={{ borderColor: active ? `${accent}aa` : undefined }}
+                      className={`admin-nav__button${active ? " admin-nav__button--active" : ""}`}
+                      style={{ ["--accent-color" as any]: meta.accent } as CSSProperties}
                     >
-                      <span
-                        className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-40"
-                        style={{ background: `radial-gradient(circle at 15% 15%, ${accent}33, transparent 65%)` }}
-                      />
-                      <div className="relative flex flex-col gap-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-3 text-base font-semibold text-white">
-                            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-black/30 text-lg" aria-hidden>
-                              {meta.icon}
-                            </span>
-                            {meta.label}
-                          </div>
-                          {active && (
-                            <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/80">
-                              Aktywne
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs leading-relaxed text-white/70">{meta.description}</p>
-                      </div>
+                      <span className="admin-nav__icon" aria-hidden>
+                        {meta.icon}
+                      </span>
+                      <span className="font-semibold tracking-tight">{meta.label}</span>
                     </button>
                   );
                 })}
-              </nav>
-
-              <div className="rounded-2xl border border-white/15 bg-black/20 p-4 text-sm text-white/70">
-                <div className="font-semibold text-white/85">Domena logowania</div>
-                <div className="font-mono text-base text-white/90">@{loginDomain}</div>
-                <p className="mt-2 text-xs leading-relaxed text-white/60">
-                  Dane dostępowe są chronione. W razie problemów z hasłem skorzystaj z konsoli Firebase.
-                </p>
               </div>
+            </div>
+            <div className="admin-nav__meta">
+              <div className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Domena logowania</div>
+              <div className="font-mono text-base text-white">@{loginDomain}</div>
             </div>
           </aside>
 
-          <div className="grid gap-6">
+          <div className="admin-content">
             {section === "overview" && (
               <div className="grid gap-6">
                 <div className="card p-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <h2 className="text-xl font-semibold">Podsumowanie działań</h2>
+                    <h2 className="admin-section-title text-slate-900">Podsumowanie działań</h2>
                     <p className="text-sm text-beige-700">Okres raportowania: {rangeLabel}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -2072,7 +2042,7 @@ export default function Admin() {
                 <div className="card bg-gradient-to-br from-sky-900/85 via-indigo-900/80 to-purple-900/80 text-white p-6 shadow-xl">
                   <div className="flex flex-wrap items-start gap-3">
                     <div className="flex-1">
-                      <h2 className="text-xl font-semibold">Dział Kadr</h2>
+                      <h2 className="admin-section-title text-white">Dział Kadr</h2>
                       <p className="text-sm text-white/70">Zarządzaj kontami funkcjonariuszy DPS.</p>
                     </div>
                     <button
@@ -2218,7 +2188,7 @@ export default function Admin() {
                 <div className="card bg-gradient-to-br from-purple-900/85 via-indigo-900/80 to-blue-900/80 text-white p-6 shadow-xl">
                   <div className="space-y-5">
                     <div className="space-y-2">
-                      <h2 className="text-xl font-semibold">Ogłoszenia</h2>
+                      <h2 className="admin-section-title text-white">Ogłoszenia</h2>
                       <p className="text-sm text-white/70">
                         Komunikaty są wyświetlane na stronie dokumentów, teczek i archiwum.
                       </p>
@@ -2305,7 +2275,7 @@ export default function Admin() {
                 <div className="card bg-gradient-to-br from-emerald-900/80 via-slate-900/80 to-slate-950/85 p-6 text-white shadow-xl">
                   <div className="space-y-4">
                     <div>
-                      <h2 className="text-xl font-semibold">Zgłoszenia od funkcjonariuszy</h2>
+                      <h2 className="admin-section-title text-white">Zgłoszenia od funkcjonariuszy</h2>
                       <p className="text-sm text-white/70">
                         Przeglądaj zgłoszenia kierowane do zarządu, reaguj na problemy i przenoś obsłużone tickety do archiwum.
                       </p>
@@ -2474,7 +2444,7 @@ export default function Admin() {
             {section === "logs" && (
               <div className="grid gap-5">
                 <div className="card bg-gradient-to-br from-amber-900/85 via-amber-800/85 to-stone-900/80 text-white p-6 shadow-xl">
-                  <h2 className="text-xl font-semibold">Monitor aktywności</h2>
+                  <h2 className="admin-section-title text-white">Monitor aktywności</h2>
                   <p className="text-sm text-white/70">
                     Historia logowań, zmian danych i wszystkich operacji w panelu. Dostępna wyłącznie dla dowództwa (Staff
                     Commander i wyżej).
