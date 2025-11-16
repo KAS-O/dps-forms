@@ -255,13 +255,20 @@ body {
 .auth-layout {
   min-height: 100vh;
   padding: clamp(1.5rem, 6vw, 4rem) clamp(1rem, 5vw, 3.5rem);
-  display: grid;
-  place-items: center;
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
 }
 
 .auth-panel {
   width: min(480px, 100%);
+}
+
+@media (max-width: 640px) {
+  .auth-panel {
+    width: 100%;
+  }
 }
 
 .auth-shell {
@@ -269,16 +276,6 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.auth-scale {
-  transform-origin: center;
-  transition: transform 150ms ease-in-out, filter 150ms ease-in-out;
-  will-change: transform;
-}
-
-.auth-scale:focus-within {
-  filter: drop-shadow(0 0 1rem rgba(56, 189, 248, 0.25));
 }
 
 .panel-layout {
