@@ -3,7 +3,7 @@ import Head from "next/head";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useState } from "react";
 import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
 
@@ -14,30 +14,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [scale, setScale] = useState(1);
-  const panelRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
-
-  useEffect(() => {
-    const updateScale = () => {
-      const node = panelRef.current;
-      if (!node) return;
-
-      const width = node.offsetWidth;
-      const height = node.offsetHeight;
-      const availableWidth = window.innerWidth - 24;
-      const availableHeight = window.innerHeight - 24;
-      const widthRatio = availableWidth / width;
-      const heightRatio = availableHeight / height;
-      const nextScale = Math.min(1, widthRatio, heightRatio);
-
-      setScale(Number(nextScale.toFixed(3)));
-    };
-
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
-  }, []);
 
   const getErrorMessage = (code?: string) => {
     switch (code) {
@@ -106,63 +83,76 @@ export default function LoginPage() {
 
         <div className="auth-layout">
           <div className="auth-shell">
-            <div
-              ref={panelRef}
-              className="card auth-panel auth-scale w-full p-6 sm:p-8 bg-[var(--card)] border border-white/10"
-              style={{ transform: `scale(${scale})` }}
-            >
-              <div className="flex flex-col items-center gap-4 mb-6">
-                {/* Jeśli masz PNG: zmień logo.svg na logo.png */}
-                <Image src="/logo.png" alt="LSPD" width={320} height={80} priority className="floating" />
-              <h1 className="text-xl font-semibold text-center">
-                <span className="block">Los Santos Police Department</span>
-                <span className="block">Mobile Data Terminal</span>
-              </h1>
-            </div>
-
-            <form onSubmit={onSubmit} className="space-y-4">
-              <div>
-                <label className="label">Login</label>
-                <input
-                  className="input"
-                  value={login}
-                  onChange={(e) => setLogin(e.target.value)}
-                  required
+            <div className="card auth-panel w-full max-w-2xl p-6 sm:p-8 lg:p-10 bg-[var(--card)] border border-white/10 shadow-xl">
+              <div className="flex flex-col items-center gap-4 mb-2 sm:mb-4">
+                <Image
+                  src="/logo.png"
+                  alt="LSPD"
+                  width={320}
+                  height={80}
+                  priority
+                  className="floating w-full max-w-xs sm:max-w-md h-auto"
                 />
-              </div>
-
-              <div>
-                <label className="label">Hasło</label>
-                <input
-                  className="input"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </div>
-
-              {error && (
-                <p
-                  className="rounded-xl border border-red-500/40 bg-red-900/40 px-3 py-2 text-sm text-red-100"
-                  role="alert"
-                >
-                  {error}
+                <h1 className="text-center text-lg sm:text-xl font-semibold leading-tight">
+                  <span className="block">Los Santos Police Department</span>
+                  <span className="block">Mobile Data Terminal</span>
+                </h1>
+                <p className="text-center text-sm text-ink-muted">
+                  Bezpieczne logowanie służbowe. Formularz dopasowuje się do każdego ekranu, więc nie musisz
+                  przybliżać ani pomniejszać widoku.
                 </p>
-              )}
+              </div>
 
-              <button className="btn w-full" disabled={loading}>
-                {loading ? "Logowanie..." : "Zaloguj"}
-              </button>
+              <form onSubmit={onSubmit} className="space-y-5">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="flex flex-col gap-2">
+                    <label className="label">Login</label>
+                    <input
+                      className="input"
+                      value={login}
+                      onChange={(e) => setLogin(e.target.value)}
+                      autoComplete="username"
+                      required
+                    />
+                  </div>
 
-              <p className="text-xs text-beige-900/80">
-                Dostępy nadaje administrator. Brak rejestracji i opcji resetu hasła.
-              </p>
-            </form>
+                  <div className="flex flex-col gap-2">
+                    <label className="label">Hasło</label>
+                    <input
+                      className="input"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                      required
+                    />
+                  </div>
+                </div>
 
-            <p className="text-[11px] text-center mt-3 text-beige-900/80">
-              Loginy mają format wewnętrzny <code>LOGIN@{LOGIN_DOMAIN}</code>.
-            </p>
+                {error && (
+                  <p
+                    className="rounded-xl border border-red-500/40 bg-red-900/40 px-3 py-2 text-sm text-red-100"
+                    role="alert"
+                  >
+                    {error}
+                  </p>
+                )}
+
+                <button className="btn w-full" disabled={loading}>
+                  {loading ? "Logowanie..." : "Zaloguj"}
+                </button>
+
+                <div className="grid gap-3 text-xs text-beige-900/80 sm:grid-cols-2 sm:items-start">
+                  <p>
+                    Dostępy nadaje administrator. Brak rejestracji i opcji resetu hasła. W razie problemów skontaktuj
+                    się z przełożonym.
+                  </p>
+                  <p className="sm:text-right">
+                    Loginy mają format wewnętrzny <code>LOGIN@{LOGIN_DOMAIN}</code>. Pamiętaj, aby stosować domenę
+                    służbową.
+                  </p>
+                </div>
+              </form>
             </div>
           </div>
         </div>

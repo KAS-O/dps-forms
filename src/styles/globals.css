@@ -261,7 +261,8 @@ body {
 }
 
 .auth-panel {
-  width: min(480px, 100%);
+  width: 100%;
+  max-width: min(640px, 100%);
 }
 
 .auth-shell {
