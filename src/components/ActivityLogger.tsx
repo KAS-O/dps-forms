@@ -30,6 +30,13 @@ const SessionActivityContext = createContext<SessionActivityContextValue>({
 const SESSION_STORAGE_KEY = "dps-activity-session";
 const INACTIVITY_LIMIT_MS = 15 * 60 * 1000;
 
+function triggerFullRefresh() {
+  if (typeof window === "undefined") return;
+  window.setTimeout(() => {
+    window.location.reload();
+  }, 100);
+}
+
 function readStoredSession(): SessionInfo | null {
   if (typeof window === "undefined") return null;
   try {
@@ -366,6 +373,8 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
         await signOut(auth);
       } catch (error) {
         console.warn("Nie udało się wylogować użytkownika po czasie bezczynności:", error);
+      } finally {
+        triggerFullRefresh();
       }
     }
   }, [finalizeSession]);

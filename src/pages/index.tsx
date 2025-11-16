@@ -36,7 +36,8 @@ export default function LoginPage() {
         ts: serverTimestamp(),
       });
 
-      router.push("/dashboard");
+      await router.replace("/dashboard");
+      router.reload();
     } catch (e: any) {
       // log niepowodzenia
       await addDoc(collection(db, "logs"), {
@@ -51,7 +52,7 @@ export default function LoginPage() {
         ts: serverTimestamp(),
       });
 
-      setError("Nieprawidłowy login lub hasło");
+      setError("Wprowadzono błędne dane logowania. Sprawdź login i hasło.");
       setLoading(false);
     }
   };
@@ -96,7 +97,11 @@ export default function LoginPage() {
                 />
               </div>
 
-              {error && <p className="text-red-300 text-sm">{error}</p>}
+              {error && (
+                <p className="text-red-300 text-sm font-semibold" role="alert">
+                  {error}
+                </p>
+              )}
 
               <button className="btn w-full" disabled={loading}>
                 {loading ? "Logowanie..." : "Zaloguj"}
