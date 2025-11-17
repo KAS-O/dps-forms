@@ -29,15 +29,15 @@ export default function Dashboard() {
         <Nav showSidebars={false} />
 
         <main className="layout-shell layout-shell--wide">
-          <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-4 pb-8 pt-4 sm:px-6 lg:px-8 lg:pt-6">
-            <div className="flex min-h-[calc(100vh-200px)] flex-col gap-6 lg:flex-row lg:items-start">
+          <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 pb-8 pt-4 sm:px-6 lg:px-8 lg:pt-6">
+            <div className="grid min-h-[calc(100vh-200px)] grid-cols-1 gap-6 lg:grid-cols-[minmax(260px,0.95fr)_minmax(0,1.65fr)_minmax(280px,1fr)] xl:grid-cols-[minmax(280px,1fr)_minmax(0,1.8fr)_minmax(300px,1fr)]">
               <UnitSidebar
                 variant="inline"
                 showProfilePanel={false}
-                leftClassName="lg:flex-[0_0_300px] xl:flex-[0_0_320px] min-w-[260px] max-w-[360px]"
+                leftClassName="lg:col-span-1 lg:flex lg:flex-col lg:gap-4"
               />
 
-              <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden lg:gap-6">
+              <div className="flex min-h-0 flex-col gap-5 overflow-hidden lg:col-span-1 lg:gap-6">
                 <div className="card flex min-h-0 flex-col gap-4 overflow-hidden p-4 md:p-5 lg:p-6" data-section="documents">
                   <div className="space-y-3">
                     <span className="section-chip text-xs sm:text-sm">
@@ -105,7 +105,7 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="hidden min-h-0 flex-[0_0_340px] flex-col gap-4 lg:flex xl:flex-[0_0_360px]">
+              <div className="hidden min-h-0 flex-col gap-4 lg:col-span-1 lg:flex">
                 <UnitSidebar
                   variant="inline"
                   showUnitsPanel={false}

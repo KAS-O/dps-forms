@@ -194,7 +194,11 @@ export default function VehicleArchivePage() {
         <Head><title>LSPD 77RP — Archiwum pojazdów</title></Head>
         <Nav />
         <main className="layout-shell">
-          <div className="layout-grid" data-layout="with-aside" style={{ ["--layout-aside-width" as any]: "320px" }}>
+          <div
+            className="layout-grid"
+            data-layout="with-aside"
+            style={{ ["--layout-aside-width" as any]: "clamp(260px, 22vw, 360px)" }}
+          >
             <div className="grid gap-6">
             <div className="card p-6 space-y-4" data-section="vehicle">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

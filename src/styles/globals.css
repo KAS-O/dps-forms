@@ -3,7 +3,6 @@
 @tailwind utilities;
 
 :root {
-  --app-scale: 1;
   --bg: radial-gradient(circle at 10% 20%, rgba(61, 130, 226, 0.25), transparent 45%),
     radial-gradient(circle at 80% 0%, rgba(27, 58, 111, 0.6), transparent 55%),
     #050b18;
@@ -41,20 +40,6 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   position: relative;
   overflow-x: hidden;
-}
-
-.app-scale-wrapper {
-  width: 100%;
-  min-height: 100vh;
-  display: flex;
-  justify-content: center;
-}
-
-.app-scale-content {
-  width: calc(100% / var(--app-scale));
-  min-height: calc(100vh / var(--app-scale));
-  transform: scale(var(--app-scale));
-  transform-origin: top center;
 }
 
 .layout-shell {

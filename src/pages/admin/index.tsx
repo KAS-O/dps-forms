@@ -2194,7 +2194,7 @@ export default function Admin() {
                       </p>
                     </div>
 
-                    <div className="grid gap-5 items-start lg:grid-cols-[minmax(0,1fr)_280px]">
+                    <div className="grid gap-5 items-start lg:grid-cols-[minmax(0,1fr)_minmax(260px,1fr)]">
                       <div className="space-y-4">
                         <textarea
                           className="min-h-[11rem] w-full resize-y rounded-2xl border border-white/30 bg-white/10 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/60 focus:border-white focus:outline-none focus:ring-2 focus:ring-white/70"
