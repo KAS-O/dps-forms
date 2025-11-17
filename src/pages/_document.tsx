@@ -14,8 +14,15 @@ export default function Document() {
         <style
           dangerouslySetInnerHTML={{
             __html: `
-  body {
-    /* skalowanie względem górnego środka, wygląda lepiej niż lewy róg */
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    overflow-x: hidden;   /* nic nie może wystawać na prawo */
+  }
+
+  /* na zwykłych stronach skalujemy body względem górnego środka */
+  body:not(.is-login) {
     transform-origin: top center;
   }
             `,
@@ -28,20 +35,20 @@ export default function Document() {
     const width = window.innerWidth;
     const isLoginPage = document.body.classList.contains('is-login');
 
+    if (isLoginPage) {
+      // ekran logowania – bez skalowania
+      document.body.style.transform = 'none';
+      return;
+    }
+
     let scale = 1;
 
-    if (!isLoginPage && width >= 1400) {
-      // wewnętrzne strony – odpowiednik 80% zoomu
+    // na dużych ekranach – odpowiednik zoom 80%
+    if (width >= 1400) {
       scale = 0.8;
-    } else {
-      // strona logowania i mniejsze szerokości – bez skalowania
-      scale = 1;
     }
 
     document.body.style.transform = 'scale(' + scale + ')';
-    document.body.style.width = isLoginPage
-      ? '100vw'
-      : (100 / scale) + 'vw';
   }
 
   window.addEventListener('load', scalePage);
