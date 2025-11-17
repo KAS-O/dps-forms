@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
-import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { UnitsPanel } from "@/components/UnitsPanel";
+import { AccountPanel } from "@/components/AccountPanel";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
@@ -1016,10 +1018,12 @@ export default function ArchivePage() {
           <Head>
             <title>LSPD 77RP — Archiwum</title>
           </Head>
-          <Nav />
-        <div className="layout-shell layout-shell--narrow">
-          <div className="card p-6 text-center" data-section="archive">Brak dostępu do archiwum.</div>
-        </div>
+          <Nav showSidebars={false} />
+          <DashboardLayout
+            left={<UnitsPanel />}
+            center={<div className="card p-6 text-center" data-section="archive">Brak dostępu do archiwum.</div>}
+            right={<AccountPanel />}
+          />
         </>
       </AuthGate>
     );
@@ -1031,106 +1035,107 @@ export default function ArchivePage() {
         <Head>
           <title>LSPD 77RP — Archiwum</title>
         </Head>
-        <Nav />
-        <main className="layout-shell">
-          <div className="layout-grid" data-layout="with-aside">
-            <div className="flex flex-col gap-6">
-              <div className="card p-6 space-y-5" data-section="archive">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
-                <div className="space-y-1 flex-1 min-w-[min(320px,100%)]">
-                  <span className="section-chip">
-                    <span className="section-chip__dot" style={{ background: "#f59e0b" }} />
-                    Archiwum
-                  </span>
-                  <h1 className="text-3xl font-semibold tracking-tight">Archiwum dokumentów służbowych</h1>
-                </div>
-                <div className="action-stack xl:justify-end">
-                  <input
-                    className="input"
-                    placeholder="Szukaj..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                  <button className="btn" onClick={resetFilters} type="button">
-                    Resetuj filtry
-                  </button>
-                  <button
-                    className={`btn ${selectionMode ? "bg-blue-800 text-white" : ""}`}
-                    type="button"
-                    onClick={toggleSelectionMode}
-                  >
-                    {selectionMode ? "Anuluj wybór" : "Wybierz"}
-                  </button>
-                  {selectionMode && (
+        <Nav showSidebars={false} />
+        <DashboardLayout
+          left={<UnitsPanel />}
+          center={(
+            <section className="flex flex-col gap-6" data-section="archive">
+              <div className="card p-6 space-y-5">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
+                  <div className="space-y-1 flex-1 min-w-[min(320px,100%)]">
+                    <span className="section-chip">
+                      <span className="section-chip__dot" style={{ background: "#f59e0b" }} />
+                      Archiwum
+                    </span>
+                    <h1 className="text-3xl font-semibold tracking-tight">Archiwum dokumentów służbowych</h1>
+                  </div>
+                  <div className="action-stack xl:justify-end">
+                    <input
+                      className="input"
+                      placeholder="Szukaj..."
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                    <button className="btn" onClick={resetFilters} type="button">
+                      Resetuj filtry
+                    </button>
                     <button
-                      className="btn bg-green-600 text-white"
+                      className={`btn ${selectionMode ? "bg-blue-800 text-white" : ""}`}
                       type="button"
-                      disabled={selectedCount === 0 || creatingReport}
-                      onClick={createReport}
+                      onClick={toggleSelectionMode}
                     >
-                      {creatingReport ? "Generowanie..." : `Utwórz raport (${selectedCount})`}
+                      {selectionMode ? "Anuluj wybór" : "Wybierz"}
                     </button>
-                  )}
-                  {can.deleteArchive(role, adminPrivileges) && (
-                    <button className="btn bg-red-700 text-white" onClick={clearAll} disabled={clearing} type="button">
-                      {clearing ? "Czyszczenie..." : "Wyczyść archiwum"}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="form-grid">
-                <div className="flex flex-col gap-1">
-                  <label className="label">Data od</label>
-                  <input
-                    className="input"
-                    type="datetime-local"
-                    value={fromDate}
-                    onChange={(e) => setFromDate(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="label">Data do</label>
-                  <input
-                    className="input"
-                    type="datetime-local"
-                    value={toDate}
-                    onChange={(e) => setToDate(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="label">Rodzaje dokumentów</label>
-                  <div className="max-h-36 overflow-y-auto rounded-xl border border-white/10 p-2 bg-black/20">
-                    {availableTypes.length === 0 && <p className="text-xs text-beige-700">Brak danych.</p>}
-                    {availableTypes.map((type) => {
-                      const checked = selectedTypes.includes(type.value);
-                      return (
-                        <label key={type.value} className="flex items-center gap-2 text-sm py-1">
-                          <input type="checkbox" checked={checked} onChange={() => toggleType(type.value)} />
-                          <span>{type.label}</span>
-                        </label>
-                      );
-                    })}
+                    {selectionMode && (
+                      <button
+                        className="btn bg-green-600 text-white"
+                        type="button"
+                        disabled={selectedCount === 0 || creatingReport}
+                        onClick={createReport}
+                      >
+                        {creatingReport ? "Generowanie..." : `Utwórz raport (${selectedCount})`}
+                      </button>
+                    )}
+                    {can.deleteArchive(role, adminPrivileges) && (
+                      <button className="btn bg-red-700 text-white" onClick={clearAll} disabled={clearing} type="button">
+                        {clearing ? "Czyszczenie..." : "Wyczyść archiwum"}
+                      </button>
+                    )}
                   </div>
                 </div>
+
+                <div className="form-grid">
+                  <div className="flex flex-col gap-1">
+                    <label className="label">Data od</label>
+                    <input
+                      className="input"
+                      type="datetime-local"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="label">Data do</label>
+                    <input
+                      className="input"
+                      type="datetime-local"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="label">Rodzaje dokumentów</label>
+                    <div className="max-h-36 overflow-y-auto rounded-xl border border-white/10 p-2 bg-black/20">
+                      {availableTypes.length === 0 && <p className="text-xs text-beige-700">Brak danych.</p>}
+                      {availableTypes.map((type) => {
+                        const checked = selectedTypes.includes(type.value);
+                        return (
+                          <label key={type.value} className="flex items-center gap-2 text-sm py-1">
+                            <input type="checkbox" checked={checked} onChange={() => toggleType(type.value)} />
+                            <span>{type.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {selectionMode && (
+                  <p className="text-xs text-beige-700">
+                    Zaznacz dokumenty do raportu. Wszystkie informacje tekstowe trafią do jednego pliku PDF.
+                  </p>
+                )}
+                {reportError && <p className="text-sm text-red-300">{reportError}</p>}
               </div>
 
-              {selectionMode && (
-                <p className="text-xs text-beige-700">
-                  Zaznacz dokumenty do raportu. Wszystkie informacje tekstowe trafią do jednego pliku PDF.
-                </p>
-              )}
-              {reportError && <p className="text-sm text-red-300">{reportError}</p>}
-            </div>
-  
               <div className="grid gap-2">
                 {filteredItems.map((item) => {
-                const isSelected = selectedIds.includes(item.id);
-                const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
-                const imageLinks = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
-                const textSections = buildArchiveTextSections(item);
+                  const isSelected = selectedIds.includes(item.id);
+                  const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
+                  const imageLinks = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+                  const textSections = buildArchiveTextSections(item);
 
-                return (
+                  return (
                   <div
                     key={item.id}
                     className={`card relative p-4 grid md:grid-cols-[1fr_auto] gap-3 transition-all ${
@@ -1149,7 +1154,7 @@ export default function ArchivePage() {
                         {isSelected && <span className="text-xs font-bold text-white">✓</span>}
                       </button>
                     )}
-                    
+
                     <div className="pr-6">
                       <div className="font-semibold">{item.templateName}</div>
                       <div className="text-sm text-beige-700">
@@ -1203,7 +1208,7 @@ export default function ArchivePage() {
                         </div>
                       )}
                     </div>
-                    
+
                     <div className="flex items-center justify-end gap-2">
                       {can.deleteArchive(role, adminPrivileges) && !selectionMode && (
                         <button className="btn bg-red-700 text-white" onClick={() => remove(item.id)}>
@@ -1216,10 +1221,10 @@ export default function ArchivePage() {
               })}
               {filteredItems.length === 0 && <p>Brak wpisów spełniających kryteria.</p>}
             </div>
-            </div>
-            <AnnouncementSpotlight />
-          </div>
-        </main>
+            </section>
+          )}
+          right={<AccountPanel />}
+        />
       </>
     </AuthGate>
   );
