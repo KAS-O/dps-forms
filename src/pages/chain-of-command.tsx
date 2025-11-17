@@ -2,6 +2,9 @@ import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { UnitsPanel } from "@/components/UnitsPanel";
+import { AccountPanel } from "@/components/AccountPanel";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { ROLE_LABELS, ROLE_VALUES, normalizeRole, type Role } from "@/lib/roles";
@@ -316,202 +319,208 @@ export default function ChainOfCommandPage() {
         <Head>
           <title>LSPD 77RP — Chain of Command</title>
         </Head>
-        <Nav />
+        <Nav showSidebars={false} />
 
-        <main className="layout-shell">
-          <div className="card p-6 space-y-6" data-section="chain-of-command">
-            <div className="space-y-2">
-              <span className="section-chip">
-                <span className="section-chip__dot" style={{ background: "#facc15" }} aria-hidden />
-                Chain of Command
-              </span>
-              <div>
-                <h1 className="text-3xl font-bold tracking-tight text-white">Spis Funkcjonariuszy</h1>
-                <p className="text-sm text-white/70">
-                  Aktualny wykaz funkcjonariuszy wraz z przypisaniami departamentów i jednostek specjalistycznych.
-                </p>
-              </div>
-            </div>
+        <DashboardLayout
+          left={<UnitsPanel />}
+          center={(
+            <section className="flex flex-col gap-6" data-section="chain-of-command">
+              <div className="card p-6 space-y-6">
+                <div className="space-y-2">
+                  <span className="section-chip">
+                    <span className="section-chip__dot" style={{ background: "#facc15" }} aria-hidden />
+                    Chain of Command
+                  </span>
+                  <div>
+                    <h1 className="text-3xl font-bold tracking-tight text-white">Spis Funkcjonariuszy</h1>
+                    <p className="text-sm text-white/70">
+                      Aktualny wykaz funkcjonariuszy wraz z przypisaniami departamentów i jednostek specjalistycznych.
+                    </p>
+                  </div>
+                </div>
 
-            {error && (
-              <div className="rounded-2xl border border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-                {error}
-              </div>
-            )}
-
-            <div className="layout-grid" data-layout="with-aside">
-              <div className="space-y-4">
-                {roleGroups.map((group) => (
-                  <section
-                    key={group.id}
-                    className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-inner"
-                    style={{
-                      borderColor: withAlpha(group.accent, 0.4),
-                      boxShadow: `0 18px 38px -24px ${withAlpha(group.accent, 0.6)}`,
-                    }}
-                  >
-                    <div className="flex flex-wrap items-center gap-3">
-                      <span
-                        className={`${CHIP_CLASS} text-[11px]`}
-                        style={{
-                          background: withAlpha(group.accent, 0.25),
-                          color: "#f8fafc",
-                          borderColor: withAlpha(group.accent, 0.55),
-                        }}
-                      >
-                        {group.title}
-                      </span>
-                      <span className="text-xs text-white/60">
-                        {group.roles.reduce((acc, entry) => acc + entry.members.length, 0)} funkcjonariuszy
-                      </span>
-                    </div>
-
-                    <div className="mt-4 space-y-4">
-                      {group.roles.map((entry) => (
-                        <div key={entry.role} className="relative border-l border-white/10 pl-4">
-                          <div className="text-sm font-semibold uppercase tracking-wide text-white/70">
-                            {ROLE_LABELS[entry.role] || entry.role}
-                          </div>
-                          {entry.members.length ? (
-                            <div className="mt-2 grid gap-2 md:grid-cols-2">
-                              {entry.members.map((member) => (
-                                <MemberBadge
-                                  key={member.uid}
-                                  member={member}
-                                  highlight={normalizedLogin ? normalizedLogin === member.login.toLowerCase() : false}
-                                />
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="mt-2 text-xs text-white/40">Brak przypisanych funkcjonariuszy.</div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                ))}
-
-                {loading && members.length === 0 && (
-                  <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
-                    Ładowanie struktury dowodzenia…
+                {error && (
+                  <div className="rounded-2xl border border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                    {error}
                   </div>
                 )}
-              </div>
 
-              <div className="space-y-4">
-                <section className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                  <div className="flex items-center justify-between gap-2">
-                    <h2 className="text-lg font-semibold text-white">Departamenty</h2>
-                    <span className="text-xs text-white/50">{members.length} osób</span>
-                  </div>
-                  <div className="mt-4 space-y-3">
-                    {departmentAssignments.map(({ option, members: deptMembers }) => (
-                      <div key={option.value} className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                        <div className="flex items-center gap-2">
+                <div className="layout-grid" data-layout="with-aside">
+                  <div className="space-y-4">
+                    {roleGroups.map((group) => (
+                      <section
+                        key={group.id}
+                        className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-inner"
+                        style={{
+                          borderColor: withAlpha(group.accent, 0.4),
+                          boxShadow: `0 18px 38px -24px ${withAlpha(group.accent, 0.6)}`,
+                        }}
+                      >
+                        <div className="flex flex-wrap items-center gap-3">
                           <span
-                            className={CHIP_CLASS}
+                            className={`${CHIP_CLASS} text-[11px]`}
                             style={{
-                              background: option.background,
-                              color: option.color,
-                              borderColor: option.borderColor,
+                              background: withAlpha(group.accent, 0.25),
+                              color: "#f8fafc",
+                              borderColor: withAlpha(group.accent, 0.55),
                             }}
                           >
-                            {option.abbreviation}
+                            {group.title}
                           </span>
-                          <span className="text-xs text-white/60">{option.label}</span>
+                          <span className="text-xs text-white/60">
+                            {group.roles.reduce((acc, entry) => acc + entry.members.length, 0)} funkcjonariuszy
+                          </span>
                         </div>
-                        {deptMembers.length ? (
-                          <ul className="mt-3 space-y-1 text-[13px] text-white/80">
-                            {deptMembers.map((member) => (
-                              <li key={`${option.value}-${member.uid}`} className="flex flex-wrap items-center gap-2">
-                                <span className="font-medium">{formatPersonLabel(member.fullName, member.login)}</span>
-                                {member.badgeNumber && (
-                                  <span className="text-[11px] font-mono text-white/50">#{member.badgeNumber}</span>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className="mt-3 text-xs text-white/40">Brak przypisanych osób.</div>
-                        )}
-                      </div>
-                    ))}
-                    {unassignedDepartments.length > 0 && (
-                      <div className="rounded-2xl border border-dashed border-white/25 bg-white/5 p-3">
-                        <div className="text-xs font-semibold uppercase text-white/60">Nieprzypisani</div>
-                        <ul className="mt-2 space-y-1 text-[13px] text-white/70">
-                          {unassignedDepartments.map((member) => (
-                            <li key={`unassigned-${member.uid}`}>{formatPersonLabel(member.fullName, member.login)}</li>
+
+                        <div className="mt-4 space-y-4">
+                          {group.roles.map((entry) => (
+                            <div key={entry.role} className="relative border-l border-white/10 pl-4">
+                              <div className="text-sm font-semibold uppercase tracking-wide text-white/70">
+                                {ROLE_LABELS[entry.role] || entry.role}
+                              </div>
+                              {entry.members.length ? (
+                                <div className="mt-2 grid gap-2 md:grid-cols-2">
+                                  {entry.members.map((member) => (
+                                    <MemberBadge
+                                      key={member.uid}
+                                      member={member}
+                                      highlight={normalizedLogin ? normalizedLogin === member.login.toLowerCase() : false}
+                                    />
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="mt-2 text-xs text-white/40">Brak przypisanych funkcjonariuszy.</div>
+                              )}
+                            </div>
                           ))}
-                        </ul>
+                        </div>
+                      </section>
+                    ))}
+
+                    {loading && members.length === 0 && (
+                      <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
+                        Ładowanie struktury dowodzenia…
                       </div>
                     )}
                   </div>
-                </section>
 
-                <section className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                  <h2 className="text-lg font-semibold text-white">Jednostki specjalistyczne</h2>
-                  <p className="text-xs text-white/60">
-                    Przypisania do jednostek wewnętrznych wraz z dodatkowymi stopniami funkcyjnymi.
-                  </p>
-                  <div className="mt-4 space-y-3">
-                    {unitAssignments.map(({ option, members: unitMembers }) => (
-                      <div key={option.value} className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={CHIP_CLASS}
-                            style={{
-                              background: option.background,
-                              color: option.color,
-                              borderColor: option.borderColor,
-                            }}
-                          >
-                            {option.abbreviation}
-                          </span>
-                          <span className="text-xs text-white/60">{option.label}</span>
-                        </div>
-                        {unitMembers.length ? (
-                          <ul className="mt-3 space-y-1 text-[13px] text-white/80">
-                            {unitMembers.map((member) => {
-                              const rankOptions = member.additionalRanks
-                                .map((rank) => getAdditionalRankOption(rank))
-                                .filter(
-                                  (rankOption): rankOption is NonNullable<ReturnType<typeof getAdditionalRankOption>> =>
-                                    !!rankOption && rankOption.unit === option.value
-                                );
-                              return (
-                                <li key={`${option.value}-${member.uid}`} className="flex flex-wrap items-center gap-2">
-                                  <span className="font-medium">
-                                    {formatPersonLabel(member.fullName, member.login)}
-                                  </span>
-                                  {rankOptions.map((rankOption) => (
-                                    <span
-                                      key={`unit-rank-${member.uid}-${rankOption.value}`}
-                                      className={`${CHIP_CLASS} text-[9px]`}
-                                      style={{
-                                        background: rankOption.background,
-                                        color: rankOption.color,
-                                        borderColor: rankOption.borderColor,
-                                      }}
-                                    >
-                                      {rankOption.label}
-                                    </span>
-                                  ))}
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : (
-                          <div className="mt-3 text-xs text-white/40">Brak przypisanych osób.</div>
+                  <div className="space-y-4">
+                    <section className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                      <div className="flex items-center justify-between gap-2">
+                        <h2 className="text-lg font-semibold text-white">Departamenty</h2>
+                        <span className="text-xs text-white/50">{members.length} osób</span>
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        {departmentAssignments.map(({ option, members: deptMembers }) => (
+                          <div key={option.value} className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={CHIP_CLASS}
+                                style={{
+                                  background: option.background,
+                                  color: option.color,
+                                  borderColor: option.borderColor,
+                                }}
+                              >
+                                {option.abbreviation}
+                              </span>
+                              <span className="text-xs text-white/60">{option.label}</span>
+                            </div>
+                            {deptMembers.length ? (
+                              <ul className="mt-3 space-y-1 text-[13px] text-white/80">
+                                {deptMembers.map((member) => (
+                                  <li key={`${option.value}-${member.uid}`} className="flex flex-wrap items-center gap-2">
+                                    <span className="font-medium">{formatPersonLabel(member.fullName, member.login)}</span>
+                                    {member.badgeNumber && (
+                                      <span className="text-[11px] font-mono text-white/50">#{member.badgeNumber}</span>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <div className="mt-3 text-xs text-white/40">Brak przypisanych osób.</div>
+                            )}
+                          </div>
+                        ))}
+                        {unassignedDepartments.length > 0 && (
+                          <div className="rounded-2xl border border-dashed border-white/25 bg-white/5 p-3">
+                            <div className="text-xs font-semibold uppercase text-white/60">Nieprzypisani</div>
+                            <ul className="mt-2 space-y-1 text-[13px] text-white/70">
+                              {unassignedDepartments.map((member) => (
+                                <li key={`unassigned-${member.uid}`}>{formatPersonLabel(member.fullName, member.login)}</li>
+                              ))}
+                            </ul>
+                          </div>
                         )}
                       </div>
-                    ))}
+                    </section>
+
+                    <section className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                      <h2 className="text-lg font-semibold text-white">Jednostki specjalistyczne</h2>
+                      <p className="text-xs text-white/60">
+                        Przypisania do jednostek wewnętrznych wraz z dodatkowymi stopniami funkcyjnymi.
+                      </p>
+                      <div className="mt-4 space-y-3">
+                        {unitAssignments.map(({ option, members: unitMembers }) => (
+                          <div key={option.value} className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={CHIP_CLASS}
+                                style={{
+                                  background: option.background,
+                                  color: option.color,
+                                  borderColor: option.borderColor,
+                                }}
+                              >
+                                {option.abbreviation}
+                              </span>
+                              <span className="text-xs text-white/60">{option.label}</span>
+                            </div>
+                            {unitMembers.length ? (
+                              <ul className="mt-3 space-y-1 text-[13px] text-white/80">
+                                {unitMembers.map((member) => {
+                                  const rankOptions = member.additionalRanks
+                                    .map((rank) => getAdditionalRankOption(rank))
+                                    .filter(
+                                      (rankOption): rankOption is NonNullable<ReturnType<typeof getAdditionalRankOption>> =>
+                                        !!rankOption && rankOption.unit === option.value
+                                    );
+                                  return (
+                                    <li key={`${option.value}-${member.uid}`} className="flex flex-wrap items-center gap-2">
+                                      <span className="font-medium">
+                                        {formatPersonLabel(member.fullName, member.login)}
+                                      </span>
+                                      {rankOptions.map((rankOption) => (
+                                        <span
+                                          key={`unit-rank-${member.uid}-${rankOption.value}`}
+                                          className={`${CHIP_CLASS} text-[9px]`}
+                                          style={{
+                                            background: rankOption.background,
+                                            color: rankOption.color,
+                                            borderColor: rankOption.borderColor,
+                                          }}
+                                        >
+                                          {rankOption.label}
+                                        </span>
+                                      ))}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            ) : (
+                              <div className="mt-3 text-xs text-white/40">Brak przypisanych osób.</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
                   </div>
-                </section>
+                </div>
               </div>
-            </div>
-          </div>
-        </main>
+            </section>
+          )}
+          right={<AccountPanel />}
+        />
       </>
     </AuthGate>
   );

@@ -17,10 +17,12 @@ import {
 import { auth, db } from "@/lib/firebase";
 import { useProfile } from "@/hooks/useProfile";
 import { useLogWriter } from "@/hooks/useLogWriter";
-import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { hasOfficerAccess } from "@/lib/roles";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { UnitsPanel } from "@/components/UnitsPanel";
+import { AccountPanel } from "@/components/AccountPanel";
 
 export default function Dossiers() {
   const [list, setList] = useState<any[]>([]);
@@ -174,132 +176,133 @@ export default function Dossiers() {
     <AuthGate>
       <>
         <Head><title>LSPD 77RP — Teczki</title></Head>
-        <Nav />
-        <main className="layout-shell">
-          <div className="layout-grid" data-layout="with-aside">
-            <div className="grid gap-6">
-            <div className="card p-6 space-y-4" data-section="dossiers">
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div className="space-y-2">
-                  <span className="section-chip">
-                    <span className="section-chip__dot" style={{ background: "#a855f7" }} />
-                    Teczki
-                  </span>
-                  <div>
-                    <h1 className="text-3xl font-semibold tracking-tight">Archiwum teczek osobowych</h1>
-                    <p className="text-sm text-beige-100/75">
-                      Wyszukaj osobę po danych identyfikacyjnych i przejdź do jej szczegółowej dokumentacji.
-                    </p>
+        <Nav showSidebars={false} />
+        <DashboardLayout
+          left={<UnitsPanel />}
+          center={(
+            <section className="grid gap-6" data-section="dossiers">
+              <div className="card p-6 space-y-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-2">
+                    <span className="section-chip">
+                      <span className="section-chip__dot" style={{ background: "#a855f7" }} />
+                      Teczki
+                    </span>
+                    <div>
+                      <h1 className="text-3xl font-semibold tracking-tight">Archiwum teczek osobowych</h1>
+                      <p className="text-sm text-beige-100/75">
+                        Wyszukaj osobę po danych identyfikacyjnych i przejdź do jej szczegółowej dokumentacji.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="w-full md:w-80">
+                    <input
+                      className="input"
+                      placeholder="Szukaj po imieniu, nazwisku lub numerze CID..."
+                      value={qtxt}
+                      onChange={(e) => setQ(e.target.value)}
+                    />
                   </div>
                 </div>
-                <div className="w-full md:w-80">
-                  <input
-                    className="input"
-                    placeholder="Szukaj po imieniu, nazwisku lub numerze CID..."
-                    value={qtxt}
-                    onChange={(e) => setQ(e.target.value)}
-                  />
-                </div>
-              </div>
-              {err && <div className="card p-3 bg-red-50 text-red-700 mb-3">{err}</div>}
-              {ok && <div className="card p-3 bg-green-50 text-green-700 mb-3">{ok}</div>}
-              <div className="grid gap-3">
-                <h2 className="text-xs uppercase tracking-[0.3em] text-beige-100/60">Teczki osób</h2>
-                {filtered.map((d, index) => {
-                  const accent = accentPalette[index % accentPalette.length];
-                  return (
-                    <div
-                      key={d.id}
-                      className="card p-4 transition hover:-translate-y-0.5"
-                      data-section="dossiers"
-                      style={{
-                        borderColor: `${accent}90`,
-                        boxShadow: `0 26px 60px -28px ${accent}aa`,
-                      }}
-                    >
-                      <a
-                        className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
-                        href={`/dossiers/${d.id}`}
-                        onClick={() => {
-                          if (!session) return;
-                          void logActivity({
-                            type: "dossier_link_open",
-                            dossierId: d.id,
-                            dossierTitle: d.title,
-                            dossierCid: d.cid,
-                          });
+                {err && <div className="card p-3 bg-red-50 text-red-700 mb-3">{err}</div>}
+                {ok && <div className="card p-3 bg-green-50 text-green-700 mb-3">{ok}</div>}
+                <div className="grid gap-3">
+                  <h2 className="text-xs uppercase tracking-[0.3em] text-beige-100/60">Teczki osób</h2>
+                  {filtered.map((d, index) => {
+                    const accent = accentPalette[index % accentPalette.length];
+                    return (
+                      <div
+                        key={d.id}
+                        className="card p-4 transition hover:-translate-y-0.5"
+                        data-section="dossiers"
+                        style={{
+                          borderColor: `${accent}90`,
+                          boxShadow: `0 26px 60px -28px ${accent}aa`,
                         }}
                       >
-                        <div>
-                          <div className="font-semibold text-lg flex items-center gap-2">
-                            <span className="text-base" aria-hidden>📁</span>
-                            {d.title}
+                        <a
+                          className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
+                          href={`/dossiers/${d.id}`}
+                          onClick={() => {
+                            if (!session) return;
+                            void logActivity({
+                              type: "dossier_link_open",
+                              dossierId: d.id,
+                              dossierTitle: d.title,
+                              dossierCid: d.cid,
+                            });
+                          }}
+                        >
+                          <div>
+                            <div className="font-semibold text-lg flex items-center gap-2">
+                              <span className="text-base" aria-hidden>📁</span>
+                              {d.title}
+                            </div>
+                            <div className="text-sm text-beige-100/75">CID: {d.cid}</div>
                           </div>
-                          <div className="text-sm text-beige-100/75">CID: {d.cid}</div>
-                        </div>
-                        {canManageDossiers && (
-                          <button
-                            className="btn bg-red-700 text-white w-full md:w-auto"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              remove(d.id);
-                            }}
-                            disabled={deletingId === d.id}
-                          >
-                            {deletingId === d.id ? "Usuwanie..." : "Usuń"}
-                          </button>
-                        )}
-                      </a>
+                          {canManageDossiers && (
+                            <button
+                              className="btn bg-red-700 text-white w-full md:w-auto"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                remove(d.id);
+                              }}
+                              disabled={deletingId === d.id}
+                            >
+                              {deletingId === d.id ? "Usuwanie..." : "Usuń"}
+                            </button>
+                          )}
+                        </a>
+                      </div>
+                    );
+                  })}
+                  {filtered.length === 0 && (
+                    <div className="card p-4 text-sm text-beige-100/70" data-section="dossiers">
+                      Nie znaleziono teczki spełniającej kryteria wyszukiwania.
                     </div>
-                  );
-                })}
-                {filtered.length === 0 && (
-                  <div className="card p-4 text-sm text-beige-100/70" data-section="dossiers">
-                    Nie znaleziono teczki spełniającej kryteria wyszukiwania.
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
 
-            <div className="card p-6 space-y-4" data-section="dossiers">
-              <div>
-                <h2 className="text-xl font-semibold flex items-center gap-2">
-                  <span className="text-2xl" aria-hidden>✨</span>
-                  Załóż nową teczkę
-                </h2>
-                <p className="text-sm text-beige-100/70">
-                  Wypełnij podstawowe dane identyfikacyjne, aby rozpocząć dokumentację osoby.
-                </p>
+              <div className="card p-6 space-y-4">
+                <div>
+                  <h2 className="text-xl font-semibold flex items-center gap-2">
+                    <span className="text-2xl" aria-hidden>✨</span>
+                    Załóż nową teczkę
+                  </h2>
+                  <p className="text-sm text-beige-100/70">
+                    Wypełnij podstawowe dane identyfikacyjne, aby rozpocząć dokumentację osoby.
+                  </p>
+                </div>
+                <div className="grid md:grid-cols-3 gap-2">
+                  <input
+                    className="input"
+                    placeholder="Imię"
+                    value={form.first}
+                    onChange={(e) => setForm({ ...form, first: e.target.value })}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Nazwisko"
+                    value={form.last}
+                    onChange={(e) => setForm({ ...form, last: e.target.value })}
+                  />
+                  <input
+                    className="input"
+                    placeholder="CID"
+                    value={form.cid}
+                    onChange={(e) => setForm({ ...form, cid: e.target.value })}
+                  />
+                </div>
+                <button className="btn w-full md:w-auto" onClick={create} disabled={creating}>
+                  {creating ? "Tworzenie..." : "Utwórz teczkę"}
+                </button>
               </div>
-              <div className="grid md:grid-cols-3 gap-2">
-                <input
-                  className="input"
-                  placeholder="Imię"
-                  value={form.first}
-                  onChange={(e) => setForm({ ...form, first: e.target.value })}
-                />
-                <input
-                  className="input"
-                  placeholder="Nazwisko"
-                  value={form.last}
-                  onChange={(e) => setForm({ ...form, last: e.target.value })}
-                />
-                <input
-                  className="input"
-                  placeholder="CID"
-                  value={form.cid}
-                  onChange={(e) => setForm({ ...form, cid: e.target.value })}
-                />
-              </div>
-              <button className="btn w-full md:w-auto" onClick={create} disabled={creating}>
-                {creating ? "Tworzenie..." : "Utwórz teczkę"}
-              </button>
-            </div>
-            </div>
-            <AnnouncementSpotlight />
-          </div>
-        </main>
+            </section>
+          )}
+          right={<AccountPanel />}
+        />
       </>
     </AuthGate>
   );
