@@ -37,32 +37,36 @@
 
 html,
 body,
+#__next,
+.app-scale-wrapper {
+  min-height: 100vh;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+html,
+body,
 #__next {
   height: 100%;
-  width: 100%;
 }
 
 html,
 body {
-  margin: 0;
-  padding: 0;
-  width: 100%;
   overflow-x: hidden;
 }
 
 body {
-  min-height: 100vh;
-  background: var(--bg);
   color: var(--ink);
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   position: relative;
-  overflow-x: hidden;
   transform: none !important;
 }
 
 .app-scale-wrapper {
-  width: 100%;
-  min-height: 100vh;
   display: flex;
   justify-content: center;
 }
@@ -72,6 +76,7 @@ body {
   min-height: calc(100vh / var(--app-scale));
   transform: scale(var(--app-scale));
   transform-origin: top center;
+  background: transparent;
 }
 
 body.is-login .app-scale-wrapper,
