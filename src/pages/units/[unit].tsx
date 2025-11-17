@@ -10,6 +10,9 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { UnitsPanel } from "@/components/UnitsPanel";
+import { AccountPanel } from "@/components/AccountPanel";
 import { useProfile } from "@/hooks/useProfile";
 import { useDialog } from "@/components/DialogProvider";
 import { auth, db } from "@/lib/firebase";
@@ -834,205 +837,208 @@ export default function UnitPanelPage() {
         <Head>
           <title>Panel jednostki — {section?.label || "Jednostka"}</title>
         </Head>
-        <Nav />
-        <main className="layout-shell layout-shell--wide">
-          <div className="flex flex-col gap-6">
-            <div className="card space-y-5 p-6" data-section="unit-overview">
-              <span className="section-chip">
-                <span
-                  className="section-chip__dot"
-                  style={{ background: section ? section.navColor : "#38bdf8" }}
-                  aria-hidden
-                />
-                Panel jednostki
-              </span>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="space-y-2">
-                  <h1 className="text-3xl font-bold tracking-tight">
-                    {section ? section.label : "Nieznana jednostka"}
-                  </h1>
-                  <p className="text-sm text-white/70">
-                    {section
-                      ? `Zarządzaj strukturą i monitoruj informacje dotyczące ${section.shortLabel || section.label}.`
-                      : "Nie znaleziono konfiguracji dla podanej jednostki."}
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-3" role="tablist" aria-label="Zakładki jednostki">
-                {availableTabs.map((tab) => {
-                  const active = tab.id === activeTab;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
-                        active
-                          ? "border-white/70 bg-white/20 text-white"
-                          : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  );
-                })}
-              </div>
-              {!section && (
-                <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                  Nie znaleziono konfiguracji dla podanej jednostki.
-                </div>
-              )}
-            </div>
-
-            {activeTab === "overview" && (
-              <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
-                <section className="card space-y-4 p-6">
-                  <h2 className="text-xl font-semibold text-white">Panel informacji</h2>
-                  <p className="text-sm text-white/70">
-                    Miejsce na kluczowe ogłoszenia, procedury i materiały jednostki. Dodaj treści w przyszłości.
-                  </p>
-                  {canManage && <p className="text-xs text-white/50">{accessMessage}</p>}
-                </section>
-
-                <aside className="card space-y-4 p-6">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-lg font-semibold text-white">Skład jednostki</h3>
-                      <p className="text-xs text-white/60">Aktualna lista funkcjonariuszy przypisanych do jednostki.</p>
+        <Nav showSidebars={false} />
+        <DashboardLayout
+          left={<UnitsPanel />}
+          center={(
+            <>
+              <div className="flex flex-col gap-6">
+                <div className="card space-y-5 p-6" data-section="unit-overview">
+                  <span className="section-chip">
+                    <span
+                      className="section-chip__dot"
+                      style={{ background: section ? section.navColor : "#38bdf8" }}
+                      aria-hidden
+                    />
+                    Panel jednostki
+                  </span>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="space-y-2">
+                      <h1 className="text-3xl font-bold tracking-tight">
+                        {section ? section.label : "Nieznana jednostka"}
+                      </h1>
+                      <p className="text-sm text-white/70">
+                        {section
+                          ? `Zarządzaj strukturą i monitoruj informacje dotyczące ${section.shortLabel || section.label}.`
+                          : "Nie znaleziono konfiguracji dla podanej jednostki."}
+                      </p>
                     </div>
-                    <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
-                      {unitMembers.length}
-                    </span>
                   </div>
-                  {error && (
-                    <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-                      {error}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 text-xs">
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--small"
-                      onClick={loadMembers}
-                      disabled={loading || !canManage}
-                    >
-                      Odśwież
-                    </button>
-                    {loading && <span className="text-white/60">Ładowanie danych...</span>}
+                  <div className="flex flex-wrap gap-3" role="tablist" aria-label="Zakładki jednostki">
+                    {availableTabs.map((tab) => {
+                      const active = tab.id === activeTab;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          onClick={() => setActiveTab(tab.id)}
+                          className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                            active
+                              ? "border-white/70 bg-white/20 text-white"
+                              : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })}
                   </div>
-                  {!loading && !canManage && !error && (
-                    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
-                      Brak uprawnień do podglądu składu jednostki.
+                  {!section && (
+                    <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                      Nie znaleziono konfiguracji dla podanej jednostki.
                     </div>
                   )}
-                  {!loading && canManage && unitMembers.length === 0 && !error && (
-                    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
-                      Brak funkcjonariuszy spełniających kryteria.
-                    </div>
-                  )}
-                  {canManage && unitMembers.length > 0 && (
-                    <ul className="max-h-64 space-y-2 overflow-y-auto pr-1 text-sm text-white/80">
-                      {unitMembers.map((member) => (
-                        <li key={member.uid} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="font-semibold text-white">{member.fullName}</span>
-                            {member.badgeNumber && (
-                              <span className="text-xs font-mono text-white/50">#{member.badgeNumber}</span>
-                            )}
-                          </div>
-                          <div className="text-xs text-white/60">
-                            {member.login} • {ROLE_LABELS[member.role] || member.role}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </aside>
-              </div>
-            )}
-
-            {activeTab === "management" && (
-              <div className="card space-y-5 p-6" data-section="unit-management">
-                <span className="section-chip">
-                  <span
-                    className="section-chip__dot"
-                    style={{ background: section ? section.navColor : "#38bdf8" }}
-                    aria-hidden
-                  />
-                  Zarządzanie jednostką
-                </span>
-                <div className="space-y-2">
-                  <h2 className="text-2xl font-semibold tracking-tight text-white">Panel zarządzania członkami</h2>
-                  <p className="text-sm text-white/70">{accessMessage}</p>
                 </div>
 
-                {!canManage && ready && (
-                  <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                    Brak uprawnień do zarządzania tą jednostką.
-                  </div>
-                )}
+                {activeTab === "overview" && (
+                  <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
+                    <section className="card space-y-4 p-6">
+                      <h2 className="text-xl font-semibold text-white">Panel informacji</h2>
+                      <p className="text-sm text-white/70">
+                        Miejsce na kluczowe ogłoszenia, procedury i materiały jednostki. Dodaj treści w przyszłości.
+                      </p>
+                      {canManage && <p className="text-xs text-white/50">{accessMessage}</p>}
+                    </section>
 
-                {canManage && (
-                  <>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <input
-                        className="input flex-1 min-w-[200px]"
-                        placeholder="Wyszukaj funkcjonariusza..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                      />
-                      {canAddMembers && (
+                    <aside className="card space-y-4 p-6">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-lg font-semibold text-white">Skład jednostki</h3>
+                          <p className="text-xs text-white/60">Aktualna lista funkcjonariuszy przypisanych do jednostki.</p>
+                        </div>
+                        <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
+                          {unitMembers.length}
+                        </span>
+                      </div>
+                      {error && (
+                        <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                          {error}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 text-xs">
                         <button
                           type="button"
                           className="btn btn--ghost btn--small"
-                          onClick={handleOpenAddMember}
-                          disabled={loading}
+                          onClick={loadMembers}
+                          disabled={loading || !canManage}
                         >
-                          Dodaj do jednostki
+                          Odśwież
                         </button>
+                        {loading && <span className="text-white/60">Ładowanie danych...</span>}
+                      </div>
+                      {!loading && !canManage && !error && (
+                        <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+                          Brak uprawnień do podglądu składu jednostki.
+                        </div>
                       )}
-                      <button className="btn btn--ghost btn--small" onClick={loadMembers} disabled={loading}>
-                        Odśwież
-                      </button>
+                      {!loading && canManage && unitMembers.length === 0 && !error && (
+                        <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+                          Brak funkcjonariuszy spełniających kryteria.
+                        </div>
+                      )}
+                      {canManage && unitMembers.length > 0 && (
+                        <ul className="max-h-64 space-y-2 overflow-y-auto pr-1 text-sm text-white/80">
+                          {unitMembers.map((member) => (
+                            <li key={member.uid} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="font-semibold text-white">{member.fullName}</span>
+                                {member.badgeNumber && (
+                                  <span className="text-xs font-mono text-white/50">#{member.badgeNumber}</span>
+                                )}
+                              </div>
+                              <div className="text-xs text-white/60">
+                                {member.login} • {ROLE_LABELS[member.role] || member.role}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </aside>
+                  </div>
+                )}
+
+                {activeTab === "management" && (
+                  <div className="card space-y-5 p-6" data-section="unit-management">
+                    <span className="section-chip">
+                      <span
+                        className="section-chip__dot"
+                        style={{ background: section ? section.navColor : "#38bdf8" }}
+                        aria-hidden
+                      />
+                      Zarządzanie jednostką
+                    </span>
+                    <div className="space-y-2">
+                      <h2 className="text-2xl font-semibold tracking-tight text-white">Panel zarządzania członkami</h2>
+                      <p className="text-sm text-white/70">{accessMessage}</p>
                     </div>
 
-                    {error && <div className="text-sm text-red-300">{error}</div>}
-                    {actionError && <div className="text-sm text-red-300">{actionError}</div>}
-
-                    {loading ? (
-                      <div className="text-sm text-white/60">Ładowanie danych...</div>
-                    ) : filteredMembers.length === 0 ? (
-                      <div className="text-sm text-white/60">Brak funkcjonariuszy spełniających kryteria.</div>
-                    ) : (
-                      <div className="space-y-4">
-                        {filteredMembers.map((member) => (
-                          <MemberRow
-                            key={member.uid}
-                            member={member}
-                            unit={unit!}
-                            manageableRanks={manageableRanks}
-                            membershipRank={section?.membershipRank ?? null}
-                            onSubmit={handleSubmit}
-                            saving={mutating === member.uid}
-                          />
-                        ))}
+                    {!canManage && ready && (
+                      <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                        Brak uprawnień do zarządzania tą jednostką.
                       </div>
                     )}
-                  </>
-                )}
-              </div>
-            )}
 
-            {activeTab === "groups" && supportsCriminalGroups && canManage && (
-              <div className="grid gap-6">
-                <div className="card bg-gradient-to-br from-fuchsia-900/85 via-indigo-900/80 to-slate-900/85 p-6 text-white shadow-xl">
-                  <h2 className="text-xl font-semibold">Gang Unit — rejestr organizacji</h2>
-                  <p className="text-sm text-white/70">
-                    Zarządzaj profilem grup przestępczych obserwowanych przez GU. Dodawaj nowe wpisy i aktualizuj informacje operacyjne.
-                  </p>
-                </div>
+                    {canManage && (
+                      <>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <input
+                            className="input flex-1 min-w-[200px]"
+                            placeholder="Wyszukaj funkcjonariusza..."
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                          />
+                          {canAddMembers && (
+                            <button
+                              type="button"
+                              className="btn btn--ghost btn--small"
+                              onClick={handleOpenAddMember}
+                              disabled={loading}
+                            >
+                              Dodaj do jednostki
+                            </button>
+                          )}
+                          <button className="btn btn--ghost btn--small" onClick={loadMembers} disabled={loading}>
+                            Odśwież
+                          </button>
+                        </div>
+
+                        {error && <div className="text-sm text-red-300">{error}</div>}
+                        {actionError && <div className="text-sm text-red-300">{actionError}</div>}
+
+                        {loading ? (
+                          <div className="text-sm text-white/60">Ładowanie danych...</div>
+                        ) : filteredMembers.length === 0 ? (
+                          <div className="text-sm text-white/60">Brak funkcjonariuszy spełniających kryteria.</div>
+                        ) : (
+                          <div className="space-y-4">
+                            {filteredMembers.map((member) => (
+                              <MemberRow
+                                key={member.uid}
+                                member={member}
+                                unit={unit!}
+                                manageableRanks={manageableRanks}
+                                membershipRank={section?.membershipRank ?? null}
+                                onSubmit={handleSubmit}
+                                saving={mutating === member.uid}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === "groups" && supportsCriminalGroups && canManage && (
+                  <div className="grid gap-6">
+                    <div className="card bg-gradient-to-br from-fuchsia-900/85 via-indigo-900/80 to-slate-900/85 p-6 text-white shadow-xl">
+                      <h2 className="text-xl font-semibold">Gang Unit — rejestr organizacji</h2>
+                      <p className="text-sm text-white/70">
+                        Zarządzaj profilem grup przestępczych obserwowanych przez GU. Dodawaj nowe wpisy i aktualizuj informacje operacyjne.
+                      </p>
+                    </div>
 
                 <form className="card bg-white/95 p-6 shadow" onSubmit={handleGroupSubmit}>
                   <div className="grid gap-4 md:grid-cols-2">
@@ -1213,124 +1219,127 @@ export default function UnitPanelPage() {
               </div>
             )}
           </div>
-        </main>
-        {addMemberOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-            <div className="w-full max-w-2xl space-y-5 rounded-3xl border border-white/10 bg-[var(--card)]/95 p-6 shadow-[0_28px_60px_-20px_rgba(59,130,246,0.6)]">
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <h3 className="text-xl font-semibold text-white">Dodaj funkcjonariusza do jednostki</h3>
-                  <p className="text-sm text-white/70">
-                    Wybierz funkcjonariusza z listy i przypisz mu odpowiednie rangi jednostki.
-                  </p>
+          {addMemberOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+              <div className="w-full max-w-2xl space-y-5 rounded-3xl border border-white/10 bg-[var(--card)]/95 p-6 shadow-[0_28px_60px_-20px_rgba(59,130,246,0.6)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <h3 className="text-xl font-semibold text-white">Dodaj funkcjonariusza do jednostki</h3>
+                    <p className="text-sm text-white/70">
+                      Wybierz funkcjonariusza z listy i przypisz mu odpowiednie rangi jednostki.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-full border border-white/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white/70 transition hover:bg-white/10"
+                    onClick={handleCloseAddMember}
+                    disabled={addingMember}
+                  >
+                    Zamknij
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="rounded-full border border-white/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white/70 transition hover:bg-white/10"
-                  onClick={handleCloseAddMember}
-                  disabled={addingMember}
-                >
-                  Zamknij
-                </button>
-              </div>
 
-              <form className="space-y-4" onSubmit={handleAddMemberSubmit}>
-                <div className="space-y-3">
-                  <label className="grid gap-2 text-sm text-white/80">
-                    <span className="font-semibold text-white">Wybierz funkcjonariusza</span>
-                    <input
-                      className="input"
-                      placeholder="Szukaj po imieniu, loginie lub numerze odznaki"
-                      value={candidateSearch}
-                      onChange={(e) => setCandidateSearch(e.target.value)}
-                    />
-                  </label>
-                  <div className="max-h-52 overflow-y-auto rounded-2xl border border-white/10 bg-white/5">
-                    {filteredCandidates.length === 0 ? (
-                      <div className="px-4 py-3 text-sm text-white/60">
-                        Brak funkcjonariuszy spełniających kryteria.
+                <form className="space-y-4" onSubmit={handleAddMemberSubmit}>
+                  <div className="space-y-3">
+                    <label className="grid gap-2 text-sm text-white/80">
+                      <span className="font-semibold text-white">Wybierz funkcjonariusza</span>
+                      <input
+                        className="input"
+                        placeholder="Szukaj po imieniu, loginie lub numerze odznaki"
+                        value={candidateSearch}
+                        onChange={(e) => setCandidateSearch(e.target.value)}
+                      />
+                    </label>
+                    <div className="max-h-52 overflow-y-auto rounded-2xl border border-white/10 bg-white/5">
+                      {filteredCandidates.length === 0 ? (
+                        <div className="px-4 py-3 text-sm text-white/60">
+                          Brak funkcjonariuszy spełniających kryteria.
+                        </div>
+                      ) : (
+                        <div className="flex flex-col">
+                          {filteredCandidates.map((candidate) => (
+                            <label
+                              key={candidate.uid}
+                              className={`flex cursor-pointer items-center gap-3 border-b border-white/5 px-4 py-3 text-sm last:border-b-0 ${
+                                selectedCandidate === candidate.uid ? "bg-white/10" : "hover:bg-white/5"
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                className="accent-blue-400"
+                                name="candidate"
+                                value={candidate.uid}
+                                checked={selectedCandidate === candidate.uid}
+                                onChange={() => setSelectedCandidate(candidate.uid)}
+                              />
+                              <div className="flex flex-col">
+                                <span className="font-semibold text-white">{candidate.fullName}</span>
+                                <span className="text-xs text-white/60">
+                                  {candidate.login}
+                                  {candidate.badgeNumber ? ` • #${candidate.badgeNumber}` : ""}
+                                </span>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <span className="text-sm font-semibold text-white">Rangi jednostki</span>
+                    {manageableRankOptions.length === 0 ? (
+                      <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+                        Brak rang do przypisania — skontaktuj się z przełożonym.
                       </div>
                     ) : (
-                      <div className="flex flex-col">
-                        {filteredCandidates.map((candidate) => (
+                      <div className="flex flex-wrap gap-3 text-sm text-white/80">
+                        {manageableRankOptions.map((option) => (
                           <label
-                            key={candidate.uid}
-                            className={`flex cursor-pointer items-center gap-3 border-b border-white/5 px-4 py-3 text-sm last:border-b-0 ${
-                              selectedCandidate === candidate.uid ? "bg-white/10" : "hover:bg-white/5"
-                            }`}
+                            key={option.value}
+                            className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1"
                           >
                             <input
-                              type="radio"
+                              type="checkbox"
                               className="accent-blue-400"
-                              name="candidate"
-                              value={candidate.uid}
-                              checked={selectedCandidate === candidate.uid}
-                              onChange={() => setSelectedCandidate(candidate.uid)}
+                              checked={candidateRanks.includes(option.value)}
+                              onChange={() => toggleCandidateRank(option.value)}
                             />
-                            <div className="flex flex-col">
-                              <span className="font-semibold text-white">{candidate.fullName}</span>
-                              <span className="text-xs text-white/60">
-                                {candidate.login}
-                                {candidate.badgeNumber ? ` • #${candidate.badgeNumber}` : ""}
-                              </span>
-                            </div>
+                            {option.label}
                           </label>
                         ))}
                       </div>
                     )}
                   </div>
-                </div>
 
-                <div className="space-y-2">
-                  <span className="text-sm font-semibold text-white">Rangi jednostki</span>
-                  {manageableRankOptions.length === 0 ? (
-                    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
-                      Brak rang do przypisania — skontaktuj się z przełożonym.
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap gap-3 text-sm text-white/80">
-                      {manageableRankOptions.map((option) => (
-                        <label
-                          key={option.value}
-                          className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1"
-                        >
-                          <input
-                            type="checkbox"
-                            className="accent-blue-400"
-                            checked={candidateRanks.includes(option.value)}
-                            onChange={() => toggleCandidateRank(option.value)}
-                          />
-                          {option.label}
-                        </label>
-                      ))}
+                  {addMemberError && (
+                    <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+                      {addMemberError}
                     </div>
                   )}
-                </div>
 
-                {addMemberError && (
-                  <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
-                    {addMemberError}
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--small"
+                      onClick={handleCloseAddMember}
+                      disabled={addingMember}
+                    >
+                      Anuluj
+                    </button>
+                    <button type="submit" className="btn btn--small" disabled={candidateSubmitDisabled}>
+                      {addingMember ? "Dodawanie..." : "Dodaj funkcjonariusza"}
+                    </button>
                   </div>
-                )}
-
-                <div className="flex items-center justify-end gap-3">
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--small"
-                    onClick={handleCloseAddMember}
-                    disabled={addingMember}
-                  >
-                    Anuluj
-                  </button>
-                  <button type="submit" className="btn btn--small" disabled={candidateSubmitDisabled}>
-                    {addingMember ? "Dodawanie..." : "Dodaj funkcjonariusza"}
-                  </button>
-                </div>
-              </form>
+                </form>
+              </div>
             </div>
-          </div>
-        )}
-      </>
+          )}
+        </>
+      )}
+      right={<AccountPanel />}
+    />
+  </>
     </AuthGate>
   );
 }

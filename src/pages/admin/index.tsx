@@ -55,6 +55,9 @@ import {
   normalizeInternalUnits,
   normalizeAdditionalRanks,
 } from "@/lib/hr";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { UnitsPanel } from "@/components/UnitsPanel";
+import { AccountPanel } from "@/components/AccountPanel";
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
@@ -1845,9 +1848,13 @@ export default function Admin() {
   if (!ready) {
     return (
       <AuthGate>
-         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
-        <Nav />
-        <div className="layout-shell"><div className="card p-6">Ładowanie…</div></div>
+        <Head><title>LSPD 77RP — Panel zarządu</title></Head>
+        <Nav showSidebars={false} />
+        <DashboardLayout
+          left={<UnitsPanel />}
+          center={<div className="card p-6">Ładowanie…</div>}
+          right={<AccountPanel />}
+        />
       </AuthGate>
     );
   }
@@ -1855,75 +1862,84 @@ export default function Admin() {
     return (
       <AuthGate>
         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
-        <Nav />
-        <div className="layout-shell layout-shell--narrow">
-          <div className="card p-6 text-center">
-            Brak dostępu. Panel zarządu jest dostępny dla rang <b>Staff Commander</b> i wyższych.
-          </div>
-        </div>
+        <Nav showSidebars={false} />
+        <DashboardLayout
+          left={<UnitsPanel />}
+          center={(
+            <div className="card p-6 text-center">
+              Brak dostępu. Panel zarządu jest dostępny dla rang <b>Staff Commander</b> i wyższych.
+            </div>
+          )}
+          right={<AccountPanel />}
+        />
       </AuthGate>
     );
   }
 
   return (
     <AuthGate>
-      <Head><title>LSPD 77RP — Panel zarządu</title></Head>
-      <Nav />
+      <>
+        <Head><title>LSPD 77RP — Panel zarządu</title></Head>
+        <Nav showSidebars={false} />
 
-      <div className="layout-shell layout-shell--wide">
-        {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
+        <DashboardLayout
+          left={<UnitsPanel />}
+          center={(
+            <>
+              <div className="flex flex-col gap-6">
+              {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
 
-        <div className="rounded-3xl border border-white/60 bg-white/70 px-6 py-6 shadow-sm backdrop-blur">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div className="space-y-2">
-              <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
-                Command Center
-              </span>
-              <h1 className="text-3xl font-semibold text-slate-900">Panel zarządu</h1>
-              <p className="max-w-2xl text-sm text-slate-600">
-                Kompleksowe narzędzia do pracy zarządu — zarządzaj finansami, personelem, zgłoszeniami oraz działaniami
-                wyspecjalizowanych jednostek w jednym miejscu.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="admin-panel-grid">
-          <aside className="admin-nav text-white/90">
-            <div className="space-y-1">
-              <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Moduły</span>
-              <h2 className="text-lg font-semibold text-white">Nawigacja</h2>
-            </div>
-            <div className="admin-nav__scroller">
-              <div className="admin-nav__list">
-                {ADMIN_SECTION_ORDER.map((value) => {
-                  const meta = ADMIN_SECTION_META[value];
-                  const active = section === value;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setSection(value)}
-                      aria-pressed={active}
-                      className={`admin-nav__button${active ? " admin-nav__button--active" : ""}`}
-                      style={{ ["--accent-color" as any]: meta.accent } as CSSProperties}
-                    >
-                      <span className="admin-nav__icon" aria-hidden>
-                        {meta.icon}
-                      </span>
-                      <span className="font-semibold tracking-tight">{meta.label}</span>
-                    </button>
-                  );
-                })}
+              <div className="rounded-3xl border border-white/60 bg-white/70 px-6 py-6 shadow-sm backdrop-blur">
+                <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                  <div className="space-y-2">
+                    <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                      Command Center
+                    </span>
+                    <h1 className="text-3xl font-semibold text-slate-900">Panel zarządu</h1>
+                    <p className="max-w-2xl text-sm text-slate-600">
+                      Kompleksowe narzędzia do pracy zarządu — zarządzaj finansami, personelem, zgłoszeniami oraz działaniami
+                      wyspecjalizowanych jednostek w jednym miejscu.
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="admin-nav__meta">
-              <div className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Domena logowania</div>
-              <div className="font-mono text-base text-white">@{loginDomain}</div>
-            </div>
-          </aside>
 
-          <div className="admin-content">
+              <div className="admin-panel-grid">
+                <aside className="admin-nav text-white/90">
+                  <div className="space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Moduły</span>
+                    <h2 className="text-lg font-semibold text-white">Nawigacja</h2>
+                  </div>
+                  <div className="admin-nav__scroller">
+                    <div className="admin-nav__list">
+                      {ADMIN_SECTION_ORDER.map((value) => {
+                        const meta = ADMIN_SECTION_META[value];
+                        const active = section === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setSection(value)}
+                            aria-pressed={active}
+                            className={`admin-nav__button${active ? " admin-nav__button--active" : ""}`}
+                            style={{ ["--accent-color" as any]: meta.accent } as CSSProperties}
+                          >
+                            <span className="admin-nav__icon" aria-hidden>
+                              {meta.icon}
+                            </span>
+                            <span className="font-semibold tracking-tight">{meta.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="admin-nav__meta">
+                    <div className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Domena logowania</div>
+                    <div className="font-mono text-base text-white">@{loginDomain}</div>
+                  </div>
+                </aside>
+
+                <div className="admin-content">
             {section === "overview" && (
               <div className="grid gap-6">
                 <div className="card p-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -2660,9 +2676,9 @@ export default function Admin() {
         </div>
       </div>
 
-      {editorState && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl border border-indigo-400 bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 p-6 text-white shadow-2xl">
+        {editorState && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl border border-indigo-400 bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 p-6 text-white shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-semibold">
@@ -2978,17 +2994,22 @@ export default function Admin() {
               >
                 Anuluj
               </button>
-              <button
-                className="btn bg-white text-indigo-900 font-semibold hover:bg-white/90"
-                onClick={saveAccount}
-                disabled={accountSaving}
-              >
-                {accountSaving ? "Zapisywanie..." : "Zapisz"}
-              </button>
+                <button
+                  className="btn bg-white text-indigo-900 font-semibold hover:bg-white/90"
+                  onClick={saveAccount}
+                  disabled={accountSaving}
+                >
+                  {accountSaving ? "Zapisywanie..." : "Zapisz"}
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+            </div>
+            )}
+          </>
+        )}
+      right={<AccountPanel />}
+    />
+    </>
     </AuthGate>
   );
 }

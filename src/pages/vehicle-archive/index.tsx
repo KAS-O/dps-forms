@@ -16,11 +16,13 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useLogWriter } from "@/hooks/useLogWriter";
-import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { getActiveVehicleFlags, getVehicleHighlightStyle } from "@/lib/vehicleFlags";
 import type { VehicleFlagsState } from "@/lib/vehicleFlags";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { UnitsPanel } from "@/components/UnitsPanel";
+import { AccountPanel } from "@/components/AccountPanel";
 
 interface VehicleFolder {
   id: string;
@@ -192,150 +194,151 @@ export default function VehicleArchivePage() {
     <AuthGate>
       <>
         <Head><title>LSPD 77RP — Archiwum pojazdów</title></Head>
-        <Nav />
-        <main className="layout-shell">
-          <div className="layout-grid" data-layout="with-aside" style={{ ["--layout-aside-width" as any]: "320px" }}>
-            <div className="grid gap-6">
-            <div className="card p-6 space-y-4" data-section="vehicle">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="space-y-2">
-                  <span className="section-chip">
-                    <span className="section-chip__dot" style={{ background: accentColor }} />
-                    Archiwum pojazdów
-                  </span>
-                  <div>
-                    <h1 className="text-3xl font-semibold tracking-tight">Rejestr pojazdów LSPD</h1>
-                    <p className="text-sm text-beige-100/75">
-                      Przeglądaj i aktualizuj teczki pojazdów zabezpieczonych podczas działań operacyjnych.
-                    </p>
+        <Nav showSidebars={false} />
+        <DashboardLayout
+          left={<UnitsPanel />}
+          center={(
+            <section className="grid gap-6" data-section="vehicle">
+              <div className="card p-6 space-y-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="space-y-2">
+                    <span className="section-chip">
+                      <span className="section-chip__dot" style={{ background: accentColor }} />
+                      Archiwum pojazdów
+                    </span>
+                    <div>
+                      <h1 className="text-3xl font-semibold tracking-tight">Rejestr pojazdów LSPD</h1>
+                      <p className="text-sm text-beige-100/75">
+                        Przeglądaj i aktualizuj teczki pojazdów zabezpieczonych podczas działań operacyjnych.
+                      </p>
+                    </div>
                   </div>
+                  <input
+                    className="input w-full md:w-72"
+                    placeholder="Szukaj po numerze, właścicielu, marce..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
                 </div>
-                <input
-                  className="input w-full md:w-72"
-                  placeholder="Szukaj po numerze, właścicielu, marce..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              {err && <div className="card bg-red-50 text-red-700 p-3 mb-3" data-section="vehicle">{err}</div>}
-              {ok && <div className="card bg-green-50 text-green-700 p-3 mb-3" data-section="vehicle">{ok}</div>}
-              <div className="grid gap-3">
-                {filtered.map((vehicle) => {
-                  const highlight = getVehicleHighlightStyle(vehicle.statuses);
-                  const activeFlags = highlight?.active || getActiveVehicleFlags(vehicle.statuses);
-                  const defaultStyle = {
-                    borderColor: `${accentColor}90`,
-                    background: `linear-gradient(140deg, ${accentColor}33, rgba(7, 24, 38, 0.85))`,
-                    boxShadow: `0 26px 60px -26px ${accentColor}aa`,
-                  };
-                  const style = highlight?.style ? { ...defaultStyle, ...highlight.style } : defaultStyle;
-                  return (
-                    <a
-                      key={vehicle.id}
-                      href={`/vehicle-archive/${vehicle.id}`}
-                      className="card p-5 transition hover:-translate-y-0.5 text-white"
-                      data-section="vehicle"
-                      style={style}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="font-semibold text-xl flex items-center gap-2">
-                          <span aria-hidden>🚔</span>
-                          {vehicle.registration}
+                {err && <div className="card bg-red-50 text-red-700 p-3 mb-3" data-section="vehicle">{err}</div>}
+                {ok && <div className="card bg-green-50 text-green-700 p-3 mb-3" data-section="vehicle">{ok}</div>}
+                <div className="grid gap-3">
+                  {filtered.map((vehicle) => {
+                    const highlight = getVehicleHighlightStyle(vehicle.statuses);
+                    const activeFlags = highlight?.active || getActiveVehicleFlags(vehicle.statuses);
+                    const defaultStyle = {
+                      borderColor: `${accentColor}90`,
+                      background: `linear-gradient(140deg, ${accentColor}33, rgba(7, 24, 38, 0.85))`,
+                      boxShadow: `0 26px 60px -26px ${accentColor}aa`,
+                    };
+                    const style = highlight?.style ? { ...defaultStyle, ...highlight.style } : defaultStyle;
+                    return (
+                      <a
+                        key={vehicle.id}
+                        href={`/vehicle-archive/${vehicle.id}`}
+                        className="card p-5 transition hover:-translate-y-0.5 text-white"
+                        data-section="vehicle"
+                        style={style}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-semibold text-xl flex items-center gap-2">
+                            <span aria-hidden>🚔</span>
+                            {vehicle.registration}
+                          </div>
+                          <span className="text-xs uppercase tracking-[0.35em] text-white/70">
+                            {vehicle.createdAt?.toDate?.()?.toLocaleDateString?.() || "—"}
+                          </span>
                         </div>
-                        <span className="text-xs uppercase tracking-[0.35em] text-white/70">
-                          {vehicle.createdAt?.toDate?.()?.toLocaleDateString?.() || "—"}
-                        </span>
-                      </div>
-                      <div className="text-sm text-white/80">
-                        {vehicle.brand} • Kolor: {vehicle.color}
-                      </div>
-                      <div className="text-xs text-white/70">Właściciel: {vehicle.ownerName} • CID: {vehicle.ownerCid || "—"}</div>
-                      {activeFlags.length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {activeFlags.map((flag) => (
-                            <span
-                              key={flag.key}
-                              className="px-2 py-1 text-xs font-semibold rounded-full border border-white/30 bg-white/10"
-                            >
-                              {flag.icon} {flag.label}
-                            </span>
-                          ))}
+                        <div className="text-sm text-white/80">
+                          {vehicle.brand} • Kolor: {vehicle.color}
                         </div>
-                      )}
-                      <div className="mt-4 flex justify-end">
-                        <button
-                          className="btn bg-red-700 text-white"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            void removeVehicle(vehicle.id, vehicle.registration);
-                          }}
-                          disabled={deletingId === vehicle.id}
-                        >
-                          {deletingId === vehicle.id ? "Usuwanie..." : "Usuń"}
-                        </button>
-                      </div>
-                    </a>
-                  );
-                })}
-                {filtered.length === 0 && (
-                  <div className="card p-4 text-sm text-white/75" data-section="vehicle">
-                    Brak pojazdów w archiwum spełniających kryteria.
-                  </div>
-                )}
+                        <div className="text-xs text-white/70">Właściciel: {vehicle.ownerName} • CID: {vehicle.ownerCid || "—"}</div>
+                        {activeFlags.length > 0 && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {activeFlags.map((flag) => (
+                              <span
+                                key={flag.key}
+                                className="px-2 py-1 text-xs font-semibold rounded-full border border-white/30 bg-white/10"
+                              >
+                                {flag.icon} {flag.label}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="mt-4 flex justify-end">
+                          <button
+                            className="btn bg-red-700 text-white"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              void removeVehicle(vehicle.id, vehicle.registration);
+                            }}
+                            disabled={deletingId === vehicle.id}
+                          >
+                            {deletingId === vehicle.id ? "Usuwanie..." : "Usuń"}
+                          </button>
+                        </div>
+                      </a>
+                    );
+                  })}
+                  {filtered.length === 0 && (
+                    <div className="card p-4 text-sm text-white/75" data-section="vehicle">
+                      Brak pojazdów w archiwum spełniających kryteria.
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          </div>
 
-          <div className="card p-6 space-y-4" data-section="vehicle">
-            <div className="space-y-2">
-              <h2 className="text-2xl font-semibold flex items-center gap-2">
-                <span className="text-2xl" aria-hidden>🛠️</span>
-                Dodaj pojazd
-              </h2>
-              <p className="text-sm text-beige-100/70">
-                Uzupełnij dane pojazdu, aby utworzyć nową teczkę w archiwum.
-              </p>
-            </div>
-            <div className="grid gap-2">
-              <input
-                className="input"
-                placeholder="Numer rejestracyjny"
-                value={form.registration}
-                onChange={(e) => setForm((prev) => ({ ...prev, registration: e.target.value }))}
-              />
-              <input
-                className="input"
-                placeholder="Marka"
-                value={form.brand}
-                onChange={(e) => setForm((prev) => ({ ...prev, brand: e.target.value }))}
-              />
-              <input
-                className="input"
-                placeholder="Kolor"
-                value={form.color}
-                onChange={(e) => setForm((prev) => ({ ...prev, color: e.target.value }))}
-              />
-              <input
-                className="input"
-                placeholder="Imię i nazwisko właściciela"
-                value={form.ownerName}
-                onChange={(e) => setForm((prev) => ({ ...prev, ownerName: e.target.value }))}
-              />
-              <input
-                className="input"
-                placeholder="CID właściciela"
-                value={form.ownerCid}
-                onChange={(e) => setForm((prev) => ({ ...prev, ownerCid: e.target.value }))}
-              />
-            </div>
-            <button className="btn w-full md:w-auto" onClick={createVehicle} disabled={creating}>
-              {creating ? "Tworzenie..." : "Utwórz teczkę"}
-            </button>
-            </div>
-            <AnnouncementSpotlight />
-          </div>
-        </main>
+              <div className="card p-6 space-y-4">
+                <div className="space-y-2">
+                  <h2 className="text-2xl font-semibold flex items-center gap-2">
+                    <span className="text-2xl" aria-hidden>🛠️</span>
+                    Dodaj pojazd
+                  </h2>
+                  <p className="text-sm text-beige-100/70">
+                    Uzupełnij dane pojazdu, aby utworzyć nową teczkę w archiwum.
+                  </p>
+                </div>
+                <div className="grid gap-2">
+                  <input
+                    className="input"
+                    placeholder="Numer rejestracyjny"
+                    value={form.registration}
+                    onChange={(e) => setForm((prev) => ({ ...prev, registration: e.target.value }))}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Marka"
+                    value={form.brand}
+                    onChange={(e) => setForm((prev) => ({ ...prev, brand: e.target.value }))}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Kolor"
+                    value={form.color}
+                    onChange={(e) => setForm((prev) => ({ ...prev, color: e.target.value }))}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Imię i nazwisko właściciela"
+                    value={form.ownerName}
+                    onChange={(e) => setForm((prev) => ({ ...prev, ownerName: e.target.value }))}
+                  />
+                  <input
+                    className="input"
+                    placeholder="CID właściciela"
+                    value={form.ownerCid}
+                    onChange={(e) => setForm((prev) => ({ ...prev, ownerCid: e.target.value }))}
+                  />
+                </div>
+                <button className="btn w-full md:w-auto" onClick={createVehicle} disabled={creating}>
+                  {creating ? "Tworzenie..." : "Utwórz teczkę"}
+                </button>
+              </div>
+            </section>
+          )}
+          right={<AccountPanel />}
+        />
       </>
     </AuthGate>
   );
