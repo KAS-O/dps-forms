@@ -21,6 +21,13 @@
   --layout-aside-width: clamp(280px, 24vw, 360px);
 }
 
+/* Na dużych ekranach (desktop) zmniejsz całą aplikację do ~80% */
+@media (min-width: 1400px) {
+  :root {
+    --app-scale: 0.8;
+  }
+}
+
 @media (min-width: 1280px) {
   :root {
     --shell-max-width: 1760px;
@@ -65,6 +72,13 @@ body {
   min-height: calc(100vh / var(--app-scale));
   transform: scale(var(--app-scale));
   transform-origin: top center;
+}
+
+body.is-login .app-scale-wrapper,
+body.is-login .app-scale-content {
+  width: 100%;
+  min-height: 100vh;
+  transform: none;
 }
 
 .layout-shell {
