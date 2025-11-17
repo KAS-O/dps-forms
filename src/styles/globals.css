@@ -90,6 +90,39 @@ body {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.page-layout {
+  max-width: 1600px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 32px 48px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+@media (max-width: 640px) {
+  .page-layout {
+    padding: 24px 18px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .page-layout {
+    grid-template-columns:
+      minmax(260px, 320px)
+      minmax(0, 1.9fr)
+      minmax(260px, 340px);
+  }
+}
+
+.units-panel,
+.documents-panel,
+.account-panel {
+  width: 100%;
+}
+
 @media (min-width: 960px) {
   .layout-grid[data-layout="with-aside"] {
     grid-template-columns: minmax(0, 1fr) var(--layout-aside-width);
@@ -291,6 +324,20 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.login-layout {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+
+.login-card {
+  max-width: 420px;
+  width: 100%;
 }
 
 .panel-layout {

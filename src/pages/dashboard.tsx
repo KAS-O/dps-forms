@@ -28,15 +28,17 @@ export default function Dashboard() {
 
         <Nav showSidebars={false} />
 
-        <main className="layout-shell layout-shell--wide">
-          <div className="mx-auto grid w-full max-w-screen-2xl grid-cols-1 gap-6 px-4 pb-8 pt-4 sm:px-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1.5fr)_minmax(0,360px)] lg:items-start lg:px-8 lg:pt-6">
-            <UnitSidebar
-              variant="inline"
-              showProfilePanel={false}
-              leftClassName="lg:w-full lg:min-w-0"
-            />
+        <main>
+          <div className="page-layout">
+            <div className="units-panel">
+              <UnitSidebar
+                variant="inline"
+                showProfilePanel={false}
+                leftClassName="lg:w-full lg:min-w-0"
+              />
+            </div>
 
-            <div className="flex min-h-[calc(100vh-200px)] min-w-0 flex-col gap-5 overflow-hidden lg:gap-6">
+            <div className="documents-panel flex min-h-[calc(100vh-200px)] min-w-0 flex-col gap-5 overflow-hidden lg:gap-6">
               <div className="card flex min-h-0 flex-col gap-4 overflow-hidden p-4 md:p-5 lg:p-6" data-section="documents">
                 <div className="space-y-3">
                   <span className="section-chip text-xs sm:text-sm">
@@ -104,7 +106,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="hidden min-h-0 min-w-0 flex-col gap-4 lg:flex">
+            <div className="account-panel hidden min-h-0 min-w-0 flex-col gap-4 lg:flex">
               <UnitSidebar
                 variant="inline"
                 showUnitsPanel={false}

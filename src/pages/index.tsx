@@ -3,7 +3,7 @@ import Head from "next/head";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import AuthGate from "@/components/AuthGate";
 
@@ -15,6 +15,18 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    document.body.classList.add("is-login");
+
+    // Przelicz skalowanie po oznaczeniu strony jako logowanie
+    window.dispatchEvent(new Event("resize"));
+
+    return () => {
+      document.body.classList.remove("is-login");
+      window.dispatchEvent(new Event("resize"));
+    };
+  }, []);
 
   const getErrorMessage = (code?: string) => {
     switch (code) {
@@ -81,9 +93,9 @@ export default function LoginPage() {
           <title>LSPD 77RP — Logowanie</title>
         </Head>
 
-        <div className="auth-layout">
+        <div className="login-layout">
           <div className="auth-shell">
-            <div className="card auth-panel w-full max-w-2xl p-6 sm:p-8 bg-[var(--card)] border border-white/10">
+            <div className="card auth-panel login-card w-full p-6 sm:p-8 bg-[var(--card)] border border-white/10">
               <div className="flex flex-col items-center gap-4 mb-6">
                 {/* Jeśli masz PNG: zmień logo.svg na logo.png */}
                 <Image
