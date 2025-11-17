@@ -13,8 +13,8 @@
   --accent: linear-gradient(135deg, #2564bf 0%, #3d82e2 45%, #6ba8ff 100%);
   --accent-solid: #3d82e2;
   --border: rgba(107, 168, 255, 0.35);
-  --shell-max-width: 1440px;
-  --shell-padding-x: clamp(1rem, 3vw, 2.5rem);
+  --shell-max-width: 1680px;
+  --shell-padding-x: clamp(1.25rem, 2vw, 2.5rem);
   --shell-padding-y: clamp(1.25rem, 3vw, 2.75rem);
   --shell-gap: clamp(1.5rem, 3vw, 3rem);
   --card-gap: clamp(1rem, 2vw, 1.75rem);
@@ -23,8 +23,8 @@
 
 @media (min-width: 1280px) {
   :root {
-    --shell-max-width: 1460px;
-    --layout-aside-width: clamp(300px, 24vw, 380px);
+    --shell-max-width: 1760px;
+    --layout-aside-width: clamp(300px, 22vw, 360px);
   }
 }
 
@@ -87,7 +87,7 @@ body {
 }
 
 .layout-shell--wide {
-  --shell-max-width: 1480px;
+  --shell-max-width: 1760px;
 }
 
 .layout-grid {
@@ -110,10 +110,10 @@ body {
 
   display: grid;
   grid-template-columns:
-    320px
-    minmax(0, 1.9fr)
-    320px;
-  column-gap: 32px;
+    300px
+    minmax(0, 2.8fr)
+    300px;
+  column-gap: 40px;
   row-gap: 24px;
   align-items: flex-start;
 }
@@ -357,9 +357,11 @@ body.is-login {
 
 .panel-layout {
   width: 100%;
-  max-width: 1320px;
-  margin-inline: auto;
-  padding: clamp(1.5rem, 4vw, 3rem) clamp(1rem, 4vw, 2.75rem) clamp(2rem, 5vw, 3.5rem);
+  max-width: 100%;
+  margin-inline: 0;
+  padding: clamp(1.5rem, 4vw, 3rem)
+    clamp(1rem, 4vw, 2.75rem)
+    clamp(2rem, 5vw, 3.5rem);
   display: flex;
   flex-direction: column;
   gap: clamp(1.5rem, 3vw, 2.75rem);
