@@ -11,7 +11,7 @@ export default function App({ Component, pageProps }: AppProps) {
       <ActivityLoggerProvider>
         <> 
           <Head>
-            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           </Head>
           <div className="app-scale-wrapper">
             <div className="app-scale-content">
