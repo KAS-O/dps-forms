@@ -17,11 +17,11 @@ export default function Document() {
   html, body {
     margin: 0;
     padding: 0;
-    width: 100%;
-    overflow-x: hidden;   /* nic nie może wystawać na prawo */
+    width: 100vw;
+    overflow-x: hidden;   /* nic nie może wystawać na boki */
   }
 
-  /* na zwykłych stronach skalujemy body względem górnego środka */
+  /* zwykłe strony (nie logowanie) skalujemy względem górnego środka */
   body:not(.is-login) {
     transform-origin: top center;
   }
@@ -35,20 +35,22 @@ export default function Document() {
     const width = window.innerWidth;
     const isLoginPage = document.body.classList.contains('is-login');
 
+    // Ekran logowania – bez skalowania, pełna szerokość
     if (isLoginPage) {
-      // ekran logowania – bez skalowania
       document.body.style.transform = 'none';
+      document.body.style.width = '100vw';
       return;
     }
 
     let scale = 1;
 
-    // na dużych ekranach – odpowiednik zoom 80%
+    // Na dużych ekranach – odpowiednik zoom 80%
     if (width >= 1400) {
       scale = 0.8;
     }
 
     document.body.style.transform = 'scale(' + scale + ')';
+    document.body.style.width = (100 / scale) + 'vw';  // kompensacja, żeby po scale zajmowało 100% ekranu
   }
 
   window.addEventListener('load', scalePage);
