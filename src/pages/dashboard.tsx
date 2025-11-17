@@ -5,6 +5,7 @@ import { TEMPLATES } from "@/lib/templates";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import AnnouncementSpotlight from "@/components/AnnouncementSpotlight";
+import UnitSidebar from "@/components/UnitSidebar";
 
 export default function Dashboard() {
   const [q, setQ] = useState("");
@@ -25,76 +26,96 @@ export default function Dashboard() {
           <title>LSPD 77RP — Dashboard</title>
         </Head>
 
-        <Nav />
+        <Nav showSidebars={false} />
 
-        <main className="layout-shell">
-          <div className="layout-grid" data-layout="with-aside">
-            <div className="flex flex-col gap-6">
-              <div className="card p-6 space-y-5" data-section="documents">
-                <div className="space-y-3">
-                <span className="section-chip">
-                  <span className="section-chip__dot" style={{ background: "#60a5fa" }} />
-                  Dokumenty
-                </span>
-                <div>
-                  <h1 className="text-3xl font-bold tracking-tight">Wybierz dokument służbowy</h1>
-                  <p className="text-sm text-beige-100/80 mt-1">
-                    Zebraliśmy wszystkie wzory raportów i formularzy w jednym miejscu. Skorzystaj z wyszukiwarki,
-                    aby szybciej odnaleźć potrzebny dokument.
-                  </p>
+        <main className="layout-shell layout-shell--wide">
+          <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-4 pb-8 pt-4 sm:px-6 lg:px-8 lg:pt-6">
+            <div className="flex min-h-[calc(100vh-200px)] flex-col gap-6 lg:flex-row lg:items-start">
+              <UnitSidebar
+                variant="inline"
+                showProfilePanel={false}
+                leftClassName="lg:flex-[0_0_300px] xl:flex-[0_0_320px] min-w-[260px] max-w-[360px]"
+              />
+
+              <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden lg:gap-6">
+                <div className="card flex min-h-0 flex-col gap-4 overflow-hidden p-4 md:p-5 lg:p-6" data-section="documents">
+                  <div className="space-y-3">
+                    <span className="section-chip text-xs sm:text-sm">
+                      <span className="section-chip__dot" style={{ background: "#60a5fa" }} />
+                      Dokumenty
+                    </span>
+                    <div className="space-y-2">
+                      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl lg:text-4xl">Wybierz dokument służbowy</h1>
+                      <p className="text-sm text-beige-100/80 sm:text-base lg:text-lg">
+                        Zebraliśmy wszystkie wzory raportów i formularzy w jednym miejscu. Skorzystaj z wyszukiwarki,
+                        aby szybciej odnaleźć potrzebny dokument.
+                      </p>
+                    </div>
+                  </div>
+
+                  <input
+                    className="input w-full text-base sm:text-lg"
+                    placeholder="Szukaj dokumentu po nazwie lub słowach kluczowych..."
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                  />
+
+                  <div className="flex-1 overflow-y-auto pr-1">
+                    <div className="module-grid pb-2">
+                      {filtered.map((t, index) => {
+                        const accent = accentPalette[index % accentPalette.length];
+                        return (
+                          <Link
+                            key={t.slug}
+                            href={`/doc/${t.slug}`}
+                            className="card p-4 transition hover:-translate-y-1 md:p-5"
+                            data-section="documents"
+                            style={{
+                              borderColor: `${accent}80`,
+                              boxShadow: `0 28px 60px -26px ${accent}aa`,
+                            }}
+                          >
+                            <span
+                              className="absolute inset-0 opacity-50 animate-shimmer"
+                              style={{
+                                backgroundImage: `linear-gradient(120deg, transparent 0%, ${accent}26 45%, transparent 90%)`,
+                              }}
+                            />
+                            <div className="relative flex flex-col gap-2">
+                              <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight sm:text-lg">
+                                <span className="text-lg sm:text-xl" aria-hidden>📄</span>
+                                {t.name}
+                              </h2>
+                              {t.description ? (
+                                <p className="text-sm text-beige-100/80 sm:text-base">{t.description}</p>
+                              ) : (
+                                <p className="text-sm text-beige-100/60 sm:text-base">Kliknij, aby otworzyć szablon dokumentu.</p>
+                              )}
+                            </div>
+                          </Link>
+                        );
+                      })}
+                      {filtered.length === 0 && (
+                        <div className="card p-4 text-sm text-beige-100/70 md:p-5" data-section="documents">
+                          Nie znaleziono dokumentu pasującego do wyszukiwania.
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <input
-                className="input"
-                placeholder="Szukaj dokumentu po nazwie lub słowach kluczowych..."
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-
-              <div className="module-grid">
-                {filtered.map((t, index) => {
-                  const accent = accentPalette[index % accentPalette.length];
-                  return (
-                    <Link
-                      key={t.slug}
-                      href={`/doc/${t.slug}`}
-                      className="card p-5 transition hover:-translate-y-1"
-                      data-section="documents"
-                      style={{
-                        borderColor: `${accent}80`,
-                        boxShadow: `0 28px 60px -26px ${accent}aa`,
-                      }}
-                    >
-                      <span
-                        className="absolute inset-0 opacity-50 animate-shimmer"
-                        style={{
-                          backgroundImage: `linear-gradient(120deg, transparent 0%, ${accent}26 45%, transparent 90%)`,
-                        }}
-                      />
-                      <div className="relative flex flex-col gap-2">
-                        <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">
-                          <span className="text-xl" aria-hidden>📄</span>
-                          {t.name}
-                        </h2>
-                        {t.description ? (
-                          <p className="text-sm text-beige-100/80">{t.description}</p>
-                        ) : (
-                          <p className="text-sm text-beige-100/60">Kliknij, aby otworzyć szablon dokumentu.</p>
-                        )}
-                      </div>
-                    </Link>
-                  );
-                })}
-                {filtered.length === 0 && (
-                  <div className="card p-5 text-sm text-beige-100/70" data-section="documents">
-                    Nie znaleziono dokumentu pasującego do wyszukiwania.
-                  </div>
-                )}
+              <div className="hidden min-h-0 flex-[0_0_340px] flex-col gap-4 lg:flex xl:flex-[0_0_360px]">
+                <UnitSidebar
+                  variant="inline"
+                  showUnitsPanel={false}
+                  rightClassName="w-full"
+                />
+                <div className="w-full min-w-0">
+                  <AnnouncementSpotlight />
+                </div>
               </div>
             </div>
-            </div>
-            <AnnouncementSpotlight />
           </div>
         </main>
       </>

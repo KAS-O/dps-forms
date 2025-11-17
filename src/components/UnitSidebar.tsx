@@ -24,6 +24,15 @@ import type { FirebaseStorage } from "firebase/storage";
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
 type UploadState = "idle" | "saving" | "removing";
+type UnitSidebarVariant = "overlay" | "inline";
+
+type UnitSidebarProps = {
+  variant?: UnitSidebarVariant;
+  leftClassName?: string;
+  rightClassName?: string;
+  showUnitsPanel?: boolean;
+  showProfilePanel?: boolean;
+};
 
 function getStorageInstance(): FirebaseStorage | null {
   const instance = storage as unknown as FirebaseStorage | null;
@@ -62,7 +71,13 @@ function resolveRankLabels(ranks: AdditionalRank[]): string[] {
   return labels;
 }
 
-export default function UnitSidebar() {
+export default function UnitSidebar({
+  variant = "overlay",
+  leftClassName = "",
+  rightClassName = "",
+  showUnitsPanel = true,
+  showProfilePanel = true,
+}: UnitSidebarProps) {
   const {
     role,
     login,
@@ -282,186 +297,215 @@ export default function UnitSidebar() {
     return null;
   }
 
-  return (
-    <>
-      <div
-        className="hidden xl:block fixed left-6 top-[140px] z-20 w-[clamp(240px,18vw,320px)] space-y-4"
-        aria-label="Dostępne jednostki"
-      >
-        <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-5 shadow-[0_24px_48px_-24px_rgba(59,130,246,0.5)] backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-white/80">Twoje jednostki</h2>
-              <p className="text-xs text-white/55">Szybki dostęp do paneli specjalistycznych.</p>
-            </div>
-            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-white/60">
-              {accessibleSections.length}
-            </span>
+  const unitsPanel = (
+    <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-5 shadow-[0_24px_48px_-24px_rgba(59,130,246,0.55)] backdrop-blur">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-white/80">Twoje jednostki</h2>
+          <p className="text-xs text-white/55">Szybki dostęp do paneli specjalistycznych.</p>
+        </div>
+        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-white/60">
+          {accessibleSections.length}
+        </span>
+      </div>
+      <div className="mt-4 flex flex-col gap-3">
+        {accessibleSections.length > 0 ? (
+          accessibleSections.map((section) => {
+            const isActive = currentPath === section.href || currentPath.startsWith(`${section.href}/`);
+            const showIcon = section.icon && !missingIcons[section.unit];
+            return (
+              <Link
+                key={section.href}
+                href={section.href}
+                className={`group relative overflow-hidden rounded-2xl border border-white/10 p-4 transition-all ${
+                  isActive ? "border-white/40 shadow-[0_16px_32px_-24px_rgba(59,130,246,0.7)]" : "hover:-translate-y-1"
+                }`}
+                style={{
+                  background: `linear-gradient(135deg, ${section.navColor}33, rgba(8,18,36,0.85))`,
+                }}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black/30"
+                    style={{ boxShadow: isActive ? `0 12px 24px -18px ${section.navColor}` : undefined }}
+                  >
+                    {showIcon ? (
+                      <img
+                        src={section.icon}
+                        alt={`Logo jednostki ${section.label}`}
+                        className="h-full w-full object-cover"
+                        onError={() =>
+                          setMissingIcons((prev) =>
+                            prev[section.unit] ? prev : { ...prev, [section.unit]: true }
+                          )
+                        }
+                      />
+                    ) : (
+                      <span className="text-sm font-semibold uppercase tracking-wide text-white">
+                        {section.shortLabel}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-semibold text-white">{section.label}</span>
+                    <span className="text-[11px] text-white/70">Przejdź do panelu jednostki</span>
+                  </div>
+                </div>
+              </Link>
+            );
+          })
+        ) : (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+            Brak jednostek przypisanych do konta.
           </div>
-          <div className="mt-4 flex flex-col gap-3">
-            {accessibleSections.length > 0 ? (
-              accessibleSections.map((section) => {
-                const isActive = currentPath === section.href || currentPath.startsWith(`${section.href}/`);
-                const showIcon = section.icon && !missingIcons[section.unit];
+        )}
+      </div>
+    </div>
+  );
+
+  const profilePanel = (
+    <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-6 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.45)] backdrop-blur">
+      <div className="flex items-start gap-4">
+        <div className="flex flex-col items-center gap-3">
+          {photoURL ? (
+            <img
+              src={photoURL}
+              alt={fullName || login || "Profil"}
+              className="h-20 w-20 rounded-2xl object-cover shadow-lg"
+            />
+          ) : (
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-white/10 text-xl font-bold text-white/80 shadow-lg">
+              {formatInitials(fullName, login)}
+            </div>
+          )}
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/20">
+            <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+            {uploadState === "saving" ? "Zapisywanie..." : "Zmień zdjęcie"}
+          </label>
+        </div>
+
+        <div className="flex flex-1 flex-col gap-3 text-left text-sm text-white/80">
+          <div className="space-y-1">
+            <p className="text-lg font-semibold text-white">
+              {fullName || login || "Nieznany funkcjonariusz"}
+              {adminPrivileges && (
+                <span
+                  className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-yellow-300/60 bg-yellow-400/20 text-[11px] font-semibold text-yellow-300"
+                  title="Uprawnienia administratora"
+                  aria-label="Uprawnienia administratora"
+                >
+                  ★
+                </span>
+              )}
+            </p>
+            <p className="text-xs uppercase tracking-wide text-white/60">{groupLabel || "Brak grupy"}</p>
+            <p className="text-xs text-white/60">Login: {login || "—"}</p>
+            <p className="text-xs text-white/60">Stopień: {roleLabel}</p>
+            <p className="text-xs text-white/60">Numer odznaki: {badgeNumber ? `#${badgeNumber}` : "Brak"}</p>
+            {highestRanks.length > 0 && (
+              <p className="text-xs text-white/60">Dodatkowe rangi: {highestRanks.join(", ")}</p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {membershipUnits.length > 0 ? (
+              membershipUnits.map(({ option, section }) => {
+                const showIcon = !!(section && section.icon && !missingIcons[section.unit]);
                 return (
-                  <Link
-                    key={section.href}
-                    href={section.href}
-                    className={`group relative overflow-hidden rounded-2xl border border-white/10 p-4 transition-all ${
-                      isActive ? "border-white/40 shadow-[0_16px_32px_-24px_rgba(59,130,246,0.7)]" : "hover:-translate-y-1"
-                    }`}
+                  <span
+                    key={option.value}
+                    className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide"
                     style={{
-                      background: `linear-gradient(135deg, ${section.navColor}33, rgba(8,18,36,0.85))`,
+                      background: option.background,
+                      color: option.color,
+                      borderColor: option.borderColor,
                     }}
                   >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black/30"
-                        style={{ boxShadow: isActive ? `0 12px 24px -18px ${section.navColor}` : undefined }}
-                      >
-                        {showIcon ? (
-                          <img
-                            src={section.icon}
-                            alt={`Logo jednostki ${section.label}`}
-                            className="h-full w-full object-cover"
-                            onError={() =>
-                              setMissingIcons((prev) =>
-                                prev[section.unit] ? prev : { ...prev, [section.unit]: true }
-                              )
-                            }
-                          />
-                        ) : (
-                          <span className="text-sm font-semibold uppercase tracking-wide text-white">
-                            {section.shortLabel}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-sm font-semibold text-white">{section.label}</span>
-                        <span className="text-[11px] text-white/70">Przejdź do panelu jednostki</span>
-                      </div>
-                    </div>
-                  </Link>
+                    {showIcon && section ? (
+                      <img
+                        src={section.icon}
+                        alt={`Logo jednostki ${option.label}`}
+                        className="h-4 w-4 rounded-full object-cover"
+                        onError={() =>
+                          section &&
+                          setMissingIcons((prev) =>
+                            prev[section.unit] ? prev : { ...prev, [section.unit]: true }
+                          )
+                        }
+                      />
+                    ) : null}
+                    <span>{option.shortLabel || option.abbreviation}</span>
+                  </span>
                 );
               })
             ) : (
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                Brak jednostek przypisanych do konta.
-              </div>
+              <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-wide text-white/60">
+                Brak przypisania do jednostki
+              </span>
             )}
           </div>
         </div>
       </div>
 
-      <div
-        className="hidden xl:block fixed right-6 top-[152px] z-20 w-[clamp(260px,20vw,360px)]"
-        aria-label="Informacje o koncie"
-      >
-        <div className="rounded-3xl border border-white/10 bg-[var(--card)]/90 p-6 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.45)] backdrop-blur">
-          <div className="flex items-start gap-4">
-            <div className="flex flex-col items-center gap-3">
-              {photoURL ? (
-                <img
-                  src={photoURL}
-                  alt={fullName || login || "Profil"}
-                  className="h-20 w-20 rounded-2xl object-cover shadow-lg"
-                />
-              ) : (
-                <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-white/10 text-xl font-bold text-white/80 shadow-lg">
-                  {formatInitials(fullName, login)}
-                </div>
-              )}
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/20">
-                <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
-                {uploadState === "saving" ? "Zapisywanie..." : "Zmień zdjęcie"}
-              </label>
-            </div>
-
-            <div className="flex flex-1 flex-col gap-3 text-left text-sm text-white/80">
-              <div className="space-y-1">
-                <p className="text-lg font-semibold text-white">
-                  {fullName || login || "Nieznany funkcjonariusz"}
-                  {adminPrivileges && (
-                    <span
-                      className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-yellow-300/60 bg-yellow-400/20 text-[11px] font-semibold text-yellow-300"
-                      title="Uprawnienia administratora"
-                      aria-label="Uprawnienia administratora"
-                    >
-                      ★
-                    </span>
-                  )}
-                </p>
-                <p className="text-xs uppercase tracking-wide text-white/60">{groupLabel || "Brak grupy"}</p>
-                <p className="text-xs text-white/60">Login: {login || "—"}</p>
-                <p className="text-xs text-white/60">Stopień: {roleLabel}</p>
-                <p className="text-xs text-white/60">Numer odznaki: {badgeNumber ? `#${badgeNumber}` : "Brak"}</p>
-                {highestRanks.length > 0 && (
-                  <p className="text-xs text-white/60">Dodatkowe rangi: {highestRanks.join(", ")}</p>
-                )}
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {membershipUnits.length > 0 ? (
-                  membershipUnits.map(({ option, section }) => {
-                    const showIcon = !!(section && section.icon && !missingIcons[section.unit]);
-                    return (
-                      <span
-                        key={option.value}
-                        className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide"
-                        style={{
-                          background: option.background,
-                          color: option.color,
-                          borderColor: option.borderColor,
-                        }}
-                      >
-                        {showIcon && section ? (
-                          <img
-                            src={section.icon}
-                            alt={`Logo jednostki ${option.label}`}
-                            className="h-4 w-4 rounded-full object-cover"
-                            onError={() =>
-                              section &&
-                              setMissingIcons((prev) =>
-                                prev[section.unit] ? prev : { ...prev, [section.unit]: true }
-                              )
-                            }
-                          />
-                        ) : null}
-                        <span>{option.shortLabel || option.abbreviation}</span>
-                      </span>
-                    );
-                  })
-                ) : (
-                  <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-wide text-white/60">
-                    Brak przypisania do jednostki
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-5 flex flex-col gap-2 text-left">
-            <button
-              type="button"
-              onClick={handleCreateTicket}
-              className="btn w-full justify-center"
-              disabled={ticketSaving}
-            >
-              {ticketSaving ? "Wysyłanie..." : "Otwórz ticket"}
-            </button>
-            {photoURL && (
-              <button
-                type="button"
-                onClick={handleRemovePhoto}
-                className="rounded-full border border-white/15 bg-white/10 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-white/75 transition hover:bg-white/20"
-                disabled={uploadState === "removing"}
-              >
-                {uploadState === "removing" ? "Usuwanie..." : "Usuń zdjęcie"}
-              </button>
-            )}
-          </div>
-        </div>
+      <div className="mt-5 flex flex-col gap-2 text-left">
+        <button
+          type="button"
+          onClick={handleCreateTicket}
+          className="btn w-full justify-center"
+          disabled={ticketSaving}
+        >
+          {ticketSaving ? "Wysyłanie..." : "Otwórz ticket"}
+        </button>
+        {photoURL && (
+          <button
+            type="button"
+            onClick={handleRemovePhoto}
+            className="rounded-full border border-white/15 bg-white/10 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-white/75 transition hover:bg-white/20"
+            disabled={uploadState === "removing"}
+          >
+            {uploadState === "removing" ? "Usuwanie..." : "Usuń zdjęcie"}
+          </button>
+        )}
       </div>
+    </div>
+  );
+
+  if (variant === "inline") {
+    return (
+      <>
+        {showUnitsPanel && (
+          <div className={`hidden min-h-0 max-h-[calc(100vh-220px)] overflow-y-auto lg:flex lg:flex-col lg:gap-4 ${leftClassName}`}>
+            {unitsPanel}
+          </div>
+        )}
+        {showProfilePanel && (
+          <div className={`hidden min-h-0 max-h-[calc(100vh-220px)] overflow-y-auto lg:flex lg:flex-col lg:gap-4 ${rightClassName}`}>
+            {profilePanel}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {showUnitsPanel && (
+        <div
+          className="hidden xl:block fixed left-6 top-[140px] z-20 w-[clamp(240px,18vw,320px)] space-y-4"
+          aria-label="Dostępne jednostki"
+        >
+          {unitsPanel}
+        </div>
+      )}
+
+      {showProfilePanel && (
+        <div
+          className="hidden xl:block fixed right-6 top-[152px] z-20 w-[clamp(260px,20vw,360px)]"
+          aria-label="Informacje o koncie"
+        >
+          {profilePanel}
+        </div>
+      )}
     </>
   );
 }
