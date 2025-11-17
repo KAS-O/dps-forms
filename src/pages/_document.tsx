@@ -14,9 +14,9 @@ export default function Document() {
         <style
           dangerouslySetInnerHTML={{
             __html: `
-  /* punkt skalowania w lewym górnym rogu */
   body {
-    transform-origin: top left;
+    /* skalowanie względem górnego środka, wygląda lepiej niż lewy róg */
+    transform-origin: top center;
   }
             `,
           }}
@@ -26,16 +26,22 @@ export default function Document() {
             __html: `
   function scalePage() {
     const width = window.innerWidth;
+    const isLoginPage = document.body.classList.contains('is-login');
+
     let scale = 1;
 
-    if (width >= 1400) {
+    if (!isLoginPage && width >= 1400) {
+      // wewnętrzne strony – odpowiednik 80% zoomu
       scale = 0.8;
     } else {
+      // strona logowania i mniejsze szerokości – bez skalowania
       scale = 1;
     }
 
     document.body.style.transform = 'scale(' + scale + ')';
-    document.body.style.width = (100 / scale) + 'vw';
+    document.body.style.width = isLoginPage
+      ? '100vw'
+      : (100 / scale) + 'vw';
   }
 
   window.addEventListener('load', scalePage);
