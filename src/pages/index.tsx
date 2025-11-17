@@ -19,12 +19,8 @@ export default function LoginPage() {
   useEffect(() => {
     document.body.classList.add("is-login");
 
-    // Przelicz skalowanie po oznaczeniu strony jako logowanie
-    window.dispatchEvent(new Event("resize"));
-
     return () => {
       document.body.classList.remove("is-login");
-      window.dispatchEvent(new Event("resize"));
     };
   }, []);
 

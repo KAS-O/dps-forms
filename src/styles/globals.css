@@ -32,6 +32,15 @@ html,
 body,
 #__next {
   height: 100%;
+  width: 100%;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -41,6 +50,7 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   position: relative;
   overflow-x: hidden;
+  transform: none !important;
 }
 
 .app-scale-wrapper {
@@ -92,16 +102,16 @@ body {
 
 .page-layout {
   width: 100%;
-  max-width: 100%;
-  margin: 0;
+  max-width: 1920px;
+  margin: 0 auto;
 
-  padding: 32px 32px 40px 32px;
+  padding: 32px 32px 48px;
   box-sizing: border-box;
 
   display: grid;
   grid-template-columns:
     320px
-    minmax(0, 1fr)
+    minmax(0, 1.9fr)
     320px;
   column-gap: 32px;
   row-gap: 24px;
@@ -112,6 +122,12 @@ body {
 .documents-panel,
 .account-panel {
   width: 100%;
+}
+
+@media (max-width: 1200px) {
+  .page-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (min-width: 960px) {
@@ -329,6 +345,13 @@ body {
 .login-card {
   max-width: 420px;
   width: 100%;
+}
+
+body.is-login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .panel-layout {
