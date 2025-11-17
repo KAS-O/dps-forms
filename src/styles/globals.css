@@ -4,9 +4,9 @@
 
 :root {
   --app-scale: 1;
-  --bg: radial-gradient(circle at 10% 20%, rgba(61, 130, 226, 0.25), transparent 45%),
-    radial-gradient(circle at 80% 0%, rgba(27, 58, 111, 0.6), transparent 55%),
-    #050b18;
+  --bg: radial-gradient(circle at 14% 22%, rgba(80, 80, 92, 0.12), transparent 40%),
+    radial-gradient(circle at 82% 4%, rgba(48, 52, 64, 0.16), transparent 52%),
+    linear-gradient(135deg, #050505, #0c0d11 55%, #12141b);
   --card: rgba(9, 18, 35, 0.75);
   --ink: #e5f0ff;
   --ink-muted: rgba(229, 240, 255, 0.75);
@@ -64,6 +64,36 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   position: relative;
   transform: none !important;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(117, 172, 255, 0.75) rgba(18, 24, 34, 0.9);
+}
+
+*::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+*::-webkit-scrollbar-track {
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.04), transparent 55%), rgba(9, 12, 18, 0.9);
+  border-radius: 999px;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(145deg, rgba(59, 130, 246, 0.9), rgba(239, 68, 68, 0.9));
+  border-radius: 999px;
+  border: 2px solid rgba(9, 12, 18, 0.85);
+  box-shadow: 0 4px 12px rgba(16, 24, 40, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  transition: background 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(145deg, rgba(96, 165, 250, 0.95), rgba(252, 96, 96, 0.95));
+  box-shadow: 0 6px 16px rgba(16, 24, 40, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
 }
 
 .app-scale-wrapper {
@@ -854,9 +884,9 @@ select option {
   pointer-events: none;
   z-index: 1;
   display: block;
-  opacity: 0.44;
+  opacity: 0.52;
   mix-blend-mode: screen;
-  animation: underlightDrift 19.8s ease-in-out infinite alternate;
+  animation: underlightDrift 17.8s ease-in-out infinite alternate;
   transition: opacity 400ms ease, transform 1200ms ease;
   will-change: transform, opacity;
 }
@@ -865,9 +895,9 @@ select option {
   content: "";
   position: absolute;
   inset: -10% -5% 10% -5%;
-  background: radial-gradient(circle at 50% 110%, rgba(20, 48, 96, 0.81), transparent 75%);
+  background: radial-gradient(circle at 50% 110%, rgba(32, 36, 46, 0.86), transparent 75%);
   filter: blur(160px);
-  opacity: 0.63;
+  opacity: 0.7;
 }
 
 .underlight-ambient__blue,
@@ -884,58 +914,58 @@ select option {
 
 .underlight-ambient__blue {
   left: 8%;
-  background: radial-gradient(circle, rgba(90, 165, 255, 0.98), rgba(42, 104, 212, 0.52) 45%, transparent 80%);
-  animation: underlightBlue 7.65s ease-in-out infinite alternate;
+  background: radial-gradient(circle, rgba(120, 190, 255, 1), rgba(46, 114, 230, 0.68) 45%, transparent 80%);
+  animation: underlightBlue 6.9s ease-in-out infinite alternate;
 }
 
 .underlight-ambient__red {
   right: 8%;
-  background: radial-gradient(circle, rgba(255, 120, 120, 0.92), rgba(178, 40, 40, 0.52) 45%, transparent 80%);
-  animation: underlightRed 8.55s ease-in-out infinite alternate;
+  background: radial-gradient(circle, rgba(255, 110, 110, 1), rgba(196, 48, 48, 0.66) 45%, transparent 80%);
+  animation: underlightRed 7.7s ease-in-out infinite alternate;
 }
 
 @keyframes underlightDrift {
   0% {
-    transform: translate(-55%, -2%) scale(0.94);
-    opacity: 0.39;
+    transform: translate(-55%, -2%) scale(0.96);
+    opacity: 0.45;
   }
   50% {
-    transform: translate(-45%, 1.5%) scale(1.04);
-    opacity: 0.53;
+    transform: translate(-45%, 1.5%) scale(1.06);
+    opacity: 0.6;
   }
   100% {
-    transform: translate(-50%, -1%) scale(0.97);
-    opacity: 0.46;
+    transform: translate(-50%, -1%) scale(0.99);
+    opacity: 0.52;
   }
 }
 
 @keyframes underlightBlue {
   0% {
-    transform: translate(-10%, 6%) scale(0.94);
-    opacity: 0.48;
+    transform: translate(-10%, 6%) scale(0.96);
+    opacity: 0.56;
   }
   50% {
-    transform: translate(-4%, -8%) scale(1.06);
-    opacity: 0.78;
+    transform: translate(-4%, -8%) scale(1.08);
+    opacity: 0.86;
   }
   100% {
-    transform: translate(-12%, 3%) scale(0.97);
-    opacity: 0.55;
+    transform: translate(-12%, 3%) scale(0.99);
+    opacity: 0.64;
   }
 }
 
 @keyframes underlightRed {
   0% {
-    transform: translate(10%, -4%) scale(0.93);
-    opacity: 0.44;
+    transform: translate(10%, -4%) scale(0.95);
+    opacity: 0.52;
   }
   50% {
-    transform: translate(5%, 7%) scale(1.05);
-    opacity: 0.76;
+    transform: translate(5%, 7%) scale(1.07);
+    opacity: 0.84;
   }
   100% {
-    transform: translate(12%, 1%) scale(0.96);
-    opacity: 0.52;
+    transform: translate(12%, 1%) scale(0.98);
+    opacity: 0.6;
   }
 }
 
