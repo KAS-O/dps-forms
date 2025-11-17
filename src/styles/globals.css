@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  --app-scale: 0.8;
+  --app-scale: 1;
   --bg: radial-gradient(circle at 10% 20%, rgba(61, 130, 226, 0.25), transparent 45%),
     radial-gradient(circle at 80% 0%, rgba(27, 58, 111, 0.6), transparent 55%),
     #050b18;
