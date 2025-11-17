@@ -13,18 +13,18 @@
   --accent: linear-gradient(135deg, #2564bf 0%, #3d82e2 45%, #6ba8ff 100%);
   --accent-solid: #3d82e2;
   --border: rgba(107, 168, 255, 0.35);
-  --shell-max-width: 1180px;
+  --shell-max-width: 1440px;
   --shell-padding-x: clamp(1rem, 3vw, 2.5rem);
   --shell-padding-y: clamp(1.25rem, 3vw, 2.75rem);
   --shell-gap: clamp(1.5rem, 3vw, 3rem);
   --card-gap: clamp(1rem, 2vw, 1.75rem);
-  --layout-aside-width: clamp(240px, 28vw, 340px);
+  --layout-aside-width: clamp(280px, 24vw, 360px);
 }
 
 @media (min-width: 1280px) {
   :root {
-    --shell-max-width: 1320px;
-    --layout-aside-width: clamp(280px, 26vw, 380px);
+    --shell-max-width: 1460px;
+    --layout-aside-width: clamp(300px, 24vw, 380px);
   }
 }
 

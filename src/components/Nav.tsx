@@ -44,7 +44,11 @@ function createNavStyle(color: string, active: boolean): CSSProperties {
   };
 }
 
-export default function Nav() {
+type NavProps = {
+  showSidebars?: boolean;
+};
+
+export default function Nav({ showSidebars = true }: NavProps) {
   const { role, units, additionalRanks, adminPrivileges } = useProfile();
   const { confirm } = useDialog();
   const { logLogout } = useSessionActivity();
@@ -147,7 +151,7 @@ export default function Nav() {
           </div>
         </div>
       </nav>
-      <UnitSidebar />
+      {showSidebars && <UnitSidebar />}
     </>
   );
 }
