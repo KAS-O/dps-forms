@@ -262,6 +262,33 @@ export function ActivityLoggerProvider({ children }: { children: ReactNode }) {
                 vehicleId: event.vehicleId || null,
               },
             };
+          case "pwc_view":
+            return {
+              section: "pwc",
+              action: "pwc.view",
+              message: "Wejście w zakładkę PWC.",
+            };
+          case "pwc_report_download":
+            return {
+              section: "pwc",
+              action: "pwc.report_download",
+              message: `Pobranie raportu PWC ${event.reportDate || "—"}.`,
+              details: { reportDate: event.reportDate || null },
+            };
+          case "pwc_report_create":
+            return {
+              section: "pwc",
+              action: "pwc.report_create",
+              message: `Utworzenie raportu PWC ${event.reportDate || "—"}.`,
+              details: { reportDate: event.reportDate || null },
+            };
+          case "pwc_report_update":
+            return {
+              section: "pwc",
+              action: "pwc.report_update",
+              message: `Aktualizacja raportu PWC ${event.reportDate || "—"}.`,
+              details: { reportDate: event.reportDate || null },
+            };
           case "criminal_group_open":
             return {
               section: "teczki",
