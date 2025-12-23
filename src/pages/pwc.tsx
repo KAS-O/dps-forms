@@ -21,7 +21,28 @@ import {
 } from "firebase/firestore";
 import { buildPwcPdf, calculateDurationMinutes, formatDuration, type PwcAction, type PwcReportInput } from "@/lib/pwcReport";
 
-type ActionFormRow = PwcAction & { id: string };
+type ActionFormRow = {
+  id: string;
+  hour: string;
+  minute: string;
+  actionType: string;
+  location: string;
+  followUps: string[];
+};
+
+const ACTION_TYPE_OPTIONS = [
+  "Napad na sklep",
+  "Napad na kasetkę",
+  "Napad na WeedShop",
+  "Napad na CarDealera",
+  "10-80",
+  "Napaść / Usiłowanie zabójstwa",
+  "Handel Narkotykami",
+  "Wjazd na teren bazy wojskowej",
+  "Zgłoszenie 911",
+];
+
+const FOLLOW_UP_OPTIONS = ["10-80", "10-81", "10-82", "CODE 0", "STATUS 7", "10-100", "10-38-3", "10-12", "FAŁSZYWE"];
 
 type PwcReportRecord = {
   id: string;
@@ -44,9 +65,30 @@ type PwcReportRecord = {
 
 const createEmptyAction = (): ActionFormRow => ({
   id: crypto.randomUUID(),
-  time: "",
-  description: "",
+  hour: "",
+  minute: "",
+  actionType: "",
+  location: "",
+  followUps: [],
 });
+
+const normalizeTimeInput = (value: string) => value.replace(/\D/g, "").slice(0, 2);
+
+const deriveTimeParts = (time?: string) => {
+  const [hour = "", minute = ""] = (time || "").split(":");
+  return { hour: hour.slice(0, 2), minute: minute.slice(0, 2) };
+};
+
+const buildTimeValue = (hour: string, minute: string): string | null => {
+  if (!hour && !minute) return null;
+  if (!hour || !minute) return null;
+  const hourNum = Number(hour);
+  const minuteNum = Number(minute);
+  if (!Number.isInteger(hourNum) || hourNum < 0 || hourNum > 23 || !Number.isInteger(minuteNum) || minuteNum < 0 || minuteNum > 59) {
+    return null;
+  }
+  return `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
+};
 
 const formatDateTimeLocal = (date: Date) => {
   const pad = (value: number) => value.toString().padStart(2, "0");
@@ -129,8 +171,19 @@ export default function PwcPage() {
     setActions((prev) => [...prev, createEmptyAction()]);
   };
 
-  const handleUpdateAction = (id: string, key: keyof PwcAction, value: string) => {
-    setActions((prev) => prev.map((action) => (action.id === id ? { ...action, [key]: value } : action)));
+  const handleUpdateAction = (id: string, patch: Partial<Omit<ActionFormRow, "id" | "followUps">>) => {
+    setActions((prev) => prev.map((action) => (action.id === id ? { ...action, ...patch } : action)));
+  };
+
+  const toggleFollowUp = (id: string, code: string) => {
+    setActions((prev) => prev.map((action) => {
+      if (action.id !== id) return action;
+      const exists = action.followUps.includes(code);
+      return {
+        ...action,
+        followUps: exists ? action.followUps.filter((item) => item !== code) : [...action.followUps, code],
+      };
+    }));
   };
 
   const handleRemoveAction = (id: string) => {
@@ -156,10 +209,21 @@ export default function PwcPage() {
       startTime: record.startTime || "",
       endTime: record.endTime || "",
     });
-    const savedActions = (record.actions || []).map((action) => ({
-      ...action,
-      id: crypto.randomUUID(),
-    }));
+    const savedActions = (record.actions || []).map((action) => {
+      const { hour, minute } = deriveTimeParts(action.time);
+      return {
+        id: crypto.randomUUID(),
+        hour,
+        minute,
+        actionType: action.actionType || action.description || "",
+        location: action.location || "",
+        followUps: Array.isArray(action.followUps)
+          ? action.followUps
+              .map((item) => (item || "").trim())
+              .filter((item): item is string => Boolean(item))
+          : [],
+      };
+    });
     setActions(savedActions.length ? savedActions : [createEmptyAction()]);
     setError(null);
     setSuccess(null);
@@ -176,7 +240,54 @@ export default function PwcPage() {
     link.click();
   };
 
-  const validateForm = () => {
+  const prepareActionsPayload = (): PwcAction[] | null => {
+    const payload: PwcAction[] = [];
+
+    for (const action of actions) {
+      const hour = action.hour.trim();
+      const minute = action.minute.trim();
+      const actionType = action.actionType.trim();
+      const location = action.location.trim();
+      const followUps = Array.isArray(action.followUps)
+        ? action.followUps
+            .map((item) => (item || "").trim())
+            .filter((item): item is string => Boolean(item))
+        : [];
+      const hasAnyValue = hour.length || minute.length || actionType.length || location.length || followUps.length;
+
+      if (!hasAnyValue) continue;
+
+      const time = buildTimeValue(hour, minute);
+      if (!time) {
+        setError("Podaj poprawną godzinę i minutę (format 00-23 / 00-59) dla każdej czynności.");
+        return null;
+      }
+      if (!actionType) {
+        setError("Wybierz rodzaj czynności dla każdej uzupełnionej pozycji.");
+        return null;
+      }
+      if (!location) {
+        setError("Uzupełnij lokalizację dla każdej czynności.");
+        return null;
+      }
+
+      payload.push({
+        time,
+        actionType,
+        location,
+        followUps,
+      });
+    }
+
+    if (!payload.length) {
+      setError("Dodaj przynajmniej jedną czynność wraz z godziną, rodzajem i lokalizacją.");
+      return null;
+    }
+
+    return payload;
+  };
+
+  const validateForm = (actionsPayload: PwcAction[]) => {
     if (!form.pwcName.trim() || !form.pwcBadge.trim()) {
       setError("Uzupełnij imię, nazwisko i numer odznaki PWC.");
       return false;
@@ -193,11 +304,8 @@ export default function PwcPage() {
       setError("Godzina zakończenia musi być późniejsza niż przejęcia.");
       return false;
     }
-    const validActions = actions
-      .map(({ time, description }) => ({ time: time.trim(), description: description.trim() }))
-      .filter((a) => a.description.length > 0 && a.time.length > 0);
-    if (!validActions.length) {
-      setError("Dodaj przynajmniej jedną czynność wraz z godziną.");
+    if (!actionsPayload.length) {
+      setError("Dodaj przynajmniej jedną czynność wraz z godziną, rodzajem i lokalizacją.");
       return false;
     }
     return true;
@@ -212,11 +320,10 @@ export default function PwcPage() {
     setError(null);
     setSuccess(null);
     const user = auth?.currentUser;
-    const actionsPayload = actions
-      .map(({ time, description }) => ({ time: time.trim(), description: description.trim() }))
-      .filter((a) => a.description.length > 0 && a.time.length > 0);
+    const actionsPayload = prepareActionsPayload();
+    if (!actionsPayload) return;
 
-    if (!validateForm()) {
+    if (!validateForm(actionsPayload)) {
       return;
     }
 
@@ -421,26 +528,83 @@ export default function PwcPage() {
                     </div>
                     <div className="space-y-3">
                       {actions.map((action) => (
-                        <div key={action.id} className="grid gap-3 rounded-lg border border-white/10 bg-white/5 p-4 sm:grid-cols-[160px,1fr,auto]">
+                        <div key={action.id} className="space-y-4 rounded-lg border border-white/10 bg-white/5 p-4">
+                          <div className="flex flex-col gap-2">
+                            <label className="label">Godzina i minuta</label>
+                            <div className="grid grid-cols-2 gap-2 sm:max-w-xs">
+                              <input
+                                className="input"
+                                inputMode="numeric"
+                                maxLength={2}
+                                pattern="[0-9]*"
+                                placeholder="HH"
+                                value={action.hour}
+                                onChange={(e) => handleUpdateAction(action.id, { hour: normalizeTimeInput(e.target.value) })}
+                              />
+                              <input
+                                className="input"
+                                inputMode="numeric"
+                                maxLength={2}
+                                pattern="[0-9]*"
+                                placeholder="MM"
+                                value={action.minute}
+                                onChange={(e) => handleUpdateAction(action.id, { minute: normalizeTimeInput(e.target.value) })}
+                              />
+                            </div>
+                          </div>
+
                           <div className="flex flex-col gap-1">
-                            <label className="label">Godzina</label>
+                            <label className="label">Rodzaj czynności</label>
+                            <select
+                              className="input"
+                              value={action.actionType}
+                              onChange={(e) => handleUpdateAction(action.id, { actionType: e.target.value })}
+                            >
+                              <option value="">— wybierz —</option>
+                              {ACTION_TYPE_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <label className="label">Lokalizacja</label>
                             <input
                               className="input"
-                              type="time"
-                              value={action.time}
-                              onChange={(e) => handleUpdateAction(action.id, "time", e.target.value)}
+                              value={action.location}
+                              onChange={(e) => handleUpdateAction(action.id, { location: e.target.value })}
+                              placeholder="np. Legion Square"
                             />
                           </div>
-                          <div className="flex flex-col gap-1">
-                            <label className="label">Opis czynności</label>
-                            <input
-                              className="input"
-                              value={action.description}
-                              onChange={(e) => handleUpdateAction(action.id, "description", e.target.value)}
-                              placeholder="np. Napad na kasetkę"
-                            />
+
+                          <div className="flex flex-col gap-2">
+                            <label className="label">Działania podczas czynności (opcjonalnie)</label>
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                              {FOLLOW_UP_OPTIONS.map((option) => {
+                                const selected = action.followUps.includes(option);
+                                return (
+                                  <label
+                                    key={`${action.id}-${option}`}
+                                    className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition ${
+                                      selected ? "border-emerald-400 bg-emerald-500/10 text-white" : "border-white/10 bg-white/5 text-beige-100"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4 accent-emerald-500"
+                                      checked={selected}
+                                      onChange={() => toggleFollowUp(action.id, option)}
+                                    />
+                                    <span>{option}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
                           </div>
-                          <div className="flex items-end justify-end">
+
+                          <div className="flex items-center justify-end">
                             <button
                               className="btn bg-red-800 text-white"
                               type="button"
@@ -537,12 +701,24 @@ export default function PwcPage() {
                         </div>
                         {record.actions?.length ? (
                           <div className="mt-3 grid gap-2 md:grid-cols-2">
-                            {record.actions.map((action, idx) => (
-                              <div key={`${record.id}-${idx}`} className="rounded-md border border-white/5 bg-white/5 px-3 py-2">
-                                <div className="text-xs uppercase tracking-wide text-white/60">Godzina {action.time || "—"}</div>
-                                <div className="text-sm text-white">{action.description || "—"}</div>
-                              </div>
-                            ))}
+                            {record.actions.map((action, idx) => {
+                              const followUps = Array.isArray(action.followUps)
+                                ? action.followUps
+                                    .map((item) => (item || "").trim())
+                                    .filter((item): item is string => Boolean(item))
+                                : [];
+                              const followUpsLabel = followUps.length ? followUps.join(", ") : "—";
+                              const { hour, minute } = deriveTimeParts(action.time);
+                              const timeLabel = action.time || (hour || minute ? `${hour}:${minute}` : "—");
+                              return (
+                                <div key={`${record.id}-${idx}`} className="rounded-md border border-white/5 bg-white/5 px-3 py-2">
+                                  <div className="text-xs uppercase tracking-wide text-white/60">Godzina {timeLabel || "—"}</div>
+                                  <div className="text-sm font-semibold text-white">{action.actionType || action.description || "—"}</div>
+                                  <div className="text-xs text-white/70">Lokalizacja: {action.location || "—"}</div>
+                                  <div className="text-xs text-white/70">Działania: {followUpsLabel}</div>
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : (
                           <div className="mt-3 text-sm text-beige-100/75">Brak zapisanych czynności.</div>

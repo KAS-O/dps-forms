@@ -2,8 +2,11 @@ import { jsPDF } from "jspdf";
 import { ensureReportFonts } from "@/lib/reportFonts";
 
 export type PwcAction = {
-  time: string;
-  description: string;
+  time?: string;
+  actionType?: string;
+  location?: string;
+  followUps?: string[];
+  description?: string;
 };
 
 export type PwcReportInput = {
@@ -246,27 +249,44 @@ export async function buildPwcPdf(report: PwcReportInput) {
   drawSection(
     "Czynności",
     (innerWidth) => {
-      const visibleActions = (report.actions || []).filter(
-        (action) => (action.description || "").trim().length > 0 || (action.time || "").trim().length > 0
-      );
+      const visibleActions = (report.actions || [])
+        .map((action, index) => {
+          const time = (action.time || "").trim();
+          const actionType = (action.actionType || action.description || "").trim();
+          const location = (action.location || "").trim();
+          const followUps = (action.followUps || []).filter((item) => item?.trim().length).join(", ");
+          const hasContent = time.length || actionType.length || location.length || followUps.length;
+          return { time, actionType, location, followUps, index };
+        })
+        .filter((action) => action.time || action.actionType || action.location || action.followUps);
 
       if (!visibleActions.length) return lineHeight + 4;
 
       const itemSpacing = 6;
-      const descriptionWidth = innerWidth - 28;
+      const descriptionWidth = innerWidth - 34;
 
       return visibleActions.reduce((height, action, index) => {
-        const description = action.description?.trim() || "—";
-        const wrapped = wrapText(description, descriptionWidth, 11);
-        const rowHeight = Math.max(wrapped.length * lineHeight + 8, 18);
+        const typeLines = wrapText(action.actionType || "—", descriptionWidth, 11);
+        const locationLines = wrapText(`Lokalizacja: ${action.location || "—"}`, descriptionWidth, 10);
+        const followUpsLabel = action.followUps || "—";
+        const followUpLines = wrapText(`Działania: ${followUpsLabel}`, descriptionWidth, 10);
+        const textHeight = typeLines.length * lineHeight + locationLines.length * lineHeight + followUpLines.length * lineHeight;
+        const rowHeight = Math.max(textHeight + 10, 24);
         const spacing = index === visibleActions.length - 1 ? 0 : itemSpacing;
         return height + rowHeight + spacing;
       }, 0);
     },
     ({ x, y, innerWidth }) => {
-      const visibleActions = (report.actions || []).filter(
-        (action) => (action.description || "").trim().length > 0 || (action.time || "").trim().length > 0
-      );
+      const visibleActions = (report.actions || [])
+        .map((action, index) => {
+          const time = (action.time || "").trim();
+          const actionType = (action.actionType || action.description || "").trim();
+          const location = (action.location || "").trim();
+          const followUps = (action.followUps || []).filter((item) => item?.trim().length).join(", ");
+          const hasContent = time.length || actionType.length || location.length || followUps.length;
+          return { time, actionType, location, followUps, index, hasContent };
+        })
+        .filter((action) => action.hasContent);
 
       if (!visibleActions.length) {
         doc.setFontSize(11);
@@ -275,14 +295,17 @@ export async function buildPwcPdf(report: PwcReportInput) {
         return;
       }
 
-      const descriptionWidth = innerWidth - 28;
+      const descriptionWidth = innerWidth - 34;
       const itemSpacing = 6;
       let currentY = y;
 
-      visibleActions.forEach((action, index) => {
-        const description = action.description?.trim() || "—";
-        const wrapped = wrapText(description, descriptionWidth, 11);
-        const rowHeight = Math.max(wrapped.length * lineHeight + 8, 18);
+      visibleActions.forEach((action) => {
+        const typeLines = wrapText(action.actionType || "—", descriptionWidth, 11);
+        const locationLines = wrapText(`Lokalizacja: ${action.location || "—"}`, descriptionWidth, 10);
+        const followUpsLabel = action.followUps || "—";
+        const followUpLines = wrapText(`Działania: ${followUpsLabel}`, descriptionWidth, 10);
+        const textHeight = typeLines.length * lineHeight + locationLines.length * lineHeight + followUpLines.length * lineHeight;
+        const rowHeight = Math.max(textHeight + 10, 24);
 
         doc.setFillColor(236, 254, 255);
         doc.setDrawColor(196, 230, 236);
@@ -292,16 +315,27 @@ export async function buildPwcPdf(report: PwcReportInput) {
         doc.setTextColor(255, 255, 255);
         doc.roundedRect(x + 4, currentY + 2, 22, 8, 3, 3, "F");
         doc.setFontSize(8);
-        doc.text(`${String(index + 1).padStart(2, "0")}. ${action.time || "—"}`.trim(), x + 6, currentY + 8);
+        doc.text(`${String(action.index + 1).padStart(2, "0")}. ${action.time || "—"}`.trim(), x + 6, currentY + 8);
 
+        let textY = currentY + 9;
         doc.setFontSize(11);
         doc.setTextColor(text.main.r, text.main.g, text.main.b);
-        doc.text(wrapped, x + 30, currentY + 9, { maxWidth: descriptionWidth });
+        doc.text(typeLines, x + 32, textY, { maxWidth: descriptionWidth });
+
+        textY += typeLines.length * lineHeight + 1.5;
+
+        doc.setFontSize(10);
+        doc.setTextColor(text.muted.r, text.muted.g, text.muted.b);
+        doc.text(locationLines, x + 32, textY, { maxWidth: descriptionWidth });
+
+        textY += locationLines.length * lineHeight + 1.5;
+
+        doc.text(followUpLines, x + 32, textY, { maxWidth: descriptionWidth });
 
         currentY += rowHeight + itemSpacing;
       });
     },
-    46
+    52
   );
 
   drawSection(
