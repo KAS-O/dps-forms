@@ -676,11 +676,11 @@ export default function PwcPage() {
                               <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs">#{record.apwcBadge}</span>
                               <span className="text-white/70">APWC</span>
                             </div>
-                            <div className="text-sm text-beige-100/75">
+                            <div className="text-sm text-white/80">
                               Od <b>{new Date(record.startTime).toLocaleString("pl-PL")}</b> do{" "}
                               <b>{new Date(record.endTime).toLocaleString("pl-PL")}</b> • {record.durationDisplay}
                             </div>
-                            <div className="text-xs text-beige-100/60">
+                            <div className="text-xs text-white/80">
                               {createdAt && <>Dodano: {createdAt.toLocaleString("pl-PL")} </>}
                               {updatedAt && <>• Aktualizacja: {updatedAt.toLocaleString("pl-PL")}</>}
                             </div>
