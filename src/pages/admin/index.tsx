@@ -164,6 +164,7 @@ const SECTION_LABELS: Record<string, string> = {
   archiwum: "Archiwum dokumentów",
   "archiwum-pojazdow": "Archiwum pojazdów",
   teczki: "Teczki i organizacje",
+  pwc: "PWC",
   "panel-zarzadu": "Panel zarządu",
   logowanie: "Logowanie",
   inne: "Inne",
@@ -177,6 +178,7 @@ const SECTION_OPTIONS = [
   { value: "archiwum", label: SECTION_LABELS.archiwum },
   { value: "archiwum-pojazdow", label: SECTION_LABELS["archiwum-pojazdow"] },
   { value: "teczki", label: SECTION_LABELS.teczki },
+  { value: "pwc", label: SECTION_LABELS.pwc },
   { value: "panel-zarzadu", label: SECTION_LABELS["panel-zarzadu"] },
   { value: "logowanie", label: SECTION_LABELS.logowanie },
   { value: "inne", label: SECTION_LABELS.inne },
@@ -237,6 +239,10 @@ const ACTION_LABELS: Record<string, string> = {
   "stats.clear": "Czyszczenie statystyk",
   "auth.login_success": "Udane logowanie",
   "auth.login_fail": "Nieudane logowanie",
+  "pwc.view": "Podgląd zakładki PWC",
+  "pwc.report_create": "Utworzenie raportu PWC",
+  "pwc.report_update": "Aktualizacja raportu PWC",
+  "pwc.report_download": "Pobranie raportu PWC",
 };
 
 const ACTION_OPTIONS = [
