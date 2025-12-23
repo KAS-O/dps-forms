@@ -236,7 +236,7 @@ export default function PwcPage() {
 
     try {
       setSaving(true);
-      const { pdfBase64, fileName } = buildPwcPdf(payload);
+      const { pdfBase64, fileName } = await buildPwcPdf(payload);
       const dataToSave = {
         ...payload,
         pdfBase64,
