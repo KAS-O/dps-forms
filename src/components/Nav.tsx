@@ -14,6 +14,7 @@ const NAV_LINKS: { href: string; label: string; color: string }[] = [
   { href: "/chain-of-command", label: "Chain of Command", color: "#f97316" },
   { href: "/dossiers", label: "Teczki", color: "#8b5cf6" },
   { href: "/vehicle-archive", label: "Archiwum pojazdów", color: "#34d399" },
+  { href: "/pwc", label: "PWC", color: "#06b6d4" },
 ];
 
 function withAlpha(hex: string, alpha: number): string {
