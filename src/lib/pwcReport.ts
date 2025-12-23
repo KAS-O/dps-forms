@@ -94,26 +94,38 @@ export async function buildPwcPdf(report: PwcReportInput) {
   const lineHeight = 5.6;
   const labelHeight = 4.2;
   const sectionSpacing = 8;
-  const accent = { r: 6, g: 182, b: 212 };
-  const border = { r: 221, g: 231, b: 240 };
-  const background = { r: 248, g: 250, b: 252 };
-  const text = { main: { r: 15, g: 23, b: 42 }, muted: { r: 71, g: 85, b: 105 } };
+  const palette = {
+    accent: { r: 66, g: 162, b: 255 },
+    accentMuted: { r: 35, g: 97, b: 186 },
+    background: { r: 6, g: 14, b: 38 },
+    surface: { r: 12, g: 26, b: 62 },
+    card: { r: 16, g: 34, b: 78 },
+    border: { r: 58, g: 88, b: 140 },
+    text: { main: { r: 232, g: 244, b: 255 }, muted: { r: 186, g: 204, b: 233 } },
+  };
+  const { text } = palette;
 
   let cursorY = marginY;
 
   const paintBackground = () => {
-    doc.setFillColor(background.r, background.g, background.b);
+    doc.setFillColor(palette.background.r, palette.background.g, palette.background.b);
     doc.rect(0, 0, pageWidth, pageHeight, "F");
-    doc.setDrawColor(border.r, border.g, border.b);
-    doc.roundedRect(marginX / 2, marginY / 2, pageWidth - marginX, pageHeight - marginY, 6, 6, "S");
+    doc.setFillColor(palette.surface.r, palette.surface.g, palette.surface.b);
+    doc.roundedRect(marginX / 2, marginY / 2, pageWidth - marginX, pageHeight - marginY, 8, 8, "F");
+    doc.setDrawColor(palette.border.r, palette.border.g, palette.border.b);
+    doc.setLineWidth(0.7);
+    doc.roundedRect(marginX / 2, marginY / 2, pageWidth - marginX, pageHeight - marginY, 8, 8, "S");
+    doc.setLineWidth(0.2);
   };
 
   const drawHeader = () => {
     const headerHeight = 28;
-    doc.setFillColor(241, 252, 255);
+    doc.setFillColor(palette.card.r, palette.card.g, palette.card.b);
     doc.roundedRect(marginX, cursorY, contentWidth, headerHeight, 8, 8, "F");
-    doc.setDrawColor(accent.r, accent.g, accent.b);
+    doc.setDrawColor(palette.border.r, palette.border.g, palette.border.b);
     doc.roundedRect(marginX, cursorY, contentWidth, headerHeight, 8, 8, "S");
+    doc.setFillColor(palette.accent.r, palette.accent.g, palette.accent.b);
+    doc.roundedRect(marginX, cursorY, contentWidth, 5, 8, 8, "F");
 
     if (logoDataUrl) {
       doc.addImage(logoDataUrl, "PNG", marginX + 6, cursorY + 5, 18, 18);
@@ -177,8 +189,8 @@ export async function buildPwcPdf(report: PwcReportInput) {
 
     ensureSpace(boxHeight + sectionSpacing);
 
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(border.r, border.g, border.b);
+    doc.setFillColor(palette.card.r, palette.card.g, palette.card.b);
+    doc.setDrawColor(palette.border.r, palette.border.g, palette.border.b);
     doc.roundedRect(marginX, cursorY, contentWidth, boxHeight, 10, 10, "FD");
 
     doc.setFontSize(12.5);
@@ -246,97 +258,133 @@ export async function buildPwcPdf(report: PwcReportInput) {
     48
   );
 
-  drawSection(
-    "Czynności",
-    (innerWidth) => {
-      const visibleActions = (report.actions || [])
-        .map((action, index) => {
-          const time = (action.time || "").trim();
-          const actionType = (action.actionType || action.description || "").trim();
-          const location = (action.location || "").trim();
-          const followUps = (action.followUps || []).filter((item) => item?.trim().length).join(", ");
-          const hasContent = time.length || actionType.length || location.length || followUps.length;
-          return { time, actionType, location, followUps, index };
-        })
-        .filter((action) => action.time || action.actionType || action.location || action.followUps);
+  const actionRows = (report.actions || [])
+    .map((action, index) => {
+      const time = (action.time || "").trim();
+      const actionType = (action.actionType || action.description || "").trim();
+      const location = (action.location || "").trim();
+      const followUps = (action.followUps || []).filter((item) => item?.trim().length).join(", ");
+      const hasContent = time.length || actionType.length || location.length || followUps.length;
+      return { time, actionType, location, followUps, index, hasContent };
+    })
+    .filter((action) => action.hasContent);
 
-      if (!visibleActions.length) return lineHeight + 4;
+  const padding = 10;
+  const titleHeight = 7;
+  const minActionsHeight = 52;
 
-      const itemSpacing = 6;
-      const descriptionWidth = innerWidth - 34;
+  const measureActionsBodyHeight = (rows: typeof actionRows, innerWidth: number) => {
+    if (!rows.length) return lineHeight + 4;
+    const descriptionWidth = innerWidth - 34;
+    const itemSpacing = 6;
 
-      return visibleActions.reduce((height, action, index) => {
-        const typeLines = wrapText(action.actionType || "—", descriptionWidth, 11);
-        const locationLines = wrapText(`Lokalizacja: ${action.location || "—"}`, descriptionWidth, 10);
-        const followUpsLabel = action.followUps || "—";
-        const followUpLines = wrapText(`Działania: ${followUpsLabel}`, descriptionWidth, 10);
-        const textHeight = typeLines.length * lineHeight + locationLines.length * lineHeight + followUpLines.length * lineHeight;
-        const rowHeight = Math.max(textHeight + 10, 24);
-        const spacing = index === visibleActions.length - 1 ? 0 : itemSpacing;
-        return height + rowHeight + spacing;
-      }, 0);
-    },
-    ({ x, y, innerWidth }) => {
-      const visibleActions = (report.actions || [])
-        .map((action, index) => {
-          const time = (action.time || "").trim();
-          const actionType = (action.actionType || action.description || "").trim();
-          const location = (action.location || "").trim();
-          const followUps = (action.followUps || []).filter((item) => item?.trim().length).join(", ");
-          const hasContent = time.length || actionType.length || location.length || followUps.length;
-          return { time, actionType, location, followUps, index, hasContent };
-        })
-        .filter((action) => action.hasContent);
+    return rows.reduce((height, action, index) => {
+      const typeLines = wrapText(action.actionType || "—", descriptionWidth, 11);
+      const locationLines = wrapText(`Lokalizacja: ${action.location || "—"}`, descriptionWidth, 10);
+      const followUpsLabel = action.followUps || "—";
+      const followUpLines = wrapText(`Działania: ${followUpsLabel}`, descriptionWidth, 10);
+      const textHeight = typeLines.length * lineHeight + locationLines.length * lineHeight + followUpLines.length * lineHeight;
+      const rowHeight = Math.max(textHeight + 10, 24);
+      const spacing = index === rows.length - 1 ? 0 : itemSpacing;
+      return height + rowHeight + spacing;
+    }, 0);
+  };
 
-      if (!visibleActions.length) {
+  const renderActionsBody = (rows: typeof actionRows, options: { x: number; y: number; innerWidth: number }) => {
+    const { x, y, innerWidth } = options;
+
+    if (!rows.length) {
+      doc.setFontSize(11);
+      doc.setTextColor(text.muted.r, text.muted.g, text.muted.b);
+      doc.text("Brak zapisanych czynności.", x, y + lineHeight);
+      return;
+    }
+
+    const descriptionWidth = innerWidth - 34;
+    const itemSpacing = 6;
+    let currentY = y;
+
+    rows.forEach((action) => {
+      const typeLines = wrapText(action.actionType || "—", descriptionWidth, 11);
+      const locationLines = wrapText(`Lokalizacja: ${action.location || "—"}`, descriptionWidth, 10);
+      const followUpsLabel = action.followUps || "—";
+      const followUpLines = wrapText(`Działania: ${followUpsLabel}`, descriptionWidth, 10);
+      const textHeight = typeLines.length * lineHeight + locationLines.length * lineHeight + followUpLines.length * lineHeight;
+      const rowHeight = Math.max(textHeight + 10, 24);
+
+      doc.setFillColor(palette.surface.r, palette.surface.g, palette.surface.b);
+      doc.setDrawColor(palette.border.r, palette.border.g, palette.border.b);
+      doc.roundedRect(x, currentY - 2, innerWidth, rowHeight + 2, 6, 6, "FD");
+
+      doc.setFillColor(palette.accent.r, palette.accent.g, palette.accent.b);
+      doc.setTextColor(255, 255, 255);
+      doc.roundedRect(x + 4, currentY + 2, 22, 8, 3, 3, "F");
+      doc.setFontSize(8);
+      doc.text(`${String(action.index + 1).padStart(2, "0")}. ${action.time || "—"}`.trim(), x + 6, currentY + 8);
+
+      let textY = currentY + 9;
+      doc.setFontSize(11);
+      doc.setTextColor(text.main.r, text.main.g, text.main.b);
+      doc.text(typeLines, x + 32, textY, { maxWidth: descriptionWidth });
+
+      textY += typeLines.length * lineHeight + 1.5;
+
+      doc.setFontSize(10);
+      doc.setTextColor(text.muted.r, text.muted.g, text.muted.b);
+      doc.text(locationLines, x + 32, textY, { maxWidth: descriptionWidth });
+
+      textY += locationLines.length * lineHeight + 1.5;
+
+      doc.text(followUpLines, x + 32, textY, { maxWidth: descriptionWidth });
+
+      currentY += rowHeight + itemSpacing;
+    });
+  };
+
+  if (!actionRows.length) {
+    drawSection(
+      "Czynności",
+      () => lineHeight + 4,
+      ({ x, y }) => {
         doc.setFontSize(11);
         doc.setTextColor(text.muted.r, text.muted.g, text.muted.b);
         doc.text("Brak zapisanych czynności.", x, y + lineHeight);
-        return;
+      },
+      minActionsHeight
+    );
+  } else {
+    let index = 0;
+    while (index < actionRows.length) {
+      const availableHeight = pageHeight - marginY - cursorY - sectionSpacing;
+      let end = index;
+      const innerWidth = contentWidth - padding * 2;
+
+      while (end < actionRows.length) {
+        const slice = actionRows.slice(index, end + 1);
+        const bodyHeight = measureActionsBodyHeight(slice, innerWidth);
+        const estimatedBoxHeight = Math.max(minActionsHeight, bodyHeight + titleHeight + padding * 2);
+        if (estimatedBoxHeight <= availableHeight || slice.length === 1) {
+          end += 1;
+        } else {
+          break;
+        }
       }
 
-      const descriptionWidth = innerWidth - 34;
-      const itemSpacing = 6;
-      let currentY = y;
+      if (index === end) {
+        end = Math.min(actionRows.length, end + 1);
+      }
 
-      visibleActions.forEach((action) => {
-        const typeLines = wrapText(action.actionType || "—", descriptionWidth, 11);
-        const locationLines = wrapText(`Lokalizacja: ${action.location || "—"}`, descriptionWidth, 10);
-        const followUpsLabel = action.followUps || "—";
-        const followUpLines = wrapText(`Działania: ${followUpsLabel}`, descriptionWidth, 10);
-        const textHeight = typeLines.length * lineHeight + locationLines.length * lineHeight + followUpLines.length * lineHeight;
-        const rowHeight = Math.max(textHeight + 10, 24);
+      const slice = actionRows.slice(index, end);
+      drawSection(
+        `Czynności${actionRows.length > end ? ` (${end}/${actionRows.length})` : ""}`,
+        () => measureActionsBodyHeight(slice, innerWidth),
+        (opts) => renderActionsBody(slice, opts),
+        minActionsHeight
+      );
 
-        doc.setFillColor(236, 254, 255);
-        doc.setDrawColor(196, 230, 236);
-        doc.roundedRect(x, currentY - 2, innerWidth, rowHeight + 2, 6, 6, "FD");
-
-        doc.setFillColor(accent.r, accent.g, accent.b);
-        doc.setTextColor(255, 255, 255);
-        doc.roundedRect(x + 4, currentY + 2, 22, 8, 3, 3, "F");
-        doc.setFontSize(8);
-        doc.text(`${String(action.index + 1).padStart(2, "0")}. ${action.time || "—"}`.trim(), x + 6, currentY + 8);
-
-        let textY = currentY + 9;
-        doc.setFontSize(11);
-        doc.setTextColor(text.main.r, text.main.g, text.main.b);
-        doc.text(typeLines, x + 32, textY, { maxWidth: descriptionWidth });
-
-        textY += typeLines.length * lineHeight + 1.5;
-
-        doc.setFontSize(10);
-        doc.setTextColor(text.muted.r, text.muted.g, text.muted.b);
-        doc.text(locationLines, x + 32, textY, { maxWidth: descriptionWidth });
-
-        textY += locationLines.length * lineHeight + 1.5;
-
-        doc.text(followUpLines, x + 32, textY, { maxWidth: descriptionWidth });
-
-        currentY += rowHeight + itemSpacing;
-      });
-    },
-    52
-  );
+      index = end;
+    }
+  }
 
   drawSection(
     "Metadane",
