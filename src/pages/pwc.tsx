@@ -36,6 +36,7 @@ const ACTION_TYPE_OPTIONS = [
   "Napad na WeedShop",
   "Napad na CarDealera",
   "10-80",
+  "CODE 8",
   "Napaść / Usiłowanie zabójstwa",
   "Handel Narkotykami",
   "Wjazd na teren bazy wojskowej",
