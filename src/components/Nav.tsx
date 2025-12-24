@@ -70,7 +70,7 @@ export default function Nav({ showSidebars = true }: NavProps) {
       tone: "danger",
     });
     if (!ok) return;
-    await logLogout("logout");
+    await logLogout();
     await signOut(auth);
   };
 
