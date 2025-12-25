@@ -154,6 +154,12 @@ service cloud.firestore {
       allow delete: if isBoard();
     }
 
+    // raporty PWC
+    match /pwcReports/{reportId} {
+      allow create, read, update: if signedIn();
+      allow delete: if isBoard();
+    }
+
     // teczki + wpisy
     match /dossiers/{dossierId} {
       allow read: if signedIn();
