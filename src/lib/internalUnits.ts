@@ -79,8 +79,12 @@ export function unitHasAccess(
   unit: InternalUnit,
   ranks: AdditionalRank[] | null | undefined,
   role?: Role | null | undefined,
-  memberships?: InternalUnit[] | null | undefined
+  memberships?: InternalUnit[] | null | undefined,
+  adminPrivileges = false
 ): boolean {
+  if (adminPrivileges) {
+    return true;
+  }
   if (isHighCommand(role)) {
     return true;
   }
@@ -110,13 +114,35 @@ export type UnitPermission = {
 
 export function resolveUnitPermission(
   unit: InternalUnit,
-  ranks: AdditionalRank[] | null | undefined
+  ranks: AdditionalRank[] | null | undefined,
+  adminPrivileges = false
 ): UnitPermission | null {
-  if (!Array.isArray(ranks) || ranks.length === 0) {
-    return null;
-  }
   const config = UNIT_CONFIG_MAP.get(unit);
   if (!config) {
+    return null;
+  }
+
+  const fullAccessPermission = (): UnitPermission | null => {
+    const manageableRanks = [...config.rankHierarchy];
+    if (config.membershipRank && !manageableRanks.includes(config.membershipRank)) {
+      manageableRanks.push(config.membershipRank);
+    }
+    const highestRank = config.rankHierarchy[0] ?? config.membershipRank;
+    if (!highestRank) {
+      return null;
+    }
+    return {
+      unit,
+      highestRank,
+      manageableRanks,
+    };
+  };
+
+  if (adminPrivileges) {
+    return fullAccessPermission();
+  }
+
+  if (!Array.isArray(ranks) || ranks.length === 0) {
     return null;
   }
   const rankSet = new Set(ranks);
