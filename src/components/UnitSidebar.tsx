@@ -98,9 +98,9 @@ export default function UnitSidebar({
 
   const accessibleSections = useMemo(() => {
     return UNIT_SECTIONS.filter((section) =>
-      unitHasAccess(section.unit, additionalRanks, role, units)
+      unitHasAccess(section.unit, additionalRanks, role, units, adminPrivileges)
     ).sort((a, b) => a.label.localeCompare(b.label, "pl", { sensitivity: "base" }));
-  }, [additionalRanks, role, units]);
+  }, [additionalRanks, role, units, adminPrivileges]);
 
   const membershipUnits = useMemo(() => {
     const unitSet = new Set<InternalUnit>();

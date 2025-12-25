@@ -307,11 +307,11 @@ export default function UnitPanelPage() {
   const unitSlug = Array.isArray(router.query.unit) ? router.query.unit[0] : router.query.unit;
   const normalizedUnit = (unitSlug ? unitSlug.toLowerCase() : "") as InternalUnit;
   const section: UnitSectionConfig | null = unitSlug ? getUnitSection(normalizedUnit) : null;
-  const { role, additionalRanks, ready } = useProfile();
+  const { role, additionalRanks, adminPrivileges, ready } = useProfile();
   const { confirm, alert } = useDialog();
   const permission = useMemo(
-    () => (section ? resolveUnitPermission(section.unit, additionalRanks) : null),
-    [section, additionalRanks]
+    () => (section ? resolveUnitPermission(section.unit, additionalRanks, adminPrivileges) : null),
+    [section, additionalRanks, adminPrivileges]
   );
   const [members, setMembers] = useState<UnitMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -359,7 +359,7 @@ export default function UnitPanelPage() {
     if (permission) {
       return permission;
     }
-    if (!section || !isHighCommand(role)) {
+    if (!section || (!isHighCommand(role) && !adminPrivileges)) {
       return null;
     }
     if (section.rankHierarchy.length === 0) {
@@ -378,7 +378,7 @@ export default function UnitPanelPage() {
       highestRank,
       manageableRanks,
     };
-  }, [permission, role, section]);
+  }, [permission, role, section, adminPrivileges]);
 
   const canManage = !!managementPermission;
 

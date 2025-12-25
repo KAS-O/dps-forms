@@ -58,7 +58,7 @@ export default function Nav({ showSidebars = true }: NavProps) {
   const adminActive = router.pathname.startsWith("/admin");
   const currentPath = router.asPath;
   const unitLinks = UNIT_SECTIONS.filter((section) =>
-    unitHasAccess(section.unit, additionalRanks, role, units)
+    unitHasAccess(section.unit, additionalRanks, role, units, adminPrivileges)
   );
 
   const logout = async () => {

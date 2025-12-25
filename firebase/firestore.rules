@@ -20,7 +20,9 @@ service cloud.firestore {
     }
 
     function canManageAdminPrivileges() {
-      if (!signedIn()) return false;
+      if (!signedIn()) {
+        return false;
+      }
       let r = roleOf(request.auth.uid);
       return r == "admin" || r == "director" || r == "chief-of-police";
     }
@@ -32,14 +34,13 @@ service cloud.firestore {
     function adminPrivilegeUpdateAllowed() {
       let current = resource.data.adminPrivileges == true;
       let next = request.resource.data.adminPrivileges == true;
-      if (current == next) {
-        return true;
-      }
-      return canManageAdminPrivileges();
+      return (current == next) || canManageAdminPrivileges();
     }
 
     function isBoard() {
-      if (!signedIn()) return false;
+      if (!signedIn()) {
+        return false;
+      }
       let data = profile(request.auth.uid);
       let r = data.role;
       return (
@@ -55,7 +56,9 @@ service cloud.firestore {
     }
 
     function isStaff() {
-      if (!signedIn()) return false;
+      if (!signedIn()) {
+        return false;
+      }
       let r = roleOf(request.auth.uid);
       return (
         r == "cadet" ||
@@ -84,8 +87,12 @@ service cloud.firestore {
     }
 
     function isOfficer() {
-      if (hasAdminPrivileges()) return true;
-      if (!signedIn()) return false;
+      if (hasAdminPrivileges()) {
+        return true;
+      }
+      if (!signedIn()) {
+        return false;
+      }
       let r = roleOf(request.auth.uid);
       return r != "cadet" && r != "solo-cadet";
     }
@@ -151,6 +158,12 @@ service cloud.firestore {
       allow create: if signedIn();
       allow read:   if isStaff();
       allow update: if isBoard();
+      allow delete: if isBoard();
+    }
+
+    // raporty PWC
+    match /pwcReports/{reportId} {
+      allow create, read, update: if signedIn();
       allow delete: if isBoard();
     }
 

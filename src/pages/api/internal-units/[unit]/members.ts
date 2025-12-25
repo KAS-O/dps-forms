@@ -50,7 +50,8 @@ async function ensureUnitAccess(req: NextApiRequest, unit: InternalUnit) {
   const profileDoc = await fetchFirestoreDocument(`profiles/${user.localId}`, idToken);
   const profileData = decodeFirestoreDocument(profileDoc);
   const role = normalizeRole(profileData.role);
-  if (isHighCommand(role)) {
+  const adminPrivileges = profileData.adminPrivileges === true;
+  if (adminPrivileges || isHighCommand(role)) {
     const config = getUnitSection(unit);
     if (!config) {
       throw Object.assign(new Error("Jednostka nie obsługuje uprawnień."), { status: 404 });
@@ -74,7 +75,7 @@ async function ensureUnitAccess(req: NextApiRequest, unit: InternalUnit) {
   }
 
   const additionalRanks = normalizeAdditionalRanks(profileData.additionalRanks ?? profileData.additionalRank);
-  const permission = resolveUnitPermission(unit, additionalRanks);
+  const permission = resolveUnitPermission(unit, additionalRanks, adminPrivileges);
   if (!permission) {
     throw Object.assign(new Error("Brak uprawnień"), { status: 403 });
   }
