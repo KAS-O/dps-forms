@@ -20,9 +20,11 @@ service cloud.firestore {
     }
 
     function canManageAdminPrivileges() {
+      let r = roleOf(request.auth.uid);
       return signedIn() && (
-        let r = roleOf(request.auth.uid);
-        r == "admin" || r == "director" || r == "chief-of-police"
+        r == "admin" ||
+        r == "director" ||
+        r == "chief-of-police"
       );
     }
 
@@ -37,9 +39,9 @@ service cloud.firestore {
     }
 
     function isBoard() {
+      let data = profile(request.auth.uid);
+      let r = data.role;
       return signedIn() && (
-        let data = profile(request.auth.uid);
-        let r = data.role;
         r == "staff-commander" ||
         r == "executive-commander" ||
         r == "deputy-chief" ||
@@ -52,8 +54,8 @@ service cloud.firestore {
     }
 
     function isStaff() {
+      let r = roleOf(request.auth.uid);
       return signedIn() && (
-        let r = roleOf(request.auth.uid);
         r == "cadet" ||
         r == "solo-cadet" ||
         r == "officer-i" ||
@@ -80,10 +82,11 @@ service cloud.firestore {
     }
 
     function isOfficer() {
+      let r = roleOf(request.auth.uid);
       return hasAdminPrivileges() || (
         signedIn() && (
-          let r = roleOf(request.auth.uid);
-          r != "cadet" && r != "solo-cadet"
+          r != "cadet" &&
+          r != "solo-cadet"
         )
       );
     }
@@ -115,8 +118,8 @@ service cloud.firestore {
     }
 
     function isGroupRosterRecord() {
-      let t = request.resource.data.type;
-      return t == "member" || t == "vehicle";
+      return request.resource.data.type == "member" ||
+        request.resource.data.type == "vehicle";
     }
 
     // profile
