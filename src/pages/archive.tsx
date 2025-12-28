@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Head from "next/head";
+import dynamic from "next/dynamic";
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { UnitsPanel } from "@/components/UnitsPanel";
-import { AccountPanel } from "@/components/AccountPanel";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
 import { useLogWriter } from "@/hooks/useLogWriter";
+import { VirtualizedList } from "@/components/VirtualizedList";
 import { db } from "@/lib/firebase";
 import { ensureReportFonts } from "@/lib/reportFonts";
 import { TEMPLATES, Template } from "@/lib/templates";
@@ -18,9 +18,11 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  limit,
   orderBy,
   query,
   serverTimestamp,
+  startAfter,
   writeBatch,
 } from "firebase/firestore";
 
@@ -50,6 +52,23 @@ type ArchiveTextSection = {
   lines: string[];
 };
 
+const UnitsPanel = dynamic(
+  () => import("@/components/UnitsPanel").then((mod) => mod.UnitsPanel || mod.default),
+  {
+    ssr: false,
+    loading: () => <div className="card p-4">Ładowanie panelu jednostek...</div>,
+  }
+);
+
+const AccountPanel = dynamic(
+  () => import("@/components/AccountPanel").then((mod) => mod.AccountPanel || mod.default),
+  {
+    ssr: false,
+    loading: () => <div className="card p-4">Ładowanie profilu użytkownika...</div>,
+  }
+);
+
+const ARCHIVE_PAGE_SIZE = 100;
 const VALUE_SKIP_KEYS = new Set(["funkcjonariusze", "liczbaStron"]);
 
 const EXTRA_VALUE_LABELS: Record<string, string> = {
@@ -369,6 +388,11 @@ export default function ArchivePage() {
   const { alert, confirm } = useDialog();
   const { logActivity, session } = useSessionActivity();
   const [items, setItems] = useState<Archive[]>([]);
+  const [archiveCursor, setArchiveCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [archiveHasMore, setArchiveHasMore] = useState(false);
+  const [archiveLoading, setArchiveLoading] = useState(true);
+  const [archiveLoadingMore, setArchiveLoadingMore] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -380,31 +404,70 @@ export default function ArchivePage() {
   const [clearing, setClearing] = useState(false);
   const { writeLog } = useLogWriter();
 
+  const loadArchivesPage = useCallback(
+    async (cursor: QueryDocumentSnapshot<DocumentData> | null, append: boolean) => {
+      const constraints = [orderBy("createdAt", "desc"), limit(ARCHIVE_PAGE_SIZE)];
+      if (cursor) {
+        constraints.push(startAfter(cursor));
+      }
+      const snapshot = await getDocs(query(collection(db, "archives"), ...constraints));
+      const docs = snapshot.docs.map(buildArchive);
+
+      setItems((prev) => {
+        const merged = append ? [...prev, ...docs] : docs;
+        const unique = new Map<string, Archive>();
+        merged.forEach((entry) => unique.set(entry.id, entry));
+        return Array.from(unique.values());
+      });
+      setArchiveCursor(snapshot.docs[snapshot.docs.length - 1] ?? null);
+      setArchiveHasMore(snapshot.size === ARCHIVE_PAGE_SIZE);
+      setArchiveError(null);
+    },
+    []
+  );
 
   useEffect(() => {
     let mounted = true;
 
-    (async () => {
+    const fetchInitial = async () => {
+      setArchiveLoading(true);
       try {
-        const archiveQuery = query(collection(db, "archives"), orderBy("createdAt", "desc"));
-        const snapshot = await getDocs(archiveQuery);
-        if (!mounted) return;
-        setItems(snapshot.docs.map(buildArchive));
+        await loadArchivesPage(null, false);
       } catch (error) {
         console.error("Nie udało się pobrać archiwum", error);
         if (!mounted) return;
+        setArchiveError("Brak uprawnień lub błąd wczytania archiwum.");
         await alert({
           title: "Błąd archiwum",
           message: "Brak uprawnień lub błąd wczytania archiwum.",
           tone: "danger",
         });
+      } finally {
+        if (mounted) {
+          setArchiveLoading(false);
+        }
       }
-    })();
-    
+    };
+
+    void fetchInitial();
+
     return () => {
       mounted = false;
     };
-  }, [alert]);
+  }, [alert, loadArchivesPage]);
+
+  const loadMoreArchives = useCallback(async () => {
+    if (!archiveHasMore || archiveLoadingMore) return;
+    setArchiveLoadingMore(true);
+    try {
+      await loadArchivesPage(archiveCursor, true);
+    } catch (error) {
+      console.error("Nie udało się pobrać kolejnej strony archiwum", error);
+      setArchiveError("Nie udało się pobrać kolejnej strony archiwum.");
+    } finally {
+      setArchiveLoadingMore(false);
+    }
+  }, [archiveCursor, archiveHasMore, archiveLoadingMore, loadArchivesPage]);
 
   useEffect(() => {
     if (!session) return;
@@ -1129,98 +1192,118 @@ export default function ArchivePage() {
               </div>
 
               <div className="grid gap-2">
-                {filteredItems.map((item) => {
-                  const isSelected = selectedIds.includes(item.id);
-                  const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
-                  const imageLinks = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
-                  const textSections = buildArchiveTextSections(item);
+                {archiveLoading && <p className="text-sm text-beige-700">Wczytywanie archiwum...</p>}
+                {archiveError && <p className="text-sm text-red-300">{archiveError}</p>}
+                {!archiveLoading && filteredItems.length === 0 && <p>Brak wpisów spełniających kryteria.</p>}
+                {filteredItems.length > 0 && (
+                  <VirtualizedList
+                    items={filteredItems}
+                    itemKey={(item) => item.id}
+                    estimateSize={320}
+                    overscan={3}
+                    style={{ maxHeight: "70vh", minHeight: "320px" }}
+                    renderItem={(item) => {
+                      const isSelected = selectedIds.includes(item.id);
+                      const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
+                      const imageLinks = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+                      const textSections = buildArchiveTextSections(item);
 
-                  return (
-                  <div
-                    key={item.id}
-                    className={`card relative p-4 grid md:grid-cols-[1fr_auto] gap-3 transition-all ${
-                      isSelected ? "ring-2 ring-blue-400/80" : ""
-                    }`}
-                  >
-                    {selectionMode && (
-                      <button
-                        type="button"
-                        onClick={() => toggleSelected(item.id)}
-                        className={`absolute top-3 right-3 flex h-6 w-6 items-center justify-center rounded-full border border-white/40 transition ${
-                          isSelected ? "bg-blue-500/80 border-blue-200" : "bg-black/30"
-                        }`}
-                        aria-pressed={isSelected}
-                      >
-                        {isSelected && <span className="text-xs font-bold text-white">✓</span>}
-                      </button>
-                    )}
+                      return (
+                        <div className="mb-2">
+                          <div
+                            key={item.id}
+                            className={`card relative p-4 grid md:grid-cols-[1fr_auto] gap-3 transition-all ${
+                              isSelected ? "ring-2 ring-blue-400/80" : ""
+                            }`}
+                          >
+                            {selectionMode && (
+                              <button
+                                type="button"
+                                onClick={() => toggleSelected(item.id)}
+                                className={`absolute top-3 right-3 flex h-6 w-6 items-center justify-center rounded-full border border-white/40 transition ${
+                                  isSelected ? "bg-blue-500/80 border-blue-200" : "bg-black/30"
+                                }`}
+                                aria-pressed={isSelected}
+                              >
+                                {isSelected && <span className="text-xs font-bold text-white">✓</span>}
+                              </button>
+                            )}
 
-                    <div className="pr-6">
-                      <div className="font-semibold">{item.templateName}</div>
-                      <div className="text-sm text-beige-700">
-                        Autor (login): {item.userLogin || "—"} • Funkcjonariusze: {(item.officers || []).join(", ") || "—"}
-                      </div>
-                      <div className="text-sm text-beige-700">
-                        {createdAt ? createdAt.toLocaleString() : "—"}
-                        {item.dossierId && (
-                          <>
-                            {" "}•{" "}
-                            <a className="underline" href={`/dossiers/${item.dossierId}`}>
-                              Zobacz teczkę
-                            </a>
-                          </>
-                        )}
-                      </div>
-                      {textSections.length > 0 && (
-                        <div className="mt-3 space-y-3 text-sm">
-                          {textSections.map((section, sectionIndex) => (
-                            <div
-                              key={`${item.id}-section-${sectionIndex}`}
-                              className="rounded-xl border border-white/10 bg-black/20 p-3 whitespace-pre-wrap leading-5"
-                            >
-                              {section.title && (
-                                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-beige-500">
-                                  {section.title}
+                            <div className="pr-6">
+                              <div className="font-semibold">{item.templateName}</div>
+                              <div className="text-sm text-beige-700">
+                                Autor (login): {item.userLogin || "—"} • Funkcjonariusze: {(item.officers || []).join(", ") || "—"}
+                              </div>
+                              <div className="text-sm text-beige-700">
+                                {createdAt ? createdAt.toLocaleString() : "—"}
+                                {item.dossierId && (
+                                  <>
+                                    {" "}•{" "}
+                                    <a className="underline" href={`/dossiers/${item.dossierId}`}>
+                                      Zobacz teczkę
+                                    </a>
+                                  </>
+                                )}
+                              </div>
+                              {textSections.length > 0 && (
+                                <div className="mt-3 space-y-3 text-sm">
+                                  {textSections.map((section, sectionIndex) => (
+                                    <div
+                                      key={`${item.id}-section-${sectionIndex}`}
+                                      className="rounded-xl border border-white/10 bg-black/20 p-3 whitespace-pre-wrap leading-5"
+                                    >
+                                      {section.title && (
+                                        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-beige-500">
+                                          {section.title}
+                                        </div>
+                                      )}
+                                      {section.lines.join("\n")}
+                                    </div>
+                                  ))}
                                 </div>
                               )}
-                              {section.lines.join("\n")}
+                              {imageLinks.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-2 text-sm">
+                                  {imageLinks.map((url, index) => (
+                                    <a
+                                      key={`${item.id}-image-${index}`}
+                                      className="text-blue-700 underline"
+                                      href={url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      onClick={() => {
+                                        if (!session) return;
+                                        void logActivity({ type: "archive_image_open", archiveId: item.id });
+                                      }}
+                                    >
+                                      Strona {index + 1}
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                          ))}
-                        </div>
-                      )}
-                      {imageLinks.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-2 text-sm">
-                          {imageLinks.map((url, index) => (
-                            <a
-                              key={`${item.id}-image-${index}`}
-                              className="text-blue-700 underline"
-                              href={url}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={() => {
-                                if (!session) return;
-                                void logActivity({ type: "archive_image_open", archiveId: item.id });
-                              }}
-                            >
-                              Strona {index + 1}
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                    </div>
 
-                    <div className="flex items-center justify-end gap-2">
-                      {can.deleteArchive(role, adminPrivileges) && !selectionMode && (
-                        <button className="btn bg-red-700 text-white" onClick={() => remove(item.id)}>
-                          Usuń
-                        </button>
-                      )}
-                    </div>
+                            <div className="flex items-center justify-end gap-2">
+                              {can.deleteArchive(role, adminPrivileges) && !selectionMode && (
+                                <button className="btn bg-red-700 text-white" onClick={() => remove(item.id)}>
+                                  Usuń
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                )}
+                {archiveHasMore && (
+                  <div className="flex justify-center">
+                    <button className="btn" onClick={loadMoreArchives} disabled={archiveLoadingMore}>
+                      {archiveLoadingMore ? "Ładowanie..." : "Załaduj więcej"}
+                    </button>
                   </div>
-                );
-              })}
-              {filteredItems.length === 0 && <p>Brak wpisów spełniających kryteria.</p>}
-            </div>
+                )}
+              </div>
             </section>
           )}
           right={<AccountPanel />}

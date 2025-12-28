@@ -24,13 +24,20 @@ function parseBody(req: NextApiRequest): ActivityLogRequest {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const allowHeader = "GET,POST,HEAD,OPTIONS";
+
   if (req.method === "OPTIONS") {
-    res.setHeader("Allow", "POST,OPTIONS");
+    res.setHeader("Allow", allowHeader);
+    return res.status(204).end();
+  }
+
+  if (req.method === "GET" || req.method === "HEAD") {
+    res.setHeader("Allow", allowHeader);
     return res.status(204).end();
   }
 
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST,OPTIONS");
+    res.setHeader("Allow", allowHeader);
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
