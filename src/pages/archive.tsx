@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Head from "next/head";
+import dynamic from "next/dynamic";
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { UnitsPanel } from "@/components/UnitsPanel";
-import { AccountPanel } from "@/components/AccountPanel";
 import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { useProfile, can } from "@/hooks/useProfile";
 import { useLogWriter } from "@/hooks/useLogWriter";
+import { VirtualList } from "@/components/VirtualList";
 import { db } from "@/lib/firebase";
 import { ensureReportFonts } from "@/lib/reportFonts";
 import { TEMPLATES, Template } from "@/lib/templates";
@@ -18,13 +18,15 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  limit,
   orderBy,
   query,
   serverTimestamp,
+  startAfter,
   writeBatch,
 } from "firebase/firestore";
 
-import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
+import type { DocumentData, QueryConstraint, QueryDocumentSnapshot } from "firebase/firestore";
 
 type Archive = {
   id: string;
@@ -50,6 +52,8 @@ type ArchiveTextSection = {
   lines: string[];
 };
 
+const ARCHIVE_PAGE_SIZE = 100;
+
 const VALUE_SKIP_KEYS = new Set(["funkcjonariusze", "liczbaStron"]);
 
 const EXTRA_VALUE_LABELS: Record<string, string> = {
@@ -71,6 +75,14 @@ const FINE_FIELDS_BY_NAME: Record<string, string[]> = {
   "raport z założenia blokady": ["kara"],
   "protokół zajęcia pojazdu": ["grzywna"],
 };
+
+const UnitsPanelLazy = dynamic(() => import("@/components/UnitsPanel"), {
+  loading: () => <div className="card p-4">Ładowanie panelu jednostek...</div>,
+});
+
+const AccountPanelLazy = dynamic(() => import("@/components/AccountPanel"), {
+  loading: () => <div className="card p-4">Ładowanie panelu konta...</div>,
+});
 
 function parseAmount(raw: unknown): number {
   if (typeof raw === "number") {
@@ -369,6 +381,10 @@ export default function ArchivePage() {
   const { alert, confirm } = useDialog();
   const { logActivity, session } = useSessionActivity();
   const [items, setItems] = useState<Archive[]>([]);
+  const [archiveCursor, setArchiveCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -379,32 +395,60 @@ export default function ArchivePage() {
   const [reportError, setReportError] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
   const { writeLog } = useLogWriter();
+  const mountedRef = useRef(true);
 
-
-  useEffect(() => {
-    let mounted = true;
-
-    (async () => {
+  const fetchArchivePage = useCallback(
+    async (cursor: QueryDocumentSnapshot<DocumentData> | null, append: boolean) => {
+      const setBusy = append ? setLoadingMore : setLoading;
+      setBusy(true);
       try {
-        const archiveQuery = query(collection(db, "archives"), orderBy("createdAt", "desc"));
+        const constraints: QueryConstraint[] = [orderBy("createdAt", "desc"), limit(ARCHIVE_PAGE_SIZE)];
+        if (cursor) constraints.push(startAfter(cursor));
+        const archiveQuery = query(collection(db, "archives"), ...constraints);
         const snapshot = await getDocs(archiveQuery);
-        if (!mounted) return;
-        setItems(snapshot.docs.map(buildArchive));
+        if (!mountedRef.current) return;
+        const pageItems = snapshot.docs.map(buildArchive);
+        setItems((prev) => {
+          if (!append) return pageItems;
+          const existing = new Set(prev.map((item) => item.id));
+          const merged = [...prev];
+          pageItems.forEach((item) => {
+            if (!existing.has(item.id)) {
+              merged.push(item);
+            }
+          });
+          return merged;
+        });
+        setArchiveCursor(snapshot.docs.length ? snapshot.docs[snapshot.docs.length - 1] : null);
+        setHasMore(snapshot.size === ARCHIVE_PAGE_SIZE);
       } catch (error) {
         console.error("Nie udało się pobrać archiwum", error);
-        if (!mounted) return;
-        await alert({
-          title: "Błąd archiwum",
-          message: "Brak uprawnień lub błąd wczytania archiwum.",
-          tone: "danger",
-        });
+        if (!mountedRef.current) return;
+        if (!append) {
+          await alert({
+            title: "Błąd archiwum",
+            message: "Brak uprawnień lub błąd wczytania archiwum.",
+            tone: "danger",
+          });
+        } else {
+          setHasMore(false);
+        }
+      } finally {
+        if (mountedRef.current) {
+          setBusy(false);
+        }
       }
-    })();
-    
+    },
+    [alert]
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void fetchArchivePage(null, false);
     return () => {
-      mounted = false;
+      mountedRef.current = false;
     };
-  }, [alert]);
+  }, [fetchArchivePage]);
 
   useEffect(() => {
     if (!session) return;
@@ -414,6 +458,11 @@ export default function ArchivePage() {
   useEffect(() => {
     setSelectedIds((prev) => prev.filter((id) => items.some((item) => item.id === id)));
   }, [items]);
+
+  const loadMoreArchives = useCallback(() => {
+    if (loading || loadingMore || !hasMore) return;
+    void fetchArchivePage(archiveCursor, true);
+  }, [archiveCursor, fetchArchivePage, hasMore, loading, loadingMore]);
 
   const availableTypes = useMemo(() => {
     const entries = new Map<string, string>();
@@ -454,6 +503,13 @@ export default function ArchivePage() {
       return haystack.includes(needle);
     });
   }, [fromDate, items, search, selectedTypes, toDate]);
+
+  const archiveListHeight = useMemo(() => {
+    if (filteredItems.length === 0) return 240;
+    const estimated = filteredItems.length * 360;
+    return Math.min(900, Math.max(420, estimated));
+  }, [filteredItems.length]);
+  const useVirtualArchive = filteredItems.length > 30;
 
   const resetFilters = () => {
     setSearch("");
@@ -1011,6 +1067,96 @@ export default function ArchivePage() {
 
   const selectedCount = selectedIds.length;
 
+  const ArchiveCard = ({ item }: { item: Archive }) => {
+    const isSelected = selectedIds.includes(item.id);
+    const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
+    const imageLinks = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
+    const textSections = buildArchiveTextSections(item);
+
+    return (
+      <div
+        className={`card relative p-4 grid md:grid-cols-[1fr_auto] gap-3 transition-all ${
+          isSelected ? "ring-2 ring-blue-400/80" : ""
+        }`}
+      >
+        {selectionMode && (
+          <button
+            type="button"
+            onClick={() => toggleSelected(item.id)}
+            className={`absolute top-3 right-3 flex h-6 w-6 items-center justify-center rounded-full border border-white/40 transition ${
+              isSelected ? "bg-blue-500/80 border-blue-200" : "bg-black/30"
+            }`}
+            aria-pressed={isSelected}
+          >
+            {isSelected && <span className="text-xs font-bold text-white">✓</span>}
+          </button>
+        )}
+
+        <div className="pr-6">
+          <div className="font-semibold">{item.templateName}</div>
+          <div className="text-sm text-beige-700">
+            Autor (login): {item.userLogin || "—"} • Funkcjonariusze: {(item.officers || []).join(", ") || "—"}
+          </div>
+          <div className="text-sm text-beige-700">
+            {createdAt ? createdAt.toLocaleString() : "—"}
+            {item.dossierId && (
+              <>
+                {" "}•{" "}
+                <a className="underline" href={`/dossiers/${item.dossierId}`}>
+                  Zobacz teczkę
+                </a>
+              </>
+            )}
+          </div>
+          {textSections.length > 0 && (
+            <div className="mt-3 space-y-3 text-sm">
+              {textSections.map((section, sectionIndex) => (
+                <div
+                  key={`${item.id}-section-${sectionIndex}`}
+                  className="rounded-xl border border-white/10 bg-black/20 p-3 whitespace-pre-wrap leading-5"
+                >
+                  {section.title && (
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-beige-500">
+                      {section.title}
+                    </div>
+                  )}
+                  {section.lines.join("\n")}
+                </div>
+              ))}
+            </div>
+          )}
+          {imageLinks.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2 text-sm">
+              {imageLinks.map((url, index) => (
+                <a
+                  key={`${item.id}-image-${index}`}
+                  className="text-blue-700 underline"
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => {
+                    if (!session) return;
+                    void logActivity({ type: "archive_image_open", archiveId: item.id });
+                  }}
+                >
+                  Strona {index + 1}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2">
+          {can.deleteArchive(role, adminPrivileges) && !selectionMode && (
+            <button className="btn bg-red-700 text-white" onClick={() => remove(item.id)}>
+              Usuń
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   if (!can.seeArchive(role, adminPrivileges)) {
     return (
       <AuthGate>
@@ -1020,9 +1166,9 @@ export default function ArchivePage() {
           </Head>
           <Nav showSidebars={false} />
           <DashboardLayout
-            left={<UnitsPanel />}
+            left={<UnitsPanelLazy />}
             center={<div className="card p-6 text-center" data-section="archive">Brak dostępu do archiwum.</div>}
-            right={<AccountPanel />}
+            right={<AccountPanelLazy />}
           />
         </>
       </AuthGate>
@@ -1037,7 +1183,7 @@ export default function ArchivePage() {
         </Head>
         <Nav showSidebars={false} />
         <DashboardLayout
-          left={<UnitsPanel />}
+          left={<UnitsPanelLazy />}
           center={(
             <section className="flex flex-col gap-6" data-section="archive">
               <div className="card p-6 space-y-5">
@@ -1129,101 +1275,40 @@ export default function ArchivePage() {
               </div>
 
               <div className="grid gap-2">
-                {filteredItems.map((item) => {
-                  const isSelected = selectedIds.includes(item.id);
-                  const createdAt = item.createdAt?.toDate?.() || item.createdAtDate;
-                  const imageLinks = item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [];
-                  const textSections = buildArchiveTextSections(item);
-
-                  return (
-                  <div
-                    key={item.id}
-                    className={`card relative p-4 grid md:grid-cols-[1fr_auto] gap-3 transition-all ${
-                      isSelected ? "ring-2 ring-blue-400/80" : ""
-                    }`}
-                  >
-                    {selectionMode && (
-                      <button
-                        type="button"
-                        onClick={() => toggleSelected(item.id)}
-                        className={`absolute top-3 right-3 flex h-6 w-6 items-center justify-center rounded-full border border-white/40 transition ${
-                          isSelected ? "bg-blue-500/80 border-blue-200" : "bg-black/30"
-                        }`}
-                        aria-pressed={isSelected}
-                      >
-                        {isSelected && <span className="text-xs font-bold text-white">✓</span>}
-                      </button>
+                {loading && items.length === 0 ? (
+                  <p className="text-sm text-beige-700">Ładowanie archiwum...</p>
+                ) : filteredItems.length === 0 ? (
+                  <p>Brak wpisów spełniających kryteria.</p>
+                ) : useVirtualArchive ? (
+                  <VirtualList
+                    items={filteredItems}
+                    height={archiveListHeight}
+                    estimateItemHeight={440}
+                    overscan={3}
+                    itemKey={(item) => item.id}
+                    className="rounded-xl border border-white/5 bg-black/10"
+                    renderItem={(item) => (
+                      <div className="p-1">
+                        <ArchiveCard item={item} />
+                      </div>
                     )}
-
-                    <div className="pr-6">
-                      <div className="font-semibold">{item.templateName}</div>
-                      <div className="text-sm text-beige-700">
-                        Autor (login): {item.userLogin || "—"} • Funkcjonariusze: {(item.officers || []).join(", ") || "—"}
-                      </div>
-                      <div className="text-sm text-beige-700">
-                        {createdAt ? createdAt.toLocaleString() : "—"}
-                        {item.dossierId && (
-                          <>
-                            {" "}•{" "}
-                            <a className="underline" href={`/dossiers/${item.dossierId}`}>
-                              Zobacz teczkę
-                            </a>
-                          </>
-                        )}
-                      </div>
-                      {textSections.length > 0 && (
-                        <div className="mt-3 space-y-3 text-sm">
-                          {textSections.map((section, sectionIndex) => (
-                            <div
-                              key={`${item.id}-section-${sectionIndex}`}
-                              className="rounded-xl border border-white/10 bg-black/20 p-3 whitespace-pre-wrap leading-5"
-                            >
-                              {section.title && (
-                                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-beige-500">
-                                  {section.title}
-                                </div>
-                              )}
-                              {section.lines.join("\n")}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {imageLinks.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-2 text-sm">
-                          {imageLinks.map((url, index) => (
-                            <a
-                              key={`${item.id}-image-${index}`}
-                              className="text-blue-700 underline"
-                              href={url}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={() => {
-                                if (!session) return;
-                                void logActivity({ type: "archive_image_open", archiveId: item.id });
-                              }}
-                            >
-                              Strona {index + 1}
-                            </a>
-                          ))}
-                        </div>
-                      )}
+                  />
+                ) : (
+                  filteredItems.map((item) => (
+                    <div key={item.id} className="p-1">
+                      <ArchiveCard item={item} />
                     </div>
-
-                    <div className="flex items-center justify-end gap-2">
-                      {can.deleteArchive(role, adminPrivileges) && !selectionMode && (
-                        <button className="btn bg-red-700 text-white" onClick={() => remove(item.id)}>
-                          Usuń
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {filteredItems.length === 0 && <p>Brak wpisów spełniających kryteria.</p>}
-            </div>
+                  ))
+                )}
+                {hasMore && (
+                  <button className="btn w-full" onClick={loadMoreArchives} disabled={loadingMore || loading}>
+                    {loadingMore ? "Ładowanie..." : "Załaduj więcej"}
+                  </button>
+                )}
+              </div>
             </section>
           )}
-          right={<AccountPanel />}
+          right={<AccountPanelLazy />}
         />
       </>
     </AuthGate>

@@ -4,6 +4,7 @@ import AuthGate from "@/components/AuthGate";
 import { useProfile, Role } from "@/hooks/useProfile";
 import { useLogWriter } from "@/hooks/useLogWriter";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import type { CSSProperties } from "react";
 import {
   addDoc,
@@ -56,8 +57,6 @@ import {
   normalizeAdditionalRanks,
 } from "@/lib/hr";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { UnitsPanel } from "@/components/UnitsPanel";
-import { AccountPanel } from "@/components/AccountPanel";
 
 type Range = "all" | "30" | "7";
 type Person = { uid: string; fullName?: string; login?: string };
@@ -134,6 +133,14 @@ const shouldFallbackToClient = (status: number, message?: string | null) => {
 };
 
 const LOG_PAGE_SIZE = 150;
+
+const UnitsPanelLazy = dynamic(() => import("@/components/UnitsPanel"), {
+  loading: () => <div className="card p-4">Ładowanie panelu jednostek...</div>,
+});
+
+const AccountPanelLazy = dynamic(() => import("@/components/AccountPanel"), {
+  loading: () => <div className="card p-4">Ładowanie panelu konta...</div>,
+});
 
 const ROLE_RANK = new Map<Role, number>(ROLE_VALUES.map((value, index) => [value, index]));
 
@@ -450,7 +457,7 @@ export default function Admin() {
     setHasMoreLogs(false);
     setLogsError(null);
     setLogPage(0);
-  }, [logFilters, role]);
+  }, [hasAdminAccess, logFilters, role]);
 
   useEffect(() => {
     if (!hasAdminAccess) {
@@ -507,7 +514,7 @@ export default function Admin() {
     );
 
     return () => unsubscribe();
-  }, [role]);
+  }, [hasAdminAccess, role]);
 
   useEffect(() => {
     if (!hasAdminAccess) {
@@ -570,7 +577,7 @@ export default function Admin() {
     );
 
     return () => unsubscribe();
-  }, [role]);
+  }, [hasAdminAccess, role]);
 
   const updateTicketActionStatus = useCallback((id: string, status: TicketActionStatus | null) => {
     setTicketActionStatus((prev) => {
@@ -653,7 +660,7 @@ export default function Admin() {
   );
 
   useEffect(() => {
-    if (!hasAdminAccess) {
+    if (!hasAdminAccess || section !== "logs") {
       setLogsLoading(false);
       return;
     }
@@ -703,7 +710,7 @@ export default function Admin() {
       }
     };
     void loadLogs();
-  }, [role, logPage, logPages, logCursors, logPageHasMore, buildLogsQuery]);
+  }, [role, logPage, logPages, logCursors, logPageHasMore, buildLogsQuery, hasAdminAccess, section]);
 
   useEffect(() => {
     if (announcementSaving) return;
@@ -1851,9 +1858,9 @@ export default function Admin() {
         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
         <Nav showSidebars={false} />
         <DashboardLayout
-          left={<UnitsPanel />}
+          left={<UnitsPanelLazy />}
           center={<div className="card p-6">Ładowanie…</div>}
-          right={<AccountPanel />}
+          right={<AccountPanelLazy />}
         />
       </AuthGate>
     );
@@ -1864,13 +1871,13 @@ export default function Admin() {
         <Head><title>LSPD 77RP — Panel zarządu</title></Head>
         <Nav showSidebars={false} />
         <DashboardLayout
-          left={<UnitsPanel />}
+          left={<UnitsPanelLazy />}
           center={(
             <div className="card p-6 text-center">
               Brak dostępu. Panel zarządu jest dostępny dla rang <b>Staff Commander</b> i wyższych.
             </div>
           )}
-          right={<AccountPanel />}
+          right={<AccountPanelLazy />}
         />
       </AuthGate>
     );
@@ -1883,7 +1890,7 @@ export default function Admin() {
         <Nav showSidebars={false} />
 
         <DashboardLayout
-          left={<UnitsPanel />}
+          left={<UnitsPanelLazy />}
           center={(
             <>
               <div className="flex flex-col gap-6">
@@ -3007,7 +3014,7 @@ export default function Admin() {
             )}
           </>
         )}
-      right={<AccountPanel />}
+      right={<AccountPanelLazy />}
     />
     </>
     </AuthGate>
