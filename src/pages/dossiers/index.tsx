@@ -1,19 +1,20 @@
 import AuthGate from "@/components/AuthGate";
 import Nav from "@/components/Nav";
 import Head from "next/head";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  addDoc,
   collection,
   doc,
-  onSnapshot,
   getDocs,
+  limit,
   orderBy,
   query,
   runTransaction,
   serverTimestamp,
+  startAfter,
   writeBatch,
 } from "firebase/firestore";
+import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useProfile } from "@/hooks/useProfile";
 import { useLogWriter } from "@/hooks/useLogWriter";
@@ -21,11 +22,34 @@ import { useDialog } from "@/components/DialogProvider";
 import { useSessionActivity } from "@/components/ActivityLogger";
 import { hasOfficerAccess } from "@/lib/roles";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { UnitsPanel } from "@/components/UnitsPanel";
-import { AccountPanel } from "@/components/AccountPanel";
+import { VirtualizedList } from "@/components/VirtualizedList";
+import dynamic from "next/dynamic";
+
+const DOSSIER_PAGE_SIZE = 100;
+
+const UnitsPanel = dynamic(
+  () => import("@/components/UnitsPanel").then((mod) => mod.UnitsPanel || mod.default),
+  {
+    ssr: false,
+    loading: () => <div className="card p-4">Ładowanie panelu jednostek...</div>,
+  }
+);
+
+const AccountPanel = dynamic(
+  () => import("@/components/AccountPanel").then((mod) => mod.AccountPanel || mod.default),
+  {
+    ssr: false,
+    loading: () => <div className="card p-4">Ładowanie profilu użytkownika...</div>,
+  }
+);
 
 export default function Dossiers() {
   const [list, setList] = useState<any[]>([]);
+  const [dossierCursor, setDossierCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [dossierHasMore, setDossierHasMore] = useState(false);
+  const [dossierLoading, setDossierLoading] = useState(true);
+  const [dossierLoadingMore, setDossierLoadingMore] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
   const [qtxt, setQ] = useState("");
   const [form, setForm] = useState({ first: "", last: "", cid: "" });
   const [err, setErr] = useState<string | null>(null);
@@ -39,10 +63,63 @@ export default function Dossiers() {
   const { writeLog } = useLogWriter();
   const accentPalette = ["#a855f7", "#38bdf8", "#f97316", "#22c55e", "#ef4444", "#eab308"];
 
+  const loadDossiersPage = useCallback(
+    async (cursor: QueryDocumentSnapshot<DocumentData> | null, append: boolean) => {
+      const constraints = [orderBy("createdAt", "desc"), limit(DOSSIER_PAGE_SIZE)];
+      if (cursor) {
+        constraints.push(startAfter(cursor));
+      }
+      const snapshot = await getDocs(query(collection(db, "dossiers"), ...constraints));
+      const docs = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+
+      setList((prev) => {
+        const merged = append ? [...prev, ...docs] : docs;
+        const unique = new Map<string, any>();
+        merged.forEach((entry) => unique.set(entry.id, entry));
+        return Array.from(unique.values());
+      });
+      setDossierCursor(snapshot.docs[snapshot.docs.length - 1] ?? null);
+      setDossierHasMore(snapshot.size === DOSSIER_PAGE_SIZE);
+      setListError(null);
+    },
+    []
+  );
+
   useEffect(() => {
-    const q = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
-    return onSnapshot(q, (snap) => setList(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))));
-  }, []);
+    let mounted = true;
+    const load = async () => {
+      setDossierLoading(true);
+      try {
+        await loadDossiersPage(null, false);
+      } catch (error) {
+        console.error("Nie udało się pobrać teczek", error);
+        if (!mounted) return;
+        setListError("Nie udało się pobrać teczek.");
+      } finally {
+        if (mounted) {
+          setDossierLoading(false);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      mounted = false;
+    };
+  }, [loadDossiersPage]);
+
+  const loadMoreDossiers = useCallback(async () => {
+    if (!dossierHasMore || dossierLoadingMore) return;
+    setDossierLoadingMore(true);
+    try {
+      await loadDossiersPage(dossierCursor, true);
+    } catch (error) {
+      console.error("Nie udało się pobrać kolejnej strony teczek", error);
+      setListError("Nie udało się pobrać kolejnej strony teczek.");
+    } finally {
+      setDossierLoadingMore(false);
+    }
+  }, [dossierCursor, dossierHasMore, dossierLoadingMore, loadDossiersPage]);
 
   const filtered = useMemo(() => {
     const l = qtxt.toLowerCase();
@@ -111,6 +188,7 @@ export default function Dossiers() {
         createdAt: timestamp,
         dossierId,
       });
+      await loadDossiersPage(null, false);
       setForm({ first: "", last: "", cid: "" });
       setOk("Teczka została utworzona.");
     } catch (e: any) {
@@ -164,6 +242,7 @@ export default function Dossiers() {
         removedRecords: recordsSnap.size,
       });
       setOk("Teczka została usunięta.");
+      setList((prev) => prev.filter((entry) => entry.id !== dossierId));
     } catch (e: any) {
       setErr(e?.message || "Nie udało się usunąć teczki.");
     } finally {
@@ -208,58 +287,78 @@ export default function Dossiers() {
                 {ok && <div className="card p-3 bg-green-50 text-green-700 mb-3">{ok}</div>}
                 <div className="grid gap-3">
                   <h2 className="text-xs uppercase tracking-[0.3em] text-beige-100/60">Teczki osób</h2>
-                  {filtered.map((d, index) => {
-                    const accent = accentPalette[index % accentPalette.length];
-                    return (
-                      <div
-                        key={d.id}
-                        className="card p-4 transition hover:-translate-y-0.5"
-                        data-section="dossiers"
-                        style={{
-                          borderColor: `${accent}90`,
-                          boxShadow: `0 26px 60px -28px ${accent}aa`,
-                        }}
-                      >
-                        <a
-                          className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
-                          href={`/dossiers/${d.id}`}
-                          onClick={() => {
-                            if (!session) return;
-                            void logActivity({
-                              type: "dossier_link_open",
-                              dossierId: d.id,
-                              dossierTitle: d.title,
-                              dossierCid: d.cid,
-                            });
-                          }}
-                        >
-                          <div>
-                            <div className="font-semibold text-lg flex items-center gap-2">
-                              <span className="text-base" aria-hidden>📁</span>
-                              {d.title}
-                            </div>
-                            <div className="text-sm text-beige-100/75">CID: {d.cid}</div>
-                          </div>
-                          {canManageDossiers && (
-                            <button
-                              className="btn bg-red-700 text-white w-full md:w-auto"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                remove(d.id);
-                              }}
-                              disabled={deletingId === d.id}
-                            >
-                              {deletingId === d.id ? "Usuwanie..." : "Usuń"}
-                            </button>
-                          )}
-                        </a>
-                      </div>
-                    );
-                  })}
-                  {filtered.length === 0 && (
+                  {listError && <div className="card p-3 bg-red-50 text-red-700">{listError}</div>}
+                  {dossierLoading && <div className="text-sm text-beige-700">Wczytywanie teczek...</div>}
+                  {!dossierLoading && filtered.length === 0 && (
                     <div className="card p-4 text-sm text-beige-100/70" data-section="dossiers">
                       Nie znaleziono teczki spełniającej kryteria wyszukiwania.
+                    </div>
+                  )}
+                  {filtered.length > 0 && (
+                    <VirtualizedList
+                      items={filtered}
+                      itemKey={(item) => item.id}
+                      estimateSize={140}
+                      overscan={6}
+                      style={{ maxHeight: "70vh", minHeight: "320px" }}
+                      renderItem={(d, index) => {
+                        const accent = accentPalette[index % accentPalette.length];
+                        return (
+                          <div className="mb-2">
+                            <div
+                              key={d.id}
+                              className="card p-4 transition hover:-translate-y-0.5"
+                              data-section="dossiers"
+                              style={{
+                                borderColor: `${accent}90`,
+                                boxShadow: `0 26px 60px -28px ${accent}aa`,
+                              }}
+                            >
+                              <a
+                                className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
+                                href={`/dossiers/${d.id}`}
+                                onClick={() => {
+                                  if (!session) return;
+                                  void logActivity({
+                                    type: "dossier_link_open",
+                                    dossierId: d.id,
+                                    dossierTitle: d.title,
+                                    dossierCid: d.cid,
+                                  });
+                                }}
+                              >
+                                <div>
+                                  <div className="font-semibold text-lg flex items-center gap-2">
+                                    <span className="text-base" aria-hidden>📁</span>
+                                    {d.title}
+                                  </div>
+                                  <div className="text-sm text-beige-100/75">CID: {d.cid}</div>
+                                </div>
+                                {canManageDossiers && (
+                                  <button
+                                    className="btn bg-red-700 text-white w-full md:w-auto"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      remove(d.id);
+                                    }}
+                                    disabled={deletingId === d.id}
+                                  >
+                                    {deletingId === d.id ? "Usuwanie..." : "Usuń"}
+                                  </button>
+                                )}
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    />
+                  )}
+                  {dossierHasMore && (
+                    <div className="flex justify-center">
+                      <button className="btn" onClick={loadMoreDossiers} disabled={dossierLoadingMore}>
+                        {dossierLoadingMore ? "Ładowanie..." : "Załaduj więcej"}
+                      </button>
                     </div>
                   )}
                 </div>
