@@ -5,3 +5,5 @@ export function UnitsPanel() {
     <UnitSidebar variant="inline" showProfilePanel={false} leftClassName="lg:w-full lg:min-w-0" />
   );
 }
+
+export default UnitsPanel;

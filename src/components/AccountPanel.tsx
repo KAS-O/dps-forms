@@ -11,3 +11,5 @@ export function AccountPanel() {
     </div>
   );
 }
+
+export default AccountPanel;
