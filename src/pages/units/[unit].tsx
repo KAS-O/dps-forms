@@ -839,6 +839,7 @@ export default function UnitPanelPage() {
         </Head>
         <Nav showSidebars={false} />
         <DashboardLayout
+          className={activeTab === "groups" && supportsCriminalGroups ? "layout-shell--full" : undefined}
           left={<UnitsPanel />}
           center={(
             <>
