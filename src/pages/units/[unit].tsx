@@ -1032,7 +1032,7 @@ export default function UnitPanelPage() {
                 )}
 
                 {activeTab === "groups" && supportsCriminalGroups && canManage && (
-                  <div className="grid gap-6">
+                  <div className="grid gap-6 lg:mx-auto lg:max-w-5xl xl:max-w-6xl">
                     <div className="card bg-gradient-to-br from-fuchsia-900/85 via-indigo-900/80 to-slate-900/85 p-6 text-white shadow-xl">
                       <h2 className="text-xl font-semibold">Gang Unit — rejestr organizacji</h2>
                       <p className="text-sm text-white/70">
