@@ -139,6 +139,11 @@ body.is-login .app-scale-content {
   --shell-max-width: 1760px;
 }
 
+.layout-shell--full {
+  --shell-max-width: 100%;
+  --shell-padding-x: 0;
+}
+
 .layout-grid {
   display: grid;
   gap: var(--shell-gap);
@@ -165,6 +170,11 @@ body.is-login .app-scale-content {
   column-gap: 40px;
   row-gap: 24px;
   align-items: flex-start;
+}
+
+.layout-shell--full .page-layout {
+  max-width: none;
+  padding-inline: 0;
 }
 
 .units-panel,
