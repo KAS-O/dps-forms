@@ -39,7 +39,15 @@ const AccountPanelLazy = dynamic(() => import("@/components/AccountPanel"), {
 export default function Dossiers() {
   const [list, setList] = useState<any[]>([]);
   const [qtxt, setQ] = useState("");
-  const [form, setForm] = useState({ first: "", last: "", cid: "" });
+  const [form, setForm] = useState({
+    first: "",
+    last: "",
+    cid: "",
+    workplace: "",
+    skinColor: "",
+    nationality: "",
+    hairColor: "",
+  });
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -187,6 +195,10 @@ export default function Dossiers() {
       const first = form.first.trim();
       const last = form.last.trim();
       const cid = form.cid.trim();
+      const workplace = form.workplace.trim();
+      const skinColor = form.skinColor.trim();
+      const nationality = form.nationality.trim();
+      const hairColor = form.hairColor.trim();
       if (!first || !last || !cid) {
         setErr("Uzupełnij imię, nazwisko i CID.");
         return;
@@ -209,6 +221,10 @@ export default function Dossiers() {
           last,
           cid,
           title,
+          workplace,
+          skinColor,
+          nationality,
+          hairColor,
           createdAt: serverTimestamp(),
           createdBy: user?.email || "",
           createdByUid: user?.uid || "",
@@ -225,6 +241,10 @@ export default function Dossiers() {
           nazwisko: last,
           cid,
           tytul: title,
+          miejscePracy: workplace,
+          kolorSkory: skinColor,
+          narodowosc: nationality,
+          kolorWlosow: hairColor,
         },
         first,
         last,
@@ -236,10 +256,26 @@ export default function Dossiers() {
         const exists = prev.some((item) => item.id === dossierId);
         if (exists) return prev;
         const createdAt = new Date();
-        return [{ id: dossierId, first, last, cid, title, createdAt, createdBy: user?.email || "", createdByUid: user?.uid || "" }, ...prev];
+        return [
+          {
+            id: dossierId,
+            first,
+            last,
+            cid,
+            title,
+            workplace,
+            skinColor,
+            nationality,
+            hairColor,
+            createdAt,
+            createdBy: user?.email || "",
+            createdByUid: user?.uid || "",
+          },
+          ...prev,
+        ];
       });
       setHasMore(true);
-      setForm({ first: "", last: "", cid: "" });
+      setForm({ first: "", last: "", cid: "", workplace: "", skinColor: "", nationality: "", hairColor: "" });
       setOk("Teczka została utworzona.");
     } catch (e: any) {
       setErr(e?.message || "Nie udało się utworzyć teczki");
@@ -400,6 +436,32 @@ export default function Dossiers() {
                     placeholder="CID"
                     value={form.cid}
                     onChange={(e) => setForm({ ...form, cid: e.target.value })}
+                  />
+                </div>
+                <div className="grid md:grid-cols-2 gap-2">
+                  <input
+                    className="input"
+                    placeholder="Miejsce pracy (opcjonalnie)"
+                    value={form.workplace}
+                    onChange={(e) => setForm({ ...form, workplace: e.target.value })}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Narodowość (opcjonalnie)"
+                    value={form.nationality}
+                    onChange={(e) => setForm({ ...form, nationality: e.target.value })}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Kolor skóry (opcjonalnie)"
+                    value={form.skinColor}
+                    onChange={(e) => setForm({ ...form, skinColor: e.target.value })}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Kolor włosów (opcjonalnie)"
+                    value={form.hairColor}
+                    onChange={(e) => setForm({ ...form, hairColor: e.target.value })}
                   />
                 </div>
                 <button className="btn w-full md:w-auto" onClick={create} disabled={creating}>
