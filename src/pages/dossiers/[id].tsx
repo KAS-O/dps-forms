@@ -49,6 +49,12 @@ type DossierInfo = {
   cid?: string;
   category?: string;
   group?: GroupInfo | null;
+  workplace?: string;
+  skinColor?: string;
+  nationality?: string;
+  hairColor?: string;
+  profileImageUrl?: string;
+  gallery?: RecordAttachment[];
 };
 
 type DossierRecord = Record<string, any> & { id: string };
@@ -100,6 +106,29 @@ const ACTIVE_FORM_TITLES: Record<Exclude<ActiveFormType, null>, string> = {
   member: "Dodaj członka grupy",
   vehicle: "Dodaj pojazd organizacji",
 };
+
+const NOTE_CATEGORIES = [
+  { value: "obserwacja", label: "Obserwacja" },
+  { value: "raport", label: "Raport" },
+  { value: "przesluchanie", label: "Przesłuchanie" },
+  { value: "incydent", label: "Incydent" },
+  { value: "watek", label: "Nowy wątek" },
+];
+
+const NOTE_MOODS = [
+  { value: "spokojny", label: "🧘 Spokojny" },
+  { value: "neutralny", label: "😐 Neutralny" },
+  { value: "niepokoj", label: "⚠️ Niepokojący" },
+  { value: "pilny", label: "🚨 Pilny" },
+  { value: "pozytywny", label: "✅ Pozytywny" },
+];
+
+const NOTE_PRIORITIES = [
+  { value: "standard", label: "Priorytet: standard" },
+  { value: "wysoki", label: "Priorytet: wysoki" },
+  { value: "krytyczny", label: "Priorytet: krytyczny" },
+  { value: "monitoring", label: "Priorytet: monitoring" },
+];
 
 const MEMBER_RANKS: RankOption[] = [
   { value: "rekrut", label: "Rekrut", color: "#fef08a" },
@@ -216,9 +245,23 @@ export default function DossierPage() {
   const [activeForm, setActiveForm] = useState<ActiveFormType>(null);
   const [memberSearch, setMemberSearch] = useState("");
 
-  const [noteForm, setNoteForm] = useState({ text: "", files: [] as File[] });
+  const [noteForm, setNoteForm] = useState({
+    title: "",
+    category: "obserwacja",
+    mood: "neutralny",
+    priority: "standard",
+    tags: "",
+    text: "",
+    files: [] as File[],
+  });
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteFileKey, setNoteFileKey] = useState(0);
+  const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
+  const [profileImageSaving, setProfileImageSaving] = useState(false);
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
+  const [gallerySaving, setGallerySaving] = useState(false);
+  const [detailsSaving, setDetailsSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const [weaponForm, setWeaponForm] = useState({
     model: "",
@@ -316,12 +359,19 @@ export default function DossierPage() {
         const snap = await getDoc(refDoc);
         const data = (snap.data() || {}) as any;
         setTitle((data.title || "") as string);
+        const gallery = Array.isArray(data.gallery) ? data.gallery : [];
         setInfo({
           first: data.first,
           last: data.last,
           cid: data.cid,
           category: data.category,
           group: data.group || null,
+          workplace: data.workplace,
+          skinColor: data.skinColor,
+          nationality: data.nationality,
+          hairColor: data.hairColor,
+          profileImageUrl: data.profileImageUrl,
+          gallery,
         });
       } catch (e: any) {
         setErr(e.message || "Błąd teczki");
@@ -421,15 +471,88 @@ export default function DossierPage() {
     [id, writeLog]
   );
 
+  const savePersonDetails = useCallback(async () => {
+    if (!id || detailsSaving) return;
+    try {
+      setErr(null);
+      setNotice(null);
+      setDetailsSaving(true);
+      await updateDoc(doc(db, "dossiers", id), {
+        workplace: info.workplace || "",
+        skinColor: info.skinColor || "",
+        nationality: info.nationality || "",
+        hairColor: info.hairColor || "",
+      });
+      setNotice("Dane osobowe zapisane.");
+    } catch (e: any) {
+      setErr(e?.message || "Nie udało się zapisać danych osobowych.");
+    } finally {
+      setDetailsSaving(false);
+    }
+  }, [detailsSaving, id, info.hairColor, info.nationality, info.skinColor, info.workplace]);
+
+  const saveProfileImage = useCallback(async () => {
+    if (!id || !profileImageFile || profileImageSaving) return;
+    try {
+      setErr(null);
+      setNotice(null);
+      setProfileImageSaving(true);
+      const [uploaded] = await uploadAttachments([profileImageFile], "profile");
+      if (uploaded) {
+        await updateDoc(doc(db, "dossiers", id), {
+          profileImageUrl: uploaded.url,
+          profileImagePath: uploaded.path || null,
+        });
+        setInfo((prev) => ({ ...prev, profileImageUrl: uploaded.url }));
+        setProfileImageFile(null);
+        setNotice("Zdjęcie profilowe zapisane.");
+      }
+    } catch (e: any) {
+      setErr(e?.message || "Nie udało się zapisać zdjęcia profilowego.");
+    } finally {
+      setProfileImageSaving(false);
+    }
+  }, [id, profileImageFile, profileImageSaving, uploadAttachments]);
+
+  const saveGalleryImages = useCallback(async () => {
+    if (!id || !galleryFiles.length || gallerySaving) return;
+    try {
+      setErr(null);
+      setNotice(null);
+      setGallerySaving(true);
+      const uploads = await uploadAttachments(galleryFiles, "gallery");
+      const nextGallery = [...(info.gallery || []), ...uploads];
+      await updateDoc(doc(db, "dossiers", id), {
+        gallery: nextGallery,
+      });
+      setInfo((prev) => ({ ...prev, gallery: nextGallery }));
+      setGalleryFiles([]);
+      setNotice("Zdjęcia dodane do galerii.");
+    } catch (e: any) {
+      setErr(e?.message || "Nie udało się dodać zdjęć do galerii.");
+    } finally {
+      setGallerySaving(false);
+    }
+  }, [galleryFiles, gallerySaving, id, info.gallery, uploadAttachments]);
+
   const addNote = useCallback(async (): Promise<boolean> => {
     if (!id || noteSaving) return false;
     try {
       setErr(null);
       setNoteSaving(true);
+      const tags = noteForm.tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean);
       const attachments = await uploadAttachments(noteForm.files, "notes");
       await addRecordWithLog(
         {
           type: "note",
+          title: noteForm.title,
+          category: noteForm.category,
+          mood: noteForm.mood,
+          priority: noteForm.priority,
+          tags,
           text: noteForm.text || "",
           attachments,
           createdAt: serverTimestamp(),
@@ -440,12 +563,25 @@ export default function DossierPage() {
         {
           message: `Dodano notatkę w teczce ${title || info.cid || id}.`,
           details: {
+            tytul: noteForm.title || "",
+            kategoria: noteForm.category,
+            nastroj: noteForm.mood,
+            priorytet: noteForm.priority,
+            tagi: tags,
             tresc: noteForm.text || "",
             liczbaZalacznikow: attachments.length,
           },
         }
       );
-      setNoteForm({ text: "", files: [] });
+      setNoteForm({
+        title: "",
+        category: "obserwacja",
+        mood: "neutralny",
+        priority: "standard",
+        tags: "",
+        text: "",
+        files: [],
+      });
       setNoteFileKey((k) => k + 1);
       return true;
     } catch (e: any) {
@@ -454,7 +590,21 @@ export default function DossierPage() {
     } finally {
       setNoteSaving(false);
     }
-  }, [addRecordWithLog, id, noteForm.files, noteForm.text, noteSaving, uploadAttachments]);
+  }, [
+    addRecordWithLog,
+    id,
+    info.cid,
+    noteForm.category,
+    noteForm.files,
+    noteForm.mood,
+    noteForm.priority,
+    noteForm.tags,
+    noteForm.text,
+    noteForm.title,
+    noteSaving,
+    title,
+    uploadAttachments,
+  ]);
 
   const addWeapon = useCallback(async (): Promise<boolean> => {
     if (!id || weaponSaving) return false;
@@ -888,6 +1038,53 @@ export default function DossierPage() {
       case "note":
         return (
           <div className="grid gap-3">
+            <div className="grid md:grid-cols-2 gap-3">
+              <input
+                className="input"
+                placeholder="Tytuł notatki"
+                value={noteForm.title}
+                onChange={(e) => setNoteForm((prev) => ({ ...prev, title: e.target.value }))}
+              />
+              <select
+                className="input"
+                value={noteForm.category}
+                onChange={(e) => setNoteForm((prev) => ({ ...prev, category: e.target.value }))}
+              >
+                {NOTE_CATEGORIES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="input"
+                value={noteForm.mood}
+                onChange={(e) => setNoteForm((prev) => ({ ...prev, mood: e.target.value }))}
+              >
+                {NOTE_MOODS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="input"
+                value={noteForm.priority}
+                onChange={(e) => setNoteForm((prev) => ({ ...prev, priority: e.target.value }))}
+              >
+                {NOTE_PRIORITIES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <input
+              className="input"
+              placeholder="Tagi (np. obserwacja, świadek, monitoring)"
+              value={noteForm.tags}
+              onChange={(e) => setNoteForm((prev) => ({ ...prev, tags: e.target.value }))}
+            />
             <label className="text-sm font-semibold" htmlFor="note-text">
               Treść notatki
             </label>
@@ -914,7 +1111,15 @@ export default function DossierPage() {
                 type="button"
                 className="btn"
                 onClick={() => {
-                  setNoteForm({ text: "", files: [] });
+                  setNoteForm({
+                    title: "",
+                    category: "obserwacja",
+                    mood: "neutralny",
+                    priority: "standard",
+                    tags: "",
+                    text: "",
+                    files: [],
+                  });
                   setNoteFileKey((k) => k + 1);
                 }}
               >
@@ -1617,6 +1822,36 @@ export default function DossierPage() {
     [records]
   );
 
+  const dossierGalleryImages = useMemo(() => {
+    const images: RecordAttachment[] = [];
+    if (info.profileImageUrl) {
+      images.push({ url: info.profileImageUrl, name: "Zdjęcie profilowe" });
+    }
+    if (Array.isArray(info.gallery)) {
+      images.push(...info.gallery);
+    }
+    records.forEach((record) => {
+      const attachments: RecordAttachment[] = Array.isArray(record.attachments)
+        ? record.attachments
+        : record.imageUrl
+        ? [{ url: record.imageUrl, name: "Załącznik" }]
+        : [];
+      attachments.forEach((attachment) => {
+        if (isImageAttachment(attachment)) {
+          images.push(attachment);
+        }
+      });
+    });
+    const unique = new Map<string, RecordAttachment>();
+    images.forEach((image) => {
+      if (!image.url) return;
+      if (!unique.has(image.url)) {
+        unique.set(image.url, image);
+      }
+    });
+    return Array.from(unique.values());
+  }, [info.gallery, info.profileImageUrl, records]);
+
   const numberFormatter = useMemo(() => new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 2 }), []);
 
   const summaryStats = useMemo(() => {
@@ -1748,6 +1983,44 @@ export default function DossierPage() {
 
   const renderRecordDetails = (record: DossierRecord) => {
     switch (record.type) {
+      case "note": {
+        const categoryLabel = NOTE_CATEGORIES.find((opt) => opt.value === record.category)?.label || record.category;
+        const moodLabel = NOTE_MOODS.find((opt) => opt.value === record.mood)?.label || record.mood;
+        const priorityLabel =
+          NOTE_PRIORITIES.find((opt) => opt.value === record.priority)?.label || record.priority;
+        return (
+          <div className="grid gap-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-base">{record.title || "Notatka"}</span>
+              {record.category ? (
+                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-white/10">
+                  {categoryLabel}
+                </span>
+              ) : null}
+              {record.priority ? (
+                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-white/10">
+                  {priorityLabel}
+                </span>
+              ) : null}
+              {record.mood ? (
+                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-white/10">
+                  {moodLabel}
+                </span>
+              ) : null}
+            </div>
+            {record.tags && Array.isArray(record.tags) && record.tags.length > 0 ? (
+              <div className="flex flex-wrap gap-2 text-xs text-white/80">
+                {record.tags.map((tag: string, idx: number) => (
+                  <span key={`${record.id}-tag-${idx}`} className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {record.text ? <div className="whitespace-pre-wrap">{record.text}</div> : null}
+          </div>
+        );
+      }
       case "weapon":
         return (
           <div className="grid gap-1 text-sm">
@@ -1940,6 +2213,7 @@ export default function DossierPage() {
           >
           <div className="grid gap-4">
             {err && <div className="card p-3 bg-red-50 text-red-700">{err}</div>}
+            {notice && <div className="card p-3 bg-green-50 text-green-700">{notice}</div>}
 
             <div
               className={`card p-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between ${
@@ -2216,6 +2490,102 @@ export default function DossierPage() {
             ) : null}
 
             {!isCriminalGroup ? (
+              <div className="card p-4 grid gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="font-semibold">Dane osoby</h2>
+                  <button className="btn" onClick={savePersonDetails} disabled={detailsSaving}>
+                    {detailsSaving ? "Zapisywanie..." : "Zapisz dane"}
+                  </button>
+                </div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <input
+                    className="input"
+                    placeholder="Miejsce pracy"
+                    value={info.workplace || ""}
+                    onChange={(e) => setInfo((prev) => ({ ...prev, workplace: e.target.value }))}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Kolor skóry"
+                    value={info.skinColor || ""}
+                    onChange={(e) => setInfo((prev) => ({ ...prev, skinColor: e.target.value }))}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Narodowość"
+                    value={info.nationality || ""}
+                    onChange={(e) => setInfo((prev) => ({ ...prev, nationality: e.target.value }))}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Kolor włosów"
+                    value={info.hairColor || ""}
+                    onChange={(e) => setInfo((prev) => ({ ...prev, hairColor: e.target.value }))}
+                  />
+                </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    <h3 className="font-semibold">Zdjęcie profilowe</h3>
+                    {info.profileImageUrl ? (
+                      <img
+                        src={info.profileImageUrl}
+                        alt="Zdjęcie profilowe"
+                        className="w-full max-w-xs rounded-xl object-cover"
+                      />
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-white/20 p-6 text-sm text-white/70 text-center">
+                        Brak zdjęcia profilowego
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setProfileImageFile(e.target.files?.[0] || null)}
+                    />
+                    <button className="btn" onClick={saveProfileImage} disabled={!profileImageFile || profileImageSaving}>
+                      {profileImageSaving ? "Zapisywanie..." : "Zapisz zdjęcie"}
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    <h3 className="font-semibold">Galeria zdjęć</h3>
+                    <p className="text-sm text-beige-100/70">
+                      Dodaj nowe ujęcia, a wszystkie zdjęcia z teczki pojawią się w galerii.
+                    </p>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => setGalleryFiles(Array.from(e.target.files || []))}
+                    />
+                    <button className="btn" onClick={saveGalleryImages} disabled={!galleryFiles.length || gallerySaving}>
+                      {gallerySaving ? "Dodawanie..." : "Dodaj do galerii"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {!isCriminalGroup ? (
+              <div className="card p-4 grid gap-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="font-semibold">Galeria teczki</h2>
+                  <span className="text-xs text-white/60">{dossierGalleryImages.length} zdjęć</span>
+                </div>
+                {dossierGalleryImages.length ? (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {dossierGalleryImages.map((image, idx) => (
+                      <div key={`${image.url}-${idx}`} className="rounded-xl overflow-hidden border border-white/10">
+                        <img src={image.url} alt={image.name || "Zdjęcie"} className="w-full h-48 object-cover" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-white/70">Brak zdjęć w galerii.</p>
+                )}
+              </div>
+            ) : null}
+
+            {!isCriminalGroup ? (
               <div className="card p-4 grid gap-3">
                 <h2 className="font-semibold">Powiązane pojazdy</h2>
                 {personVehicles.length > 0 ? (
@@ -2266,7 +2636,54 @@ export default function DossierPage() {
 
             {!isCriminalGroup ? (
               <div className="card p-4 grid gap-3">
-                <h2 className="font-semibold mb-2">Dodaj notatkę</h2>
+                <h2 className="font-semibold mb-2">Notatka kreatywna</h2>
+                <div className="grid md:grid-cols-2 gap-2">
+                  <input
+                    className="input"
+                    placeholder="Tytuł notatki"
+                    value={noteForm.title}
+                    onChange={(e) => setNoteForm((prev) => ({ ...prev, title: e.target.value }))}
+                  />
+                  <select
+                    className="input"
+                    value={noteForm.category}
+                    onChange={(e) => setNoteForm((prev) => ({ ...prev, category: e.target.value }))}
+                  >
+                    {NOTE_CATEGORIES.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className="input"
+                    value={noteForm.mood}
+                    onChange={(e) => setNoteForm((prev) => ({ ...prev, mood: e.target.value }))}
+                  >
+                    {NOTE_MOODS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className="input"
+                    value={noteForm.priority}
+                    onChange={(e) => setNoteForm((prev) => ({ ...prev, priority: e.target.value }))}
+                  >
+                    {NOTE_PRIORITIES.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <input
+                  className="input"
+                  placeholder="Tagi (np. obserwacja, świadek, monitoring)"
+                  value={noteForm.tags}
+                  onChange={(e) => setNoteForm((prev) => ({ ...prev, tags: e.target.value }))}
+                />
                 <textarea
                   className="input h-28"
                   placeholder="Treść notatki..."
@@ -2288,7 +2705,15 @@ export default function DossierPage() {
                   <button
                     className="btn"
                     onClick={() => {
-                      setNoteForm({ text: "", files: [] });
+                      setNoteForm({
+                        title: "",
+                        category: "obserwacja",
+                        mood: "neutralny",
+                        priority: "standard",
+                        tags: "",
+                        text: "",
+                        files: [],
+                      });
                       setNoteFileKey((k) => k + 1);
                     }}
                   >
@@ -2391,4 +2816,3 @@ export default function DossierPage() {
     </AuthGate>
   );
 }
-
